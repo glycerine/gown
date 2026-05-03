@@ -58,7 +58,7 @@ func TestCapabilityIndexBindsAnnotatedCallSites(t *testing.T) {
 	}
 
 	var got []CallBinding
-	for _, call := range gp.caps.Calls {
+	for _, call := range gp.caps.CallBindings {
 		if call.FuncName == "Use" {
 			got = append(got, call)
 		}
@@ -105,7 +105,7 @@ func wantParamCap(t *testing.T, gp *GownPackage, funcName string, index int, wan
 	}
 
 	param := fn.Type().(*types.Signature).Params().At(index)
-	if got := gp.caps.ObjectCaps[param]; got != want {
+	if got := gp.caps.ObjectCap(param); got != want {
 		t.Fatalf("%s param object cap = %v, want %v", funcName, got, want)
 	}
 }

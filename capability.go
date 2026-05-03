@@ -10,9 +10,9 @@ import (
 )
 
 type CapabilityIndex struct {
-	ObjectCaps map[types.Object]Cap
-	Funcs      map[*types.Func]*FuncCapability
-	Calls      []CallBinding
+	ObjectCaps   map[types.Object]Cap
+	Funcs        map[*types.Func]*FuncCapability
+	CallBindings []CallBinding
 }
 
 type FuncCapability struct {
@@ -35,6 +35,23 @@ func newCapabilityIndex() *CapabilityIndex {
 		ObjectCaps: make(map[types.Object]Cap),
 		Funcs:      make(map[*types.Func]*FuncCapability),
 	}
+}
+
+func (idx *CapabilityIndex) ObjectCap(obj types.Object) Cap {
+	if idx == nil || obj == nil {
+		return CapUntracked
+	}
+	if cap, ok := idx.ObjectCaps[obj]; ok {
+		return cap
+	}
+	return CapUntracked
+}
+
+func (idx *CapabilityIndex) FuncCap(fn *types.Func) *FuncCapability {
+	if idx == nil || fn == nil {
+		return nil
+	}
+	return idx.Funcs[fn]
 }
 
 func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityIndex {
@@ -184,23 +201,26 @@ func capForType(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, ex
 }
 
 func bindCallCapabilities(pkg *packages.Package, idx *CapabilityIndex, file *ast.File) {
-	var funcName string
 	ast.Inspect(file, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.FuncDecl:
-			prev := funcName
-			funcName = x.Name.Name
-			ast.Inspect(x.Body, func(bodyNode ast.Node) bool {
-				call, ok := bodyNode.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				bindCallCapability(pkg, idx, funcName, call)
-				return true
-			})
-			funcName = prev
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok {
+			return true
+		}
+		if fn.Body == nil {
 			return false
 		}
+		bindFunctionCallCapabilities(pkg, idx, fn.Name.Name, fn.Body)
+		return false
+	})
+}
+
+func bindFunctionCallCapabilities(pkg *packages.Package, idx *CapabilityIndex, funcName string, body *ast.BlockStmt) {
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		bindCallCapability(pkg, idx, funcName, call)
 		return true
 	})
 }
@@ -210,12 +230,12 @@ func bindCallCapability(pkg *packages.Package, idx *CapabilityIndex, funcName st
 	if callee == nil {
 		return
 	}
-	sig := idx.Funcs[callee]
+	sig := idx.FuncCap(callee)
 	if sig == nil {
 		return
 	}
 	pos := pkg.Fset.Position(call.Pos())
-	idx.Calls = append(idx.Calls, CallBinding{
+	idx.CallBindings = append(idx.CallBindings, CallBinding{
 		Offset:     pos.Offset,
 		Line:       pos.Line,
 		Col:        pos.Column,
