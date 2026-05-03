@@ -59,8 +59,9 @@ Implemented:
 Still missing:
 
 - Broader SSA dataflow beyond the current `GWN001` consumed-place and named
-  borrow-liveness engine, especially loops, closure aliasing beyond simple
-  local function variables, and explicit freeze/clone/unsafe.
+  borrow-liveness engine, especially loops, closure aliasing through heap,
+  container, interface, and interprocedural flows, and explicit
+  freeze/clone/unsafe.
 - Final emit behavior that inserts nil assignments after consumed `\iso`
   moves.
 - Semantics for explicit freeze/clone/unsafe beyond token recognition and
@@ -680,8 +681,12 @@ copyable values, so a returned, stored, or untracked-call-passed closure cannot
 safely capture `\iso`, `\mub`, or `\rob`. `\iso` is included because a copied
 function value could invoke the same captured unique value more than once or
 from multiple places. The current checker rejects direct escaping function
-literals and simple local aliases such as `fn := func(){ ... }; return fn`.
-Non-escaping local closure calls remain allowed.
+literals and tracks local function-valued variables with a flow-sensitive
+closure environment. Assignment replaces the current closure value, so
+`fn := func(){ use(b) }; fn = func(){}; return fn` is allowed. Branch joins
+merge only the closure values that can reach that program point, so
+`fn := func(){ ... }; g := fn; return g` and branch-possible escaping captures
+are still rejected. Non-escaping local closure calls remain allowed.
 
 Current SSA checker coverage includes `GWN001` parity for direct sends,
 inferred freeze-sends to `chan \imm`, iso-consuming calls, deferred
@@ -725,7 +730,8 @@ mapping generated `.go` paths back to original `.gown` paths.
   calls, goroutine calls, deferred inferred borrow arguments, deferred named
   borrow arguments, deferred closure captures, and tracked calls inside
   deferred function literals. Closure escape checks now cover direct function
-  literals and simple local aliases returned, stored into escaping locations,
-  or passed to untracked calls. Explicit freeze/clone, loops under heavier
-  mutation, precise deferred closure exit ordering, richer closure aliasing,
-  and precise unsafe/synchronization boundaries still need broader treatment.
+  literals and flow-sensitive local closure aliases returned, stored into
+  escaping locations, or passed to untracked calls. Explicit freeze/clone,
+  loops under heavier mutation, precise deferred closure exit ordering,
+  interprocedural and heap/container/interface closure flow, and precise
+  unsafe/synchronization boundaries still need broader treatment.

@@ -47,88 +47,204 @@ func (checker *ssaClosureEscapeChecker) checkSourceClosures() {
 }
 
 func (checker *ssaClosureEscapeChecker) checkSourceFuncBody(body *ast.BlockStmt) {
-	aliases := checker.sourceClosureAliases(body)
-	ast.Inspect(body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.FuncLit:
-			return false
-		case *ast.ReturnStmt:
-			checker.checkSourceReturn(n, aliases)
-		case *ast.AssignStmt:
-			checker.checkSourceAssign(n, aliases)
-		case *ast.CallExpr:
-			checker.checkSourceCall(n, aliases)
-		}
-		return true
-	})
+	checker.checkSourceBlock(body, newClosureFlowEnv())
 }
 
-func (checker *ssaClosureEscapeChecker) sourceClosureAliases(body *ast.BlockStmt) map[types.Object]*ast.FuncLit {
-	aliases := make(map[types.Object]*ast.FuncLit)
-	ast.Inspect(body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.FuncLit:
-			return false
-		case *ast.ValueSpec:
-			if len(n.Names) != len(n.Values) {
-				return true
-			}
-			for i, name := range n.Names {
-				lit, ok := sourceFuncLit(n.Values[i])
-				if !ok {
-					continue
-				}
-				if obj := objectForIdent(checker.pkg, name); obj != nil {
-					aliases[obj] = lit
-				}
-			}
-		case *ast.AssignStmt:
-			if len(n.Lhs) != len(n.Rhs) {
-				return true
-			}
-			for i, lhs := range n.Lhs {
-				id, ok := lhs.(*ast.Ident)
-				if !ok {
-					continue
-				}
-				lit, ok := sourceFuncLit(n.Rhs[i])
-				if !ok {
-					continue
-				}
-				if obj := objectForIdent(checker.pkg, id); obj != nil {
-					aliases[obj] = lit
-				}
-			}
+func appendSourceClosureAlias(lits []*ast.FuncLit, next *ast.FuncLit) []*ast.FuncLit {
+	if next == nil {
+		return lits
+	}
+	for _, lit := range lits {
+		if lit == next {
+			return lits
 		}
-		return true
-	})
-	return aliases
+	}
+	return append(lits, next)
 }
 
-func (checker *ssaClosureEscapeChecker) checkSourceReturn(ret *ast.ReturnStmt, aliases map[types.Object]*ast.FuncLit) {
-	for _, result := range ret.Results {
-		lit, ok := checker.sourceClosureForExpr(result, aliases)
+type closureFlowEnv map[types.Object][]*ast.FuncLit
+
+func newClosureFlowEnv() closureFlowEnv {
+	return make(closureFlowEnv)
+}
+
+func cloneClosureFlowEnv(env closureFlowEnv) closureFlowEnv {
+	clone := newClosureFlowEnv()
+	for obj, lits := range env {
+		clone[obj] = append([]*ast.FuncLit(nil), lits...)
+	}
+	return clone
+}
+
+func mergeClosureFlowEnv(left, right closureFlowEnv) closureFlowEnv {
+	merged := cloneClosureFlowEnv(left)
+	for obj, lits := range right {
+		for _, lit := range lits {
+			merged[obj] = appendSourceClosureAlias(merged[obj], lit)
+		}
+	}
+	return merged
+}
+
+func setClosureFlowValue(env closureFlowEnv, obj types.Object, lits []*ast.FuncLit) {
+	if obj == nil {
+		return
+	}
+	if len(lits) == 0 {
+		delete(env, obj)
+		return
+	}
+	env[obj] = append([]*ast.FuncLit(nil), lits...)
+}
+
+func (checker *ssaClosureEscapeChecker) checkSourceBlock(block *ast.BlockStmt, env closureFlowEnv) closureFlowEnv {
+	if block == nil {
+		return env
+	}
+	for _, stmt := range block.List {
+		env = checker.checkSourceStmt(stmt, env)
+	}
+	return env
+}
+
+func (checker *ssaClosureEscapeChecker) checkSourceStmt(stmt ast.Stmt, env closureFlowEnv) closureFlowEnv {
+	switch stmt := stmt.(type) {
+	case *ast.AssignStmt:
+		checker.checkSourceAssign(stmt, env)
+	case *ast.BlockStmt:
+		return checker.checkSourceBlock(stmt, env)
+	case *ast.DeclStmt:
+		checker.checkSourceDecl(stmt.Decl, env)
+	case *ast.ExprStmt:
+		checker.checkSourceExpr(stmt.X, env)
+	case *ast.ForStmt:
+		checker.checkSourceStmt(stmt.Init, env)
+		checker.checkSourceExpr(stmt.Cond, env)
+		bodyOut := checker.checkSourceBlock(stmt.Body, cloneClosureFlowEnv(env))
+		env = mergeClosureFlowEnv(env, bodyOut)
+		checker.checkSourceStmt(stmt.Post, env)
+	case *ast.IfStmt:
+		checker.checkSourceStmt(stmt.Init, env)
+		checker.checkSourceExpr(stmt.Cond, env)
+		thenEnv := checker.checkSourceBlock(stmt.Body, cloneClosureFlowEnv(env))
+		elseEnv := cloneClosureFlowEnv(env)
+		if stmt.Else != nil {
+			elseEnv = checker.checkSourceStmt(stmt.Else, elseEnv)
+		}
+		env = mergeClosureFlowEnv(thenEnv, elseEnv)
+	case *ast.ReturnStmt:
+		checker.checkSourceReturn(stmt, env)
+	case *ast.SendStmt:
+		checker.checkSourceExpr(stmt.Chan, env)
+		checker.checkSourceExpr(stmt.Value, env)
+	case *ast.SwitchStmt:
+		checker.checkSourceStmt(stmt.Init, env)
+		checker.checkSourceExpr(stmt.Tag, env)
+		env = checker.checkSourceCaseBlock(stmt.Body, env)
+	case *ast.TypeSwitchStmt:
+		checker.checkSourceStmt(stmt.Init, env)
+		checker.checkSourceStmt(stmt.Assign, env)
+		env = checker.checkSourceCaseBlock(stmt.Body, env)
+	case *ast.RangeStmt:
+		checker.checkSourceExpr(stmt.X, env)
+		bodyOut := checker.checkSourceBlock(stmt.Body, cloneClosureFlowEnv(env))
+		env = mergeClosureFlowEnv(env, bodyOut)
+	}
+	return env
+}
+
+func (checker *ssaClosureEscapeChecker) checkSourceCaseBlock(body *ast.BlockStmt, env closureFlowEnv) closureFlowEnv {
+	if body == nil {
+		return env
+	}
+	merged := cloneClosureFlowEnv(env)
+	for _, stmt := range body.List {
+		clause, ok := stmt.(*ast.CaseClause)
 		if !ok {
 			continue
 		}
-		checker.reportSourceBorrowCaptures(lit, result, GWN007, "cannot return closure capturing %s borrow %q")
+		caseEnv := cloneClosureFlowEnv(env)
+		for _, expr := range clause.List {
+			checker.checkSourceExpr(expr, caseEnv)
+		}
+		for _, bodyStmt := range clause.Body {
+			caseEnv = checker.checkSourceStmt(bodyStmt, caseEnv)
+		}
+		merged = mergeClosureFlowEnv(merged, caseEnv)
+	}
+	return merged
+}
+
+func (checker *ssaClosureEscapeChecker) checkSourceDecl(decl ast.Decl, env closureFlowEnv) {
+	gen, ok := decl.(*ast.GenDecl)
+	if !ok {
+		return
+	}
+	for _, spec := range gen.Specs {
+		valueSpec, ok := spec.(*ast.ValueSpec)
+		if !ok || len(valueSpec.Names) != len(valueSpec.Values) {
+			continue
+		}
+		for i, name := range valueSpec.Names {
+			obj := objectForIdent(checker.pkg, name)
+			setClosureFlowValue(env, obj, checker.sourceClosuresForExpr(valueSpec.Values[i], env))
+		}
 	}
 }
 
-func (checker *ssaClosureEscapeChecker) checkSourceAssign(stmt *ast.AssignStmt, aliases map[types.Object]*ast.FuncLit) {
+func (checker *ssaClosureEscapeChecker) checkSourceExpr(expr ast.Expr, env closureFlowEnv) {
+	if expr == nil {
+		return
+	}
+	ast.Inspect(expr, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case nil:
+			return true
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			checker.checkSourceCall(n, env)
+		}
+		return true
+	})
+}
+
+func (checker *ssaClosureEscapeChecker) checkSourceReturn(ret *ast.ReturnStmt, env closureFlowEnv) {
+	for _, result := range ret.Results {
+		for _, lit := range checker.sourceClosuresForExpr(result, env) {
+			checker.reportSourceBorrowCaptures(lit, result, GWN007, "cannot return closure capturing %s borrow %q")
+		}
+	}
+}
+
+func (checker *ssaClosureEscapeChecker) checkSourceAssign(stmt *ast.AssignStmt, env closureFlowEnv) {
 	if len(stmt.Lhs) != len(stmt.Rhs) {
 		return
 	}
+	rhsClosures := make([][]*ast.FuncLit, len(stmt.Rhs))
 	for i, rhs := range stmt.Rhs {
-		lit, ok := checker.sourceClosureForExpr(rhs, aliases)
-		if !ok || !storeTargetEscapes(checker.pkg, stmt.Lhs[i]) {
+		checker.checkSourceExpr(rhs, env)
+		rhsClosures[i] = checker.sourceClosuresForExpr(rhs, env)
+	}
+	for i, rhs := range stmt.Rhs {
+		if !storeTargetEscapes(checker.pkg, stmt.Lhs[i]) {
 			continue
 		}
-		checker.reportSourceBorrowCaptures(lit, rhs, GWN006, "cannot store closure capturing %s borrow %q into escaping location")
+		for _, lit := range rhsClosures[i] {
+			checker.reportSourceBorrowCaptures(lit, rhs, GWN006, "cannot store closure capturing %s borrow %q into escaping location")
+		}
+	}
+	for i, lhs := range stmt.Lhs {
+		id, ok := lhs.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		obj := objectForIdent(checker.pkg, id)
+		setClosureFlowValue(env, obj, rhsClosures[i])
 	}
 }
 
-func (checker *ssaClosureEscapeChecker) checkSourceCall(call *ast.CallExpr, aliases map[types.Object]*ast.FuncLit) {
+func (checker *ssaClosureEscapeChecker) checkSourceCall(call *ast.CallExpr, env closureFlowEnv) {
 	if _, ok := checker.caps.CallBinding(call); ok {
 		return
 	}
@@ -136,28 +252,25 @@ func (checker *ssaClosureEscapeChecker) checkSourceCall(call *ast.CallExpr, alia
 		return
 	}
 	for _, arg := range call.Args {
-		lit, ok := checker.sourceClosureForExpr(arg, aliases)
-		if !ok {
-			continue
+		for _, lit := range checker.sourceClosuresForExpr(arg, env) {
+			checker.reportSourceBorrowCaptures(lit, arg, GWN008, "cannot pass closure capturing %s borrow %q to untracked function")
 		}
-		checker.reportSourceBorrowCaptures(lit, arg, GWN008, "cannot pass closure capturing %s borrow %q to untracked function")
 	}
 }
 
-func (checker *ssaClosureEscapeChecker) sourceClosureForExpr(expr ast.Expr, aliases map[types.Object]*ast.FuncLit) (*ast.FuncLit, bool) {
+func (checker *ssaClosureEscapeChecker) sourceClosuresForExpr(expr ast.Expr, env closureFlowEnv) []*ast.FuncLit {
 	if lit, ok := sourceFuncLit(expr); ok {
-		return lit, true
+		return []*ast.FuncLit{lit}
 	}
 	id, ok := expr.(*ast.Ident)
-	if !ok || aliases == nil {
-		return nil, false
+	if !ok || env == nil {
+		return nil
 	}
 	obj := objectForIdent(checker.pkg, id)
 	if obj == nil {
-		return nil, false
+		return nil
 	}
-	lit, ok := aliases[obj]
-	return lit, ok
+	return env[obj]
 }
 
 func (checker *ssaClosureEscapeChecker) checkFunction(fn *ssa.Function) {

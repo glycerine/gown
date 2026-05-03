@@ -187,6 +187,137 @@ func Save(a \iso *payload) {
 }
 `
 
+const gownReturnedCopiedClosureCapturesMutableBorrowSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Make(a \iso *payload) func() {
+	var b \mub *payload = a
+	fn := func() {
+		println(b)
+	}
+	g := fn
+	return g
+}
+`
+
+const gownReturnedBranchClosureCapturesMutableBorrowSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Make(cond bool, a \iso *payload) func() {
+	var b \mub *payload = a
+	var fn func()
+	if cond {
+		fn = func() {
+			println(b)
+		}
+	} else {
+		fn = func() {}
+	}
+	return fn
+}
+`
+
+const gownStoredCopiedClosureCapturesMutableBorrowSource = `package example
+
+type payload struct {
+	Data string
+}
+
+type holder struct {
+	Fn func()
+}
+
+func Save(a \iso *payload) {
+	var h holder
+	var b \mub *payload = a
+	fn := func() {
+		println(b)
+	}
+	g := fn
+	h.Fn = g
+}
+`
+
+const gownCopiedClosureCapturingMutableBorrowPassedToUntrackedCallSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Accept(fn func()) {}
+
+func Save(a \iso *payload) {
+	var b \mub *payload = a
+	fn := func() {
+		println(b)
+	}
+	g := fn
+	Accept(g)
+}
+`
+
+const gownOverwrittenClosureCapturingMutableBorrowReturnedSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Make(a \iso *payload) func() {
+	var b \mub *payload = a
+	fn := func() {
+		println(b)
+	}
+	fn = func() {}
+	return fn
+}
+`
+
+const gownOverwrittenClosureCapturingMutableBorrowStoredSource = `package example
+
+type payload struct {
+	Data string
+}
+
+var saved func()
+
+func Save(a \iso *payload) {
+	var b \mub *payload = a
+	fn := func() {
+		println(b)
+	}
+	fn = func() {}
+	saved = fn
+}
+`
+
+const gownBranchClosureOverwrittenBeforeReturnSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Make(cond bool, a \iso *payload) func() {
+	var b \mub *payload = a
+	var fn func()
+	if cond {
+		fn = func() {
+			println(b)
+		}
+		fn()
+	} else {
+		fn = func() {}
+	}
+	fn = func() {}
+	return fn
+}
+`
+
 func TestSSAGWN007RejectsReturnedClosureCapturingMutableBorrow(t *testing.T) {
 	gp := loadGownForSSACheck(t, "return_closure_mub.gown", gownReturnedClosureCapturesMutableBorrowSource)
 
@@ -323,4 +454,100 @@ func TestSSAGWN008RejectsLocalClosureCapturingBorrowPassedToUntrackedCall(t *tes
 func TestGWN008RejectsLocalClosureCapturingBorrowPassedToUntrackedCall(t *testing.T) {
 	err := checkGownSource(t, "call_local_closure_mub.gown", gownLocalClosureCapturingMutableBorrowPassedToUntrackedCallSource)
 	requireCheckerCode(t, err, GWN008)
+}
+
+func TestSSAGWN007RejectsReturnedCopiedClosureCapturingMutableBorrow(t *testing.T) {
+	gp := loadGownForSSACheck(t, "return_copied_closure_mub.gown", gownReturnedCopiedClosureCapturesMutableBorrowSource)
+
+	errs := checkClosureEscapesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN007)
+}
+
+func TestGWN007RejectsReturnedCopiedClosureCapturingMutableBorrow(t *testing.T) {
+	err := checkGownSource(t, "return_copied_closure_mub.gown", gownReturnedCopiedClosureCapturesMutableBorrowSource)
+	requireCheckerCode(t, err, GWN007)
+}
+
+func TestSSAGWN007RejectsReturnedBranchClosureCapturingMutableBorrow(t *testing.T) {
+	gp := loadGownForSSACheck(t, "return_branch_closure_mub.gown", gownReturnedBranchClosureCapturesMutableBorrowSource)
+
+	errs := checkClosureEscapesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN007)
+}
+
+func TestGWN007RejectsReturnedBranchClosureCapturingMutableBorrow(t *testing.T) {
+	err := checkGownSource(t, "return_branch_closure_mub.gown", gownReturnedBranchClosureCapturesMutableBorrowSource)
+	requireCheckerCode(t, err, GWN007)
+}
+
+func TestSSAGWN006RejectsStoredCopiedClosureCapturingMutableBorrow(t *testing.T) {
+	gp := loadGownForSSACheck(t, "store_copied_closure_mub.gown", gownStoredCopiedClosureCapturesMutableBorrowSource)
+
+	errs := checkClosureEscapesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN006)
+}
+
+func TestGWN006RejectsStoredCopiedClosureCapturingMutableBorrow(t *testing.T) {
+	err := checkGownSource(t, "store_copied_closure_mub.gown", gownStoredCopiedClosureCapturesMutableBorrowSource)
+	requireCheckerCode(t, err, GWN006)
+}
+
+func TestSSAGWN008RejectsCopiedClosureCapturingBorrowPassedToUntrackedCall(t *testing.T) {
+	gp := loadGownForSSACheck(t, "call_copied_closure_mub.gown", gownCopiedClosureCapturingMutableBorrowPassedToUntrackedCallSource)
+
+	errs := checkClosureEscapesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
+}
+
+func TestGWN008RejectsCopiedClosureCapturingBorrowPassedToUntrackedCall(t *testing.T) {
+	err := checkGownSource(t, "call_copied_closure_mub.gown", gownCopiedClosureCapturingMutableBorrowPassedToUntrackedCallSource)
+	requireCheckerCode(t, err, GWN008)
+}
+
+func TestSSAGWN007AllowsOverwrittenClosureCapturingMutableBorrowReturn(t *testing.T) {
+	gp := loadGownForSSACheck(t, "return_overwritten_closure_mub.gown", gownOverwrittenClosureCapturingMutableBorrowReturnedSource)
+
+	errs := checkClosureEscapesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA closure escape checker unexpectedly rejected overwritten closure return: %#v", errs)
+	}
+}
+
+func TestGWN007AllowsOverwrittenClosureCapturingMutableBorrowReturn(t *testing.T) {
+	err := checkGownSource(t, "return_overwritten_closure_mub.gown", gownOverwrittenClosureCapturingMutableBorrowReturnedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSAGWN006AllowsOverwrittenClosureCapturingMutableBorrowStore(t *testing.T) {
+	gp := loadGownForSSACheck(t, "store_overwritten_closure_mub.gown", gownOverwrittenClosureCapturingMutableBorrowStoredSource)
+
+	errs := checkClosureEscapesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA closure escape checker unexpectedly rejected overwritten closure store: %#v", errs)
+	}
+}
+
+func TestGWN006AllowsOverwrittenClosureCapturingMutableBorrowStore(t *testing.T) {
+	err := checkGownSource(t, "store_overwritten_closure_mub.gown", gownOverwrittenClosureCapturingMutableBorrowStoredSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSAGWN007AllowsBranchClosureOverwrittenBeforeReturn(t *testing.T) {
+	gp := loadGownForSSACheck(t, "return_branch_overwritten_closure_mub.gown", gownBranchClosureOverwrittenBeforeReturnSource)
+
+	errs := checkClosureEscapesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA closure escape checker unexpectedly rejected branch overwritten closure return: %#v", errs)
+	}
+}
+
+func TestGWN007AllowsBranchClosureOverwrittenBeforeReturn(t *testing.T) {
+	err := checkGownSource(t, "return_branch_overwritten_closure_mub.gown", gownBranchClosureOverwrittenBeforeReturnSource)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
