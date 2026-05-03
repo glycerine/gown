@@ -188,6 +188,9 @@ func bindAssignStmtCapabilities(pkg *packages.Package, idx *CapabilityIndex, qua
 		if obj == nil {
 			continue
 		}
+		if stmt.Tok == token.ASSIGN && capTracked(idx.ObjectCap(obj)) {
+			continue
+		}
 		cap, chanElemCap := capsForValueExpr(pkg, quals, stmt.Rhs[i])
 		if cap == CapInvalid {
 			cap = isoMoveCapForValueExpr(pkg, idx, stmt.Rhs[i])

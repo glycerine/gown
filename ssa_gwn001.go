@@ -16,11 +16,14 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 	}
 	places := buildSSAPlaceIndex(pkg, ssaPkg, caps)
 	checker := &ssaGWN001Checker{
-		pkg:      pkg,
-		caps:     caps,
-		places:   places,
-		assigns:  collectSSAAssignmentMoves(pkg, caps),
-		reported: make(map[string]bool),
+		pkg:          pkg,
+		caps:         caps,
+		places:       places,
+		assigns:      collectSSAAssignmentMoves(pkg, caps),
+		namedBorrows: collectSSANamedBorrows(pkg, caps),
+		sendBindings: sendBindingsByPosition(caps),
+		callBindings: callBindingsByPosition(caps),
+		reported:     make(map[string]bool),
 	}
 	for _, fn := range collectSSAFunctions(ssaPkg) {
 		checker.checkFunction(fn)
@@ -29,12 +32,17 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 }
 
 type ssaGWN001Checker struct {
-	pkg      *packages.Package
-	caps     *CapabilityIndex
-	places   *SSAPlaceIndex
-	assigns  map[ast.Expr]ssaAssignmentMove
-	errs     CheckerErrors
-	reported map[string]bool
+	pkg                 *packages.Package
+	caps                *CapabilityIndex
+	places              *SSAPlaceIndex
+	assigns             map[ast.Expr]ssaAssignmentMove
+	namedBorrows        map[*types.Func]SSANamedBorrowInfo
+	sendBindings        map[sourcePosKey]SendBinding
+	callBindings        map[sourcePosKey]CallBinding
+	activeNamedBorrows  SSANamedBorrowInfo
+	namedBorrowLiveness *SSANamedBorrowLiveness
+	errs                CheckerErrors
+	reported            map[string]bool
 }
 
 type ssaAssignmentMove struct {
@@ -46,6 +54,8 @@ func (checker *ssaGWN001Checker) checkFunction(fn *ssa.Function) {
 	if fn == nil || len(fn.Blocks) == 0 {
 		return
 	}
+	checker.beginFunction(fn)
+	defer checker.endFunction()
 
 	in := make(map[*ssa.BasicBlock]SSAFunctionState)
 	queued := make(map[*ssa.BasicBlock]bool)
@@ -76,6 +86,27 @@ func (checker *ssaGWN001Checker) checkFunction(fn *ssa.Function) {
 			}
 		}
 	}
+}
+
+func (checker *ssaGWN001Checker) beginFunction(fn *ssa.Function) {
+	checker.activeNamedBorrows = checker.namedBorrowInfoForFunction(fn)
+	checker.namedBorrowLiveness = buildSSANamedBorrowLiveness(fn, checker.caps, checker.activeNamedBorrows)
+}
+
+func (checker *ssaGWN001Checker) endFunction() {
+	checker.activeNamedBorrows = SSANamedBorrowInfo{}
+	checker.namedBorrowLiveness = nil
+}
+
+func (checker *ssaGWN001Checker) namedBorrowInfoForFunction(fn *ssa.Function) SSANamedBorrowInfo {
+	if fn == nil {
+		return SSANamedBorrowInfo{}
+	}
+	fnObj, _ := fn.Object().(*types.Func)
+	if fnObj == nil {
+		return SSANamedBorrowInfo{}
+	}
+	return checker.namedBorrows[fnObj]
 }
 
 func (checker *ssaGWN001Checker) mergeSuccessorState(existing, incoming SSAFunctionState, block *ssa.BasicBlock) (SSAFunctionState, bool) {
@@ -148,6 +179,13 @@ func (checker *ssaGWN001Checker) applyAssignmentMove(instr *ssa.DebugRef, state 
 }
 
 func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFunctionState) {
+	if binding, ok := ssaSendBinding(checker.pkg, checker.sendBindings, instr); ok {
+		if !binding.IsIsoMove() {
+			return
+		}
+		checker.consumeRootAtInstruction(state, binding.Value, instr, "send")
+		return
+	}
 	chPlace, ok := checker.places.PlaceForValue(instr.Chan)
 	if !ok || chPlace.Root == nil || checker.caps.ChanElemCap(chPlace.Root) != CapIso {
 		return
@@ -160,11 +198,32 @@ func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFu
 }
 
 func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFunctionState) {
+	if binding, ok := ssaCallBinding(checker.pkg, checker.callBindings, instr); ok {
+		checker.applyBoundCallTransfer(binding, state, instr, "call")
+		return
+	}
 	checker.applyCallCommonTransfer(&instr.Call, state, instr, "call")
 }
 
+func (checker *ssaGWN001Checker) applyBoundCallTransfer(binding CallBinding, state *SSAFunctionState, instr ssa.Instruction, kind string) {
+	for i, paramCap := range binding.ParamCaps {
+		if paramCap != CapIso || i >= len(binding.ArgPlaces) {
+			continue
+		}
+		argPlace := binding.ArgPlaces[i]
+		if argPlace.Root == nil || checker.capForPlace(argPlace) != CapIso {
+			continue
+		}
+		checker.consumeRootAtInstruction(state, argPlace, instr, kind)
+	}
+}
+
 func (checker *ssaGWN001Checker) applyGoTransfer(instr *ssa.Go, state *SSAFunctionState) {
-	checker.applyCallCommonTransfer(&instr.Call, state, instr, "go")
+	if binding, ok := ssaGoCallBinding(checker.pkg, checker.callBindings, instr); ok {
+		checker.applyBoundCallTransfer(binding, state, instr, "go")
+	} else {
+		checker.applyCallCommonTransfer(&instr.Call, state, instr, "go")
+	}
 	checker.applyGoClosureCaptureTransfer(instr, state)
 }
 
@@ -206,16 +265,44 @@ func (checker *ssaGWN001Checker) applyGoClosureCaptureTransfer(instr *ssa.Go, st
 
 func (checker *ssaGWN001Checker) consumeRootAtInstruction(state *SSAFunctionState, place Place, instr ssa.Instruction, kind string) {
 	pos := checker.pkg.Fset.Position(instr.Pos())
-	violation, ok := state.ConsumeRoot(place.Key(), SSAMoveSite{
+	key := place.Key()
+	site := SSAMoveSite{
 		Name: place.Root.Name(),
 		Kind: kind,
 		Line: sourceLine(pos),
 		Col:  sourceColumn(pos),
-	})
+	}
+	if key.Path != "" {
+		violation, ok := state.ConsumeRoot(key, site)
+		if ok {
+			checker.reportViolation(pos, violation)
+		}
+		return
+	}
+	if violation, ok := checker.namedBorrowMoveViolation(key, instr); ok {
+		checker.reportViolation(pos, violation)
+		return
+	}
+	violation, ok := state.ConsumeRoot(key, site)
 	if !ok {
 		return
 	}
 	checker.reportViolation(pos, violation)
+}
+
+func (checker *ssaGWN001Checker) namedBorrowMoveViolation(moved PlaceKey, instr ssa.Instruction) (SSAStateViolation, bool) {
+	for obj := range checker.namedBorrowLiveness.LiveAfterInstruction(instr) {
+		borrow, ok := checker.activeNamedBorrows.Borrows[obj]
+		if !ok || !borrow.Source.Key().Overlaps(moved) {
+			continue
+		}
+		return SSAStateViolation{
+			Code:    GWN002,
+			Place:   moved,
+			Message: "cannot move root while named borrow is live",
+		}, true
+	}
+	return SSAStateViolation{}, false
 }
 
 func (checker *ssaGWN001Checker) capForPlace(place Place) Cap {

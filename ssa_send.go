@@ -13,10 +13,11 @@ func checkSendCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *
 		return nil
 	}
 	checker := &ssaSendChecker{
-		pkg:      pkg,
-		caps:     caps,
-		places:   buildSSAPlaceIndex(pkg, ssaPkg, caps),
-		reported: make(map[string]bool),
+		pkg:          pkg,
+		caps:         caps,
+		places:       buildSSAPlaceIndex(pkg, ssaPkg, caps),
+		sendBindings: sendBindingsByPosition(caps),
+		reported:     make(map[string]bool),
 	}
 	for _, fn := range collectSSAFunctions(ssaPkg) {
 		checker.checkFunction(fn)
@@ -25,11 +26,12 @@ func checkSendCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *
 }
 
 type ssaSendChecker struct {
-	pkg      *packages.Package
-	caps     *CapabilityIndex
-	places   *SSAPlaceIndex
-	errs     CheckerErrors
-	reported map[string]bool
+	pkg          *packages.Package
+	caps         *CapabilityIndex
+	places       *SSAPlaceIndex
+	sendBindings map[sourcePosKey]SendBinding
+	errs         CheckerErrors
+	reported     map[string]bool
 }
 
 func (checker *ssaSendChecker) checkFunction(fn *ssa.Function) {
@@ -48,6 +50,10 @@ func (checker *ssaSendChecker) checkFunction(fn *ssa.Function) {
 }
 
 func (checker *ssaSendChecker) checkSend(send *ssa.Send) {
+	if binding, ok := ssaSendBinding(checker.pkg, checker.sendBindings, send); ok {
+		checker.checkBoundSend(binding, send)
+		return
+	}
 	chPlace, ok := checker.places.PlaceForValue(send.Chan)
 	if !ok || chPlace.Root == nil {
 		return
@@ -75,6 +81,33 @@ func (checker *ssaSendChecker) checkSend(send *ssa.Send) {
 			GWN003,
 			checker.nonSendablePosition(valuePlace, pos),
 			fmt.Sprintf("cannot send non-sendable %s value %q", valueCap, name),
+		))
+	}
+}
+
+func (checker *ssaSendChecker) checkBoundSend(binding SendBinding, send *ssa.Send) {
+	pos := checker.pkg.Fset.Position(send.Pos())
+	if capTracked(binding.ChanElemCap) && binding.ValueCap != binding.ChanElemCap {
+		name := "<unknown>"
+		if binding.Value.Root != nil {
+			name = binding.Value.Root.Name()
+		}
+		checker.reportCheckerError(newCheckerErrorAtPosition(
+			GWN010,
+			pos,
+			fmt.Sprintf("cannot send %s value %q on %s channel", binding.ValueCap, name, binding.ChanElemCap),
+		))
+		return
+	}
+	if !capSendable(binding.ValueCap) {
+		name := "<unknown>"
+		if binding.Value.Root != nil {
+			name = binding.Value.Root.Name()
+		}
+		checker.reportCheckerError(newCheckerErrorAtPosition(
+			GWN003,
+			checker.nonSendablePosition(binding.Value, pos),
+			fmt.Sprintf("cannot send non-sendable %s value %q", binding.ValueCap, name),
 		))
 	}
 }

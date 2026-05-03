@@ -573,8 +573,9 @@ Spike progress:
   projections (`x.f`) instead of inserting hidden nil assignments or silently
   consuming sibling state.
 - SSA parity passes now cover `GWN001` through `GWN010` plus `GWN011`, with
-  `GWN001` implemented as CFG dataflow and the remaining completed checks as
-  SSA instruction scans over side-table places.
+  `GWN001` implemented as CFG dataflow. `GWN001` now also uses backward SSA
+  liveness for named `\mub`/`\rob` borrows and rejects root transfers while a
+  derived named borrow is live.
 - `GownPackage.Check` now routes the main checker runner through the SSA passes
   when SSA is available, while keeping AST/place checkers as fallbacks.
 - Integration tests cover precision improvements that the root-only AST passes
@@ -611,9 +612,11 @@ with `GWN011`.
 The spike answered the first high-risk question: SSA has the right instruction
 shapes, field-sensitive places can be represented, the state machine can run
 over real SSA CFGs, and `GWN001` can preserve original `.gown` diagnostics
-while using SSA ordering and CFG merges. The next risk is generalizing that
-liveness machinery from consumed roots to named borrows, freeze/clone
-semantics, defers, loops, and unknown synchronization/unsafe boundaries.
+while using SSA ordering and CFG merges. The next lifetime slice extended that
+machinery to named `\mub` and `\rob` borrows created through annotated local
+variables. The remaining risk is generalizing it further to freeze/clone
+semantics, defers, loops, closures, and unknown synchronization/unsafe
+boundaries.
 
 A further SSA parity finding is that assignment moves are source-level events
 that optimized SSA can erase. A move such as `b := a` may not survive as a
@@ -630,14 +633,24 @@ for source-place uses after assignment. The same SSA value may represent both
 `DebugRef` expressions and the AST `PlaceIndex`; SSA values should carry places
 for transfer reasoning, not override source identity in diagnostics.
 
+Named borrow liveness produced a stronger version of that lesson. After
+`var b \mub *T = a`, SSA may reuse one value for both `a` and `b`; transfer
+checks cannot rely on the raw call/send operand to identify the source owner.
+For sends, calls, and goroutine calls, Gown now prefers source side-table
+bindings to recover the original argument or send expression, then asks the
+SSA liveness set whether any named borrow derived from that place is live after
+the transfer instruction. This is the durable rule: source bindings identify
+what the user wrote; SSA tells us where it is live.
+
 Current SSA checker coverage includes `GWN001` parity for direct sends,
 iso-consuming calls, assignment moves, branch merges, goroutine calls, closure
-captures, and projected field-move rejection. It also includes `GWN002` through
-`GWN010` parity for inferred call-borrow conflicts, send capability checks,
-goroutine borrow escapes, read-only writes, borrow stores, returned borrows,
-untracked call boundaries, and interface erasure. These SSA checks are now
-wired into the main checker pipeline, with AST/place implementations retained
-as fallbacks and comparison references.
+captures, named borrow liveness, branch-sensitive named borrow liveness, and
+projected field-move rejection. It also includes `GWN002` through `GWN010`
+parity for inferred call-borrow conflicts, send capability checks, goroutine
+borrow escapes, read-only writes, borrow stores, returned borrows, untracked
+call boundaries, and interface erasure. These SSA checks are now wired into the
+main checker pipeline, with AST/place implementations retained as fallbacks and
+comparison references.
 
 Wiring the SSA runner into the main pipeline exposed one diagnostic lesson:
 operation positions and annotation positions are both valuable, but not
@@ -662,6 +675,8 @@ mapping generated `.go` paths back to original `.gown` paths.
   survives through key SSA forms. The long-term design should remain explicitly
   hybrid.
 - The existing SSA checker passes provide useful safety coverage, but only
-  `GWN001` currently performs full CFG dataflow. Named borrows, loops,
-  branches, defers, closures, and precise liveness still need broader dataflow
+  `GWN001` currently performs full CFG dataflow. Named borrow liveness now
+  covers straight-line code and branches for sends, calls, and goroutine calls.
+  Defers, closure-contained named borrows, freeze/clone, loops under heavier
+  mutation, and precise unsafe/synchronization boundaries still need broader
   treatment.
