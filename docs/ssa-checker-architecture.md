@@ -539,6 +539,21 @@ Spike exit criteria:
 - The team has enough evidence to choose the next vertical slice without
   redesigning the side-table model.
 
+Spike progress:
+
+- SSA inventory tests now confirm that the package exposes the instruction
+  categories needed by the checker: calls, sends, goroutines, closure creation,
+  field addresses, loads, stores, dynamic indexes, map lookups, interface
+  boxing, and branch phis.
+- SSA is built with `ssa.GlobalDebug` so `ssa.Function.ValueForExpr` can seed
+  SSA values from AST/source places.
+- A prototype `SSAPlaceIndex` can propagate `Place` facts through `FieldAddr`,
+  `UnOp`, and `Store`, preserving field-sensitive paths such as `h.Inner.Item`.
+- The same prototype collapses dynamic or erased operations, including
+  `IndexAddr`, `Lookup`, and `MakeInterface`, back to the root place.
+- This supports the hybrid design: AST/types remain the source of truth for
+  source places, while SSA can provide ordering, liveness, and CFG joins.
+
 ## Open Implementation Notes
 
 - The `-check` CLI flag currently exists but is not wired through to avoid
