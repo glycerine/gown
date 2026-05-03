@@ -232,3 +232,58 @@ func TestCreationPtrKeyMaps(t *testing.T) {
 		t.Errorf("create[1]: typeName = %q, want %q", gf.create[1].typeName, "node")
 	}
 }
+
+const gownNamedTypeSource = `package main
+
+type pointy *int
+
+type trickySlice []*int
+
+func main() {
+	a := make(map[pointy]int)
+	b := make(trickySlice, 10)
+	c := make(map[string]any)
+	d := make([]int, 5)
+	_ = a
+	_ = b
+	_ = c
+	_ = d
+}
+`
+
+func TestCreationNamedTypes(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"named.gown": gownNamedTypeSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+	gf := gp.files[0]
+
+	// make(map[pointy]int): pointy is *int → pointer key → tracked
+	// make(trickySlice, 10): trickySlice is []*int → pointer element → tracked
+	// make(map[string]any): any is interface → tracked
+	// make([]int, 5): no pointers → skipped
+	if len(gf.create) != 3 {
+		for i, c := range gf.create {
+			t.Logf("create[%d]: kind=%s type=%s line=%d", i, c.kind, c.typeName, c.line)
+		}
+		t.Fatalf("expected 3 creations, got %d", len(gf.create))
+	}
+
+	want := []struct {
+		kind, typeName string
+	}{
+		{"make", "pointy"},
+		{"make", "trickySlice"},
+		{"make", "any"},
+	}
+	for i, w := range want {
+		if gf.create[i].kind != w.kind {
+			t.Errorf("create[%d]: kind = %q, want %q", i, gf.create[i].kind, w.kind)
+		}
+		if gf.create[i].typeName != w.typeName {
+			t.Errorf("create[%d]: typeName = %q, want %q", i, gf.create[i].typeName, w.typeName)
+		}
+	}
+}
