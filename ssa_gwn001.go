@@ -178,21 +178,29 @@ func (checker *ssaGWN001Checker) applyAssignmentMove(instr *ssa.DebugRef, state 
 
 func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFunctionState) {
 	if binding, ok := checker.bindings.Send(checker.pkg, instr); ok {
-		if !binding.IsIsoMove() {
+		if !binding.IsIsoConsumingTransfer() {
 			return
 		}
-		checker.consumeRootAtInstruction(state, binding.Value, instr, "send")
+		checker.consumeRootAtInstruction(state, binding.Value, instr, binding.TransferKind())
 		return
 	}
 	chPlace, ok := checker.places.PlaceForValue(instr.Chan)
-	if !ok || chPlace.Root == nil || checker.caps.ChanElemCap(chPlace.Root) != CapIso {
+	if !ok || chPlace.Root == nil {
 		return
 	}
 	valuePlace, ok := checker.places.PlaceForValue(instr.X)
 	if !ok || valuePlace.Root == nil || checker.capForPlace(valuePlace) != CapIso {
 		return
 	}
-	checker.consumeRootAtInstruction(state, valuePlace, instr, "send")
+	chCap := checker.caps.ChanElemCap(chPlace.Root)
+	if chCap != CapIso && chCap != CapImm {
+		return
+	}
+	kind := "send"
+	if chCap == CapImm {
+		kind = "freeze send"
+	}
+	checker.consumeRootAtInstruction(state, valuePlace, instr, kind)
 }
 
 func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFunctionState) {

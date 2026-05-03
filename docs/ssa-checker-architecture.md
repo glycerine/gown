@@ -3,9 +3,9 @@
 This document describes the checker architecture for Gown's lifetime and borrow
 analysis. It is a living design artifact: some pieces are implemented, some are
 only partially implemented, and the SSA checker is now the main execution path
-for the completed diagnostic slices. The remaining highest-risk work is deeper
-lifetime/liveness behavior for named borrows, freeze/clone/unsafe, and final
-emit semantics.
+for the completed diagnostic slices. The remaining highest-risk work is explicit
+freeze/clone/unsafe semantics, deeper lifetime/liveness around defers and
+closures, and final emit semantics.
 
 The central decision is that Go's AST, type checker, and SSA builder remain
 ordinary Go tooling. They do not learn about `\iso`, `\mub`, `\rob`, or
@@ -45,9 +45,9 @@ Implemented:
   collapse to the root region.
 - SSA-backed checker passes currently reject several capability violations:
   moved `\iso` use, conflicting inferred call borrows, non-sendable sends,
-  channel/value capability mismatch, goroutine borrow escapes, read-only
-  writes, borrow stores, returned borrows, untracked call boundaries, and
-  interface erasure.
+  channel/value capability mismatch, inferred freeze-on-send to `chan \imm`,
+  goroutine borrow escapes, read-only writes, borrow stores, returned borrows,
+  untracked call boundaries, and interface erasure.
 - Diagnostics report structured `GWN` errors against original `.gown` source
   and include source-line context.
 - CLI `-check` mode validates with a `go/packages` overlay and does not write
@@ -57,11 +57,13 @@ Implemented:
 
 Still missing:
 
-- Broader SSA dataflow beyond the current `GWN001` consumed-place engine,
-  especially named borrow liveness, defers, loops, and freeze/clone/unsafe.
+- Broader SSA dataflow beyond the current `GWN001` consumed-place and named
+  borrow-liveness engine, especially defers, closure-contained borrows, loops,
+  and explicit freeze/clone/unsafe.
 - Final emit behavior that inserts nil assignments after consumed `\iso`
   moves.
-- Semantics for freeze/clone/unsafe beyond token recognition and formatting.
+- Semantics for explicit freeze/clone/unsafe beyond token recognition and
+  formatting.
 - Broader boundary modeling for reflection, `sync`, atomics, and unsafe code.
 
 This architecture now treats the hybrid AST/types/place plus SSA model as the
@@ -462,8 +464,8 @@ Completed foundation:
 
 Completed checker slices:
 
-- `GWN001`: moved `\iso` use after send, call, goroutine capture, or
-  assignment move.
+- `GWN001`: moved `\iso` use after send, inferred freeze-send, call,
+  goroutine capture, or assignment move.
 - `GWN002`: conflicting inferred call borrows, including field-sensitive
   sibling-vs-overlap checks.
 - `GWN003` and `GWN010`: non-sendable sends and channel/value capability
@@ -575,7 +577,9 @@ Spike progress:
 - SSA parity passes now cover `GWN001` through `GWN010` plus `GWN011`, with
   `GWN001` implemented as CFG dataflow. `GWN001` now also uses backward SSA
   liveness for named `\mub`/`\rob` borrows and rejects root transfers while a
-  derived named borrow is live.
+  derived named borrow is live. Sending `\iso` on `chan \imm` is modeled as an
+  inferred freeze-send transfer that consumes the sender's root and consults
+  the same named-borrow liveness guard.
 - `GownPackage.Check` now routes the main checker runner through the SSA passes
   when SSA is available, while keeping AST/place checkers as fallbacks.
 - Integration tests cover precision improvements that the root-only AST passes
@@ -616,7 +620,10 @@ while using SSA ordering and CFG merges. The next lifetime slice extended that
 machinery to named `\mub` and `\rob` borrows created through annotated local
 variables. The remaining risk is generalizing it further to freeze/clone
 semantics, defers, loops, closures, and unknown synchronization/unsafe
-boundaries.
+boundaries. The first freeze inference slice is now implemented for sends:
+`ch <- x` where `ch` has element capability `\imm` and `x` is `\iso` is
+accepted, consumes `x`, rejects live named borrows of `x`, and rejects field
+projection transfers.
 
 A further SSA parity finding is that assignment moves are source-level events
 that optimized SSA can erase. A move such as `b := a` may not survive as a
@@ -643,14 +650,14 @@ the transfer instruction. This is the durable rule: source bindings identify
 what the user wrote; SSA tells us where it is live.
 
 Current SSA checker coverage includes `GWN001` parity for direct sends,
-iso-consuming calls, assignment moves, branch merges, goroutine calls, closure
-captures, named borrow liveness, branch-sensitive named borrow liveness, and
-projected field-move rejection. It also includes `GWN002` through `GWN010`
-parity for inferred call-borrow conflicts, send capability checks, goroutine
-borrow escapes, read-only writes, borrow stores, returned borrows, untracked
-call boundaries, and interface erasure. These SSA checks are now wired into the
-main checker pipeline, with AST/place implementations retained as fallbacks and
-comparison references.
+inferred freeze-sends to `chan \imm`, iso-consuming calls, assignment moves,
+branch merges, goroutine calls, closure captures, named borrow liveness,
+branch-sensitive named borrow liveness, and projected field-move rejection. It
+also includes `GWN002` through `GWN010` parity for inferred call-borrow
+conflicts, send capability checks, goroutine borrow escapes, read-only writes,
+borrow stores, returned borrows, untracked call boundaries, and interface
+erasure. These SSA checks are now wired into the main checker pipeline, with
+AST/place implementations retained as fallbacks and comparison references.
 
 Wiring the SSA runner into the main pipeline exposed one diagnostic lesson:
 operation positions and annotation positions are both valuable, but not
@@ -676,7 +683,7 @@ mapping generated `.go` paths back to original `.gown` paths.
   hybrid.
 - The existing SSA checker passes provide useful safety coverage, but only
   `GWN001` currently performs full CFG dataflow. Named borrow liveness now
-  covers straight-line code and branches for sends, calls, and goroutine calls.
-  Defers, closure-contained named borrows, freeze/clone, loops under heavier
-  mutation, and precise unsafe/synchronization boundaries still need broader
-  treatment.
+  covers straight-line code and branches for sends, inferred freeze-sends,
+  calls, and goroutine calls. Defers, closure-contained named borrows, explicit
+  freeze/clone, loops under heavier mutation, and precise unsafe/synchronization
+  boundaries still need broader treatment.

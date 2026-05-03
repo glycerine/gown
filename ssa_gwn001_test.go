@@ -151,6 +151,27 @@ func TestSSAGWN001AllowsGoClosureCaptureWithoutLaterUse(t *testing.T) {
 	}
 }
 
+func TestSSAGWN001ReportsUseAfterInferredFreezeSend(t *testing.T) {
+	gp := loadGownForSSACheck(t, "iso_to_imm_use.gown", gownIsoSendToImmChannelUseAfterSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN001)
+}
+
+func TestSSAGWN002RejectsInferredFreezeSendWhileNamedBorrowLive(t *testing.T) {
+	gp := loadGownForSSACheck(t, "iso_to_imm_live_borrow.gown", gownIsoSendToImmChannelLiveBorrowSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN002)
+}
+
+func TestSSAGWN011RejectsFieldProjectionInferredFreezeSend(t *testing.T) {
+	gp := loadGownForSSACheck(t, "iso_field_to_imm.gown", gownIsoFieldSendToImmChannelSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN011)
+}
+
 func loadGownForSSACheck(t *testing.T, name, source string) *GownPackage {
 	t.Helper()
 	dir := writeGownDir(t, map[string]string{name: source})

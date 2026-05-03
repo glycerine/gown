@@ -68,6 +68,67 @@ func main() {
 }
 `
 
+const gownIsoSendToImmChannelUseAfterSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	ch := make(chan \imm *payload)
+	ch <- a
+	println(a)
+}
+`
+
+const gownIsoSendToImmChannelLiveBorrowSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	var b \mub *payload = a
+	ch := make(chan \imm *payload)
+	ch <- a
+	println(b)
+}
+`
+
+const gownIsoSendToImmChannelDeadBorrowSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	var b \mub *payload = a
+	println(b)
+	ch := make(chan \imm *payload)
+	ch <- a
+}
+`
+
+const gownIsoFieldSendToImmChannelSource = `package example
+
+type payload struct {
+	Data string
+}
+
+type holder struct {
+	Item \iso *payload
+}
+
+func main() {
+	var h *holder
+	ch := make(chan \imm *payload)
+	ch <- h.Item
+}
+`
+
 const gownFreshAllocationIsoSendUseAfterSource = `package example
 
 type payload struct {
@@ -117,9 +178,33 @@ func TestGWN010RejectsUntrackedValueSentToIsoChannel(t *testing.T) {
 	requireCheckerCode(t, err, GWN010)
 }
 
-func TestGWN010RejectsIsoValueSentToImmChannel(t *testing.T) {
+func TestInferredFreezeAllowsIsoValueSentToImmChannel(t *testing.T) {
 	err := checkGownSource(t, "iso_to_imm.gown", gownIsoSendToImmChannelSource)
-	requireCheckerCode(t, err, GWN010)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInferredFreezeReportsUseAfterIsoSentToImmChannel(t *testing.T) {
+	err := checkGownSource(t, "iso_to_imm_use.gown", gownIsoSendToImmChannelUseAfterSource)
+	requireCheckerCode(t, err, GWN001)
+}
+
+func TestInferredFreezeRejectsIsoSentToImmChannelWhileBorrowLive(t *testing.T) {
+	err := checkGownSource(t, "iso_to_imm_live_borrow.gown", gownIsoSendToImmChannelLiveBorrowSource)
+	requireCheckerCode(t, err, GWN002)
+}
+
+func TestInferredFreezeAllowsIsoSentToImmChannelAfterBorrowDead(t *testing.T) {
+	err := checkGownSource(t, "iso_to_imm_dead_borrow.gown", gownIsoSendToImmChannelDeadBorrowSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInferredFreezeRejectsFieldProjectionSentToImmChannel(t *testing.T) {
+	err := checkGownSource(t, "iso_field_to_imm.gown", gownIsoFieldSendToImmChannelSource)
+	requireCheckerCode(t, err, GWN011)
 }
 
 func TestIsoSendInfersFreshAllocationOwnership(t *testing.T) {

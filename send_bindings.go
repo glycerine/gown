@@ -22,6 +22,17 @@ func (binding SendBinding) IsIsoMove() bool {
 	return binding.ChanElemCap == CapIso && binding.ValueCap == CapIso
 }
 
+func (binding SendBinding) IsIsoConsumingTransfer() bool {
+	return binding.ValueCap == CapIso && (binding.ChanElemCap == CapIso || binding.ChanElemCap == CapImm)
+}
+
+func (binding SendBinding) TransferKind() string {
+	if binding.ChanElemCap == CapImm && binding.ValueCap == CapIso {
+		return "freeze send"
+	}
+	return "send"
+}
+
 func (binding SendBinding) ValueKey() PlaceKey {
 	return binding.Value.RegionKey()
 }

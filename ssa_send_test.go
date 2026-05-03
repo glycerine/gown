@@ -32,9 +32,11 @@ func TestSSAGWN010RejectsUntrackedValueToIsoChannel(t *testing.T) {
 	requireSSAErrorCode(t, errs, GWN010)
 }
 
-func TestSSAGWN010RejectsIsoValueToImmChannel(t *testing.T) {
+func TestSSAInferredFreezeAllowsIsoValueToImmChannel(t *testing.T) {
 	gp := loadGownForSSACheck(t, "iso_to_imm.gown", gownIsoSendToImmChannelSource)
 
 	errs := checkSendCapabilitiesSSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN010)
+	if len(errs) != 0 {
+		t.Fatalf("SSA send checker unexpectedly rejected inferred freeze send: %#v", errs)
+	}
 }

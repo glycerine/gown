@@ -51,7 +51,7 @@ func bindingPosition(binding SendBinding) token.Position {
 }
 
 func checkSendCapabilityMatch(binding SendBinding) (CheckerError, bool) {
-	if !capTracked(binding.ChanElemCap) || binding.ValueCap == binding.ChanElemCap {
+	if sendCapabilityAllowed(binding.ChanElemCap, binding.ValueCap) {
 		return CheckerError{}, false
 	}
 	name := "<unknown>"
@@ -70,4 +70,14 @@ func checkSendCapabilityMatch(binding SendBinding) (CheckerError, bool) {
 
 func capSendable(cap Cap) bool {
 	return cap != CapMub && cap != CapRob
+}
+
+func sendCapabilityAllowed(chanElemCap, valueCap Cap) bool {
+	if !capTracked(chanElemCap) {
+		return true
+	}
+	if valueCap == chanElemCap {
+		return true
+	}
+	return chanElemCap == CapImm && valueCap == CapIso
 }

@@ -66,7 +66,7 @@ func (checker *ssaSendChecker) checkSend(send *ssa.Send) {
 	valueCap := capForSSAPlace(checker.caps, valuePlace)
 	pos := checker.pkg.Fset.Position(send.Pos())
 
-	if capTracked(chCap) && valueCap != chCap {
+	if !sendCapabilityAllowed(chCap, valueCap) {
 		name := valuePlace.Root.Name()
 		checker.reportCheckerError(newCheckerErrorAtPosition(
 			GWN010,
@@ -87,7 +87,7 @@ func (checker *ssaSendChecker) checkSend(send *ssa.Send) {
 
 func (checker *ssaSendChecker) checkBoundSend(binding SendBinding, send *ssa.Send) {
 	pos := checker.pkg.Fset.Position(send.Pos())
-	if capTracked(binding.ChanElemCap) && binding.ValueCap != binding.ChanElemCap {
+	if !sendCapabilityAllowed(binding.ChanElemCap, binding.ValueCap) {
 		name := "<unknown>"
 		if binding.Value.Root != nil {
 			name = binding.Value.Root.Name()
