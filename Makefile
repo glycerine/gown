@@ -8,3 +8,4 @@ lean:
 
 test: all
 	gown vectors/iso0/
+	cat vectors/iso0/basic.go
