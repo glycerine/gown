@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"io"
 	"os"
 
 	"github.com/glycerine/gown"
@@ -23,29 +25,38 @@ func (c *Config) ValidateConfig() error {
 }
 
 func main() {
+	os.Exit(run(os.Args[1:], os.Stderr))
+}
 
-	myflags := flag.NewFlagSet("myflags", flag.ExitOnError)
+func run(args []string, stderr io.Writer) int {
+	myflags := flag.NewFlagSet("myflags", flag.ContinueOnError)
+	myflags.SetOutput(stderr)
 	cfg := &Config{}
 	cfg.DefineFlags(myflags)
 
-	err := myflags.Parse(os.Args[1:])
+	err := myflags.Parse(args)
 	if err != nil {
-		panicf("%s command line flag parse error: '%s'", ProgramName, err)
+		fmt.Fprintf(stderr, "%s command line flag parse error: '%s'\n", ProgramName, err)
+		return 2
 	}
 	err = cfg.ValidateConfig()
 	if err != nil {
-		panicf("%s command line flag error: '%s'", ProgramName, err)
+		fmt.Fprintf(stderr, "%s command line flag error: '%s'\n", ProgramName, err)
+		return 2
 	}
 
 	dirs := myflags.Args()
 	if len(dirs) == 0 {
-		panicf("must provide pacakges to typecheck as arguments.")
+		fmt.Fprintln(stderr, "must provide packages to typecheck as arguments.")
+		return 2
 	}
 
 	for _, dir := range dirs {
 		gp := gown.NewGownPackage(dir)
 		if err := gp.Check(); err != nil {
-			panic(err)
+			fmt.Fprintln(stderr, gown.FormatError(err))
+			return 1
 		}
 	}
+	return 0
 }

@@ -151,7 +151,7 @@ func (gp *GownPackage) Check() error {
 	var checkerErrs CheckerErrors
 	checkerErrs = append(checkerErrs, checkGWN001(gp.pkg, gp.caps)...)
 	checkerErrs = append(checkerErrs, checkCallBorrowConflicts(gp.caps)...)
-	checkerErrs = append(checkerErrs, checkSendCapabilities(gp.caps)...)
+	checkerErrs = append(checkerErrs, checkSendCapabilities(gp.pkg, gp.caps)...)
 	checkerErrs = append(checkerErrs, checkGoBorrowEscapes(gp.pkg, gp.caps)...)
 	checkerErrs = append(checkerErrs, checkReadOnlyWrites(gp.pkg, gp.caps)...)
 	checkerErrs = append(checkerErrs, checkBorrowStoreEscapes(gp.pkg, gp.caps)...)
