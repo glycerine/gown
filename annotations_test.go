@@ -121,6 +121,51 @@ func TestScanAndClassifyIntrinsics(t *testing.T) {
 	}
 }
 
+func TestScanAndClassifyMixedOrderAndUnsafeMarker(t *testing.T) {
+	src := `package example
+
+type Msg struct{}
+
+func Use(x \iso *Msg) {
+	y := \unsafe(x)
+	_ = \mub(y)
+}
+`
+
+	_, _, gf, err := scanAndClassify("mixed.gown", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gf.annotations) != 3 {
+		t.Fatalf("expected 3 annotation tokens, got %d", len(gf.annotations))
+	}
+	wantLexemes := []string{`\iso`, `\unsafe`, `\mub`}
+	wantKinds := []AnnotationKind{
+		AnnotationCapQualifier,
+		AnnotationUnsafeBoundary,
+		AnnotationIntrinsic,
+	}
+	for i := range wantLexemes {
+		if gf.annotations[i].Span.Lexeme != wantLexemes[i] {
+			t.Fatalf("annotation %d: got lexeme %q, want %q",
+				i, gf.annotations[i].Span.Lexeme, wantLexemes[i])
+		}
+		if gf.annotations[i].Kind != wantKinds[i] {
+			t.Fatalf("annotation %d: got kind %v, want %v",
+				i, gf.annotations[i].Kind, wantKinds[i])
+		}
+	}
+	if len(gf.unsafeUses) != 1 {
+		t.Fatalf("expected 1 unsafe boundary marker, got %d", len(gf.unsafeUses))
+	}
+	if len(gf.intrinsics) != 2 {
+		t.Fatalf("expected unsafe and mub to both be intrinsics, got %d", len(gf.intrinsics))
+	}
+	if gf.intrinsics[0].Intrinsic != IntrinsicUnsafe {
+		t.Fatalf("first intrinsic = %v, want %v", gf.intrinsics[0].Intrinsic, IntrinsicUnsafe)
+	}
+}
+
 func TestScanAndClassifyIgnoresCommentsAndStrings(t *testing.T) {
 	src := `package example
 
