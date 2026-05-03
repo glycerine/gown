@@ -163,10 +163,10 @@ func (checker *gwn001Checker) reportUseAfterMove(use ast.Expr, consumed moveSite
 
 func (checker *gwn001Checker) recordIsoSend(stmt *ast.SendStmt) {
 	binding, ok := checker.caps.SendBinding(stmt)
-	if !ok || binding.ChanElemCap != CapIso || binding.ValueCap != CapIso {
+	if !ok || !binding.IsIsoMove() {
 		return
 	}
-	key := binding.Value.Key()
+	key := binding.ValueKey()
 	if key.Root == nil {
 		return
 	}

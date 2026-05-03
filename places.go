@@ -27,7 +27,7 @@ type PlaceKey struct {
 }
 
 type PlaceIndex struct {
-	ExprPlaces map[ast.Expr]Place
+	exprPlaces map[ast.Expr]Place
 }
 
 func (place Place) Key() PlaceKey {
@@ -53,13 +53,13 @@ func (idx *PlaceIndex) PlaceForExpr(expr ast.Expr) (Place, bool) {
 	if idx == nil || expr == nil {
 		return Place{}, false
 	}
-	place, ok := idx.ExprPlaces[expr]
+	place, ok := idx.exprPlaces[expr]
 	return place, ok
 }
 
 func buildPlaceIndex(pkg *packages.Package) *PlaceIndex {
 	idx := &PlaceIndex{
-		ExprPlaces: make(map[ast.Expr]Place),
+		exprPlaces: make(map[ast.Expr]Place),
 	}
 	if pkg == nil {
 		return idx
@@ -72,7 +72,7 @@ func buildPlaceIndex(pkg *packages.Package) *PlaceIndex {
 			}
 			place, ok := resolveRootPlace(pkg, expr)
 			if ok {
-				idx.ExprPlaces[expr] = place
+				idx.exprPlaces[expr] = place
 			}
 			return true
 		})
@@ -91,6 +91,8 @@ func resolveRootPlace(pkg *packages.Package, expr ast.Expr) (Place, bool) {
 	case *ast.ParenExpr:
 		return resolveRootPlace(pkg, expr.X)
 	case *ast.SelectorExpr:
+		return resolveRootPlace(pkg, expr.X)
+	case *ast.IndexExpr:
 		return resolveRootPlace(pkg, expr.X)
 	default:
 		return Place{}, false

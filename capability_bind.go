@@ -34,7 +34,7 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityInd
 	}
 
 	idx.Places = buildPlaceIndex(pkg)
-	bindSendCapabilities(pkg, idx)
+	bindSendBindings(pkg, idx)
 
 	return idx
 }

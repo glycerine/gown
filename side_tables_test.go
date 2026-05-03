@@ -34,6 +34,107 @@ func main() {
 }
 `
 
+const gownParenPlaceSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	_ = (a)
+}
+`
+
+const gownParenSelectorPlaceSource = `package example
+
+type payload struct {
+	Data string
+}
+
+type holder struct {
+	Item *payload
+}
+
+func main() {
+	var x \iso *holder
+	_ = (x).Item
+}
+`
+
+const gownIndexPlaceSource = `package example
+
+type payload struct {
+	Data string
+}
+
+type holder struct {
+	Items []*payload
+}
+
+func main() {
+	var x \iso *holder
+	i := 0
+	_ = x.Items[i]
+}
+`
+
+const gownNonValueIdentifierSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func helper(x *payload) {}
+
+func main() {
+	var a *payload
+	helper(a)
+	_ = payload{Data: "x"}
+}
+`
+
+const gownPlainChannelSendBindingSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	ch := make(chan *payload)
+	ch <- a
+}
+`
+
+const gownIsoChannelUntrackedValueSendSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a *payload
+	ch := make(chan \iso *payload)
+	ch <- a
+}
+`
+
+const gownMultipleSendBindingSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	var b \iso *payload
+	ch := make(chan \iso *payload)
+	ch <- a
+	ch <- b
+}
+`
+
 func TestPlaceIndexResolvesRootIdentifier(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"places.gown": gownSideTableSource})
 
@@ -78,6 +179,78 @@ func TestPlaceIndexCollapsesSelectorToRoot(t *testing.T) {
 	}
 }
 
+func TestPlaceIndexResolvesParenthesizedIdentifier(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"paren.gown": gownParenPlaceSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	paren := findFirstParenExpr(t, gp)
+	place, ok := gp.caps.PlaceForExpr(paren)
+	if !ok {
+		t.Fatal("parenthesized identifier has no place")
+	}
+	root := lookupLocalVar(t, gp, "main", "a")
+	if place.Key().Root != root || place.Key().Path != "" {
+		t.Fatalf("parenthesized identifier place key = %#v, want root a", place.Key())
+	}
+}
+
+func TestPlaceIndexCollapsesParenthesizedSelectorToRoot(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"paren_selector.gown": gownParenSelectorPlaceSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	selector := findFirstSelectorExpr(t, gp)
+	place, ok := gp.caps.PlaceForExpr(selector)
+	if !ok {
+		t.Fatal("parenthesized selector has no place")
+	}
+	root := lookupLocalVar(t, gp, "main", "x")
+	if place.Key().Root != root || place.Key().Path != "" {
+		t.Fatalf("parenthesized selector place key = %#v, want root x", place.Key())
+	}
+}
+
+func TestPlaceIndexCollapsesIndexExprToRoot(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"index.gown": gownIndexPlaceSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	index := findFirstIndexExpr(t, gp)
+	place, ok := gp.caps.PlaceForExpr(index)
+	if !ok {
+		t.Fatal("index expression has no place")
+	}
+	root := lookupLocalVar(t, gp, "main", "x")
+	if place.Key().Root != root || place.Key().Path != "" {
+		t.Fatalf("index expression place key = %#v, want root x", place.Key())
+	}
+}
+
+func TestPlaceIndexIgnoresNonValueIdentifiers(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"non_value.gown": gownNonValueIdentifierSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range findNonValueIdentifiers(t, gp) {
+		if place, ok := gp.caps.PlaceForExpr(id); ok {
+			t.Fatalf("non-value identifier %q resolved to place %#v", id.Name, place)
+		}
+	}
+}
+
 func TestSendBindingRecordsDirectIsoSend(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"send.gown": gownSideTableSource})
 
@@ -100,6 +273,9 @@ func TestSendBindingRecordsDirectIsoSend(t *testing.T) {
 	if binding.ValueCap != CapIso {
 		t.Fatalf("send binding value cap = %v, want %v", binding.ValueCap, CapIso)
 	}
+	if !binding.IsIsoMove() {
+		t.Fatal("send binding should be an iso move")
+	}
 	if binding.Value.Key().Root != lookupLocalVar(t, gp, "main", "a") {
 		t.Fatalf("send binding value place = %#v, want root a", binding.Value)
 	}
@@ -108,27 +284,104 @@ func TestSendBindingRecordsDirectIsoSend(t *testing.T) {
 	}
 }
 
+func TestSendBindingRecordsNonIsoSendAsNonMove(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"plain_send.gown": gownPlainChannelSendBindingSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	send := findFirstSendStmt(t, gp)
+	binding, ok := gp.caps.SendBinding(send)
+	if !ok {
+		t.Fatal("missing send binding")
+	}
+	if binding.ChanElemCap != CapUntracked {
+		t.Fatalf("plain channel elem cap = %v, want %v", binding.ChanElemCap, CapUntracked)
+	}
+	if binding.ValueCap != CapIso {
+		t.Fatalf("plain send value cap = %v, want %v", binding.ValueCap, CapIso)
+	}
+	if binding.IsIsoMove() {
+		t.Fatal("plain channel send should not be an iso move")
+	}
+}
+
+func TestSendBindingRecordsIsoChannelUntrackedValueAsNonMove(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"iso_untracked.gown": gownIsoChannelUntrackedValueSendSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	send := findFirstSendStmt(t, gp)
+	binding, ok := gp.caps.SendBinding(send)
+	if !ok {
+		t.Fatal("missing send binding")
+	}
+	if binding.ChanElemCap != CapIso {
+		t.Fatalf("iso channel elem cap = %v, want %v", binding.ChanElemCap, CapIso)
+	}
+	if binding.ValueCap != CapUntracked {
+		t.Fatalf("untracked send value cap = %v, want %v", binding.ValueCap, CapUntracked)
+	}
+	if binding.IsIsoMove() {
+		t.Fatal("untracked value send should not be an iso move")
+	}
+}
+
+func TestSendBindingRecordsMultipleDirectSends(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"multiple_sends.gown": gownMultipleSendBindingSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	sends := findSendStmts(t, gp)
+	if len(sends) != 2 {
+		t.Fatalf("got %d sends, want 2", len(sends))
+	}
+	roots := []string{"a", "b"}
+	for i, send := range sends {
+		binding, ok := gp.caps.SendBinding(send)
+		if !ok {
+			t.Fatalf("send %d missing binding", i)
+		}
+		if !binding.IsIsoMove() {
+			t.Fatalf("send %d should be an iso move", i)
+		}
+		if binding.ValueKey().Root != lookupLocalVar(t, gp, "main", roots[i]) {
+			t.Fatalf("send %d value key = %#v, want root %s", i, binding.ValueKey(), roots[i])
+		}
+	}
+}
+
 func findFirstSendStmt(t *testing.T, gp *GownPackage) *ast.SendStmt {
 	t.Helper()
+	sends := findSendStmts(t, gp)
+	if len(sends) == 0 {
+		t.Fatal("could not find send statement")
+	}
+	return sends[0]
+}
+
+func findSendStmts(t *testing.T, gp *GownPackage) []*ast.SendStmt {
+	t.Helper()
+	var sends []*ast.SendStmt
 	for _, file := range gp.pkg.Syntax {
-		var found *ast.SendStmt
 		ast.Inspect(file, func(n ast.Node) bool {
-			if found != nil {
-				return false
-			}
 			send, ok := n.(*ast.SendStmt)
 			if !ok {
 				return true
 			}
-			found = send
-			return false
+			sends = append(sends, send)
+			return true
 		})
-		if found != nil {
-			return found
-		}
 	}
-	t.Fatal("could not find send statement")
-	return nil
+	return sends
 }
 
 func findFirstSelectorExpr(t *testing.T, gp *GownPackage) *ast.SelectorExpr {
@@ -152,4 +405,88 @@ func findFirstSelectorExpr(t *testing.T, gp *GownPackage) *ast.SelectorExpr {
 	}
 	t.Fatal("could not find selector expression")
 	return nil
+}
+
+func findFirstParenExpr(t *testing.T, gp *GownPackage) *ast.ParenExpr {
+	t.Helper()
+	for _, file := range gp.pkg.Syntax {
+		var found *ast.ParenExpr
+		ast.Inspect(file, func(n ast.Node) bool {
+			if found != nil {
+				return false
+			}
+			paren, ok := n.(*ast.ParenExpr)
+			if !ok {
+				return true
+			}
+			found = paren
+			return false
+		})
+		if found != nil {
+			return found
+		}
+	}
+	t.Fatal("could not find parenthesized expression")
+	return nil
+}
+
+func findFirstIndexExpr(t *testing.T, gp *GownPackage) *ast.IndexExpr {
+	t.Helper()
+	for _, file := range gp.pkg.Syntax {
+		var found *ast.IndexExpr
+		ast.Inspect(file, func(n ast.Node) bool {
+			if found != nil {
+				return false
+			}
+			index, ok := n.(*ast.IndexExpr)
+			if !ok {
+				return true
+			}
+			found = index
+			return false
+		})
+		if found != nil {
+			return found
+		}
+	}
+	t.Fatal("could not find index expression")
+	return nil
+}
+
+func findNonValueIdentifiers(t *testing.T, gp *GownPackage) []*ast.Ident {
+	t.Helper()
+	var ids []*ast.Ident
+	for _, file := range gp.pkg.Syntax {
+		for _, decl := range file.Decls {
+			switch decl := decl.(type) {
+			case *ast.GenDecl:
+				for _, spec := range decl.Specs {
+					if ts, ok := spec.(*ast.TypeSpec); ok && ts.Name.Name == "payload" {
+						ids = append(ids, ts.Name)
+					}
+				}
+			case *ast.FuncDecl:
+				if decl.Name.Name == "helper" {
+					ids = append(ids, decl.Name)
+				}
+			}
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CallExpr:
+				if id, ok := n.Fun.(*ast.Ident); ok && id.Name == "helper" {
+					ids = append(ids, id)
+				}
+			case *ast.CompositeLit:
+				if id, ok := n.Type.(*ast.Ident); ok && id.Name == "payload" {
+					ids = append(ids, id)
+				}
+			}
+			return true
+		})
+	}
+	if len(ids) == 0 {
+		t.Fatal("could not find non-value identifiers")
+	}
+	return ids
 }

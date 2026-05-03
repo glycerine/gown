@@ -74,13 +74,13 @@ func (idx *CapabilityIndex) PlaceForExpr(expr ast.Expr) (Place, bool) {
 	return idx.Places.PlaceForExpr(expr)
 }
 
-func (idx *CapabilityIndex) SendBinding(stmt *ast.SendStmt) (*SendBinding, bool) {
+func (idx *CapabilityIndex) SendBinding(stmt *ast.SendStmt) (SendBinding, bool) {
 	if idx == nil || stmt == nil {
-		return nil, false
+		return SendBinding{}, false
 	}
 	i, ok := idx.sendBindingByStmt[stmt]
 	if !ok || i < 0 || i >= len(idx.SendBindings) {
-		return nil, false
+		return SendBinding{}, false
 	}
-	return &idx.SendBindings[i], true
+	return idx.SendBindings[i], true
 }

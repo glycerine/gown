@@ -17,7 +17,15 @@ type SendBinding struct {
 	Col         int
 }
 
-func bindSendCapabilities(pkg *packages.Package, idx *CapabilityIndex) {
+func (binding SendBinding) IsIsoMove() bool {
+	return binding.ChanElemCap == CapIso && binding.ValueCap == CapIso
+}
+
+func (binding SendBinding) ValueKey() PlaceKey {
+	return binding.Value.Key()
+}
+
+func bindSendBindings(pkg *packages.Package, idx *CapabilityIndex) {
 	if pkg == nil || idx == nil {
 		return
 	}
@@ -27,13 +35,13 @@ func bindSendCapabilities(pkg *packages.Package, idx *CapabilityIndex) {
 			if !ok {
 				return true
 			}
-			bindSendCapability(pkg, idx, send)
+			bindSendBinding(pkg, idx, send)
 			return true
 		})
 	}
 }
 
-func bindSendCapability(pkg *packages.Package, idx *CapabilityIndex, send *ast.SendStmt) {
+func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.SendStmt) {
 	ch, ok := directRootPlace(pkg, send.Chan)
 	if !ok {
 		return
@@ -43,7 +51,7 @@ func bindSendCapability(pkg *packages.Package, idx *CapabilityIndex, send *ast.S
 		return
 	}
 	pos := pkg.Fset.Position(send.Arrow)
-	idx.SendBindings = append(idx.SendBindings, SendBinding{
+	idx.addSendBinding(SendBinding{
 		Stmt:        send,
 		Chan:        ch,
 		Value:       value,
@@ -53,5 +61,12 @@ func bindSendCapability(pkg *packages.Package, idx *CapabilityIndex, send *ast.S
 		Line:        pos.Line,
 		Col:         pos.Column,
 	})
-	idx.sendBindingByStmt[send] = len(idx.SendBindings) - 1
+}
+
+func (idx *CapabilityIndex) addSendBinding(binding SendBinding) {
+	if idx == nil || binding.Stmt == nil {
+		return
+	}
+	idx.SendBindings = append(idx.SendBindings, binding)
+	idx.sendBindingByStmt[binding.Stmt] = len(idx.SendBindings) - 1
 }
