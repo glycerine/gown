@@ -19,18 +19,22 @@ func main() {
 }
 `
 
-func TestSSAGWN009RejectsIsoStoredIntoInterface(t *testing.T) {
+func TestSSAGWN009AllowsIsoStoredIntoInterfaceAsFrontier(t *testing.T) {
 	gp := loadGownForSSACheck(t, "iso_interface.gown", gownIsoToInterfaceValueSpecSource)
 
 	errs := checkInterfaceErasureSSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN009)
+	if len(errs) != 0 {
+		t.Fatalf("SSA interface checker unexpectedly rejected proof frontier: %#v", errs)
+	}
 }
 
-func TestSSAGWN009RejectsBorrowAssignedIntoInterface(t *testing.T) {
+func TestSSAGWN009AllowsBorrowAssignedIntoInterfaceAsFrontier(t *testing.T) {
 	gp := loadGownForSSACheck(t, "mub_interface.gown", gownMubToInterfaceAssignSource)
 
 	errs := checkInterfaceErasureSSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN009)
+	if len(errs) != 0 {
+		t.Fatalf("SSA interface checker unexpectedly rejected borrow proof frontier: %#v", errs)
+	}
 }
 
 func TestSSAGWN009AllowsUntrackedValueStoredIntoInterface(t *testing.T) {
@@ -42,9 +46,11 @@ func TestSSAGWN009AllowsUntrackedValueStoredIntoInterface(t *testing.T) {
 	}
 }
 
-func TestSSAGWN009RejectsTrackedFieldStoredIntoInterface(t *testing.T) {
+func TestSSAGWN009AllowsTrackedFieldStoredIntoInterfaceAsFrontier(t *testing.T) {
 	gp := loadGownForSSACheck(t, "iso_field_interface.gown", gownIsoFieldToInterfaceSource)
 
 	errs := checkInterfaceErasureSSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN009)
+	if len(errs) != 0 {
+		t.Fatalf("SSA interface checker unexpectedly rejected field proof frontier: %#v", errs)
+	}
 }

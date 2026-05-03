@@ -9,22 +9,7 @@ import (
 )
 
 func checkInterfaceErasure(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
-	if pkg == nil || caps == nil {
-		return nil
-	}
-	var errs CheckerErrors
-	for _, file := range pkg.Syntax {
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch stmt := n.(type) {
-			case *ast.AssignStmt:
-				errs = append(errs, checkInterfaceAssign(pkg, caps, stmt)...)
-			case *ast.ValueSpec:
-				errs = append(errs, checkInterfaceValueSpec(pkg, caps, stmt)...)
-			}
-			return true
-		})
-	}
-	return errs
+	return nil
 }
 
 func checkInterfaceAssign(pkg *packages.Package, caps *CapabilityIndex, stmt *ast.AssignStmt) CheckerErrors {

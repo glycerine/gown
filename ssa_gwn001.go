@@ -149,7 +149,7 @@ func (checker *ssaGWN001Checker) deferEffectInfoForFunction(fn *ssa.Function) SS
 }
 
 func (checker *ssaGWN001Checker) mergeSuccessorState(existing, incoming SSAFunctionState, block *ssa.BasicBlock) (SSAFunctionState, bool) {
-	if existing.Consumed == nil && len(existing.Borrows) == 0 && len(existing.Deferred) == 0 {
+	if existing.Consumed == nil && len(existing.Frontiered) == 0 && len(existing.Borrows) == 0 && len(existing.Deferred) == 0 {
 		return incoming.Clone(), true
 	}
 	merged, violations := MergeSSAFunctionStates(existing, incoming)
@@ -192,6 +192,8 @@ func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction,
 		checker.applyAssignmentMove(instr, state)
 	case *ssa.Go:
 		checker.applyGoTransfer(instr, state)
+	case *ssa.MakeInterface:
+		checker.applyInterfaceFrontier(instr, state)
 	case *ssa.Return:
 		checker.applyReturnTransfer(instr, state)
 	}
@@ -207,6 +209,7 @@ func (checker *ssaGWN001Checker) applyAssignmentMove(instr *ssa.DebugRef, state 
 	}
 	if move.Dst.Root != nil {
 		state.UnconsumeRoot(move.Dst.Key())
+		state.UnfrontierRoot(move.Dst.Key())
 	}
 	pos := checker.pkg.Fset.Position(instr.Pos())
 	violation, ok := state.ConsumeRoot(move.Src.Key(), SSAMoveSite{
@@ -253,6 +256,9 @@ func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFu
 		checker.applyBoundCallTransfer(binding, state, instr, "call")
 		return
 	}
+	if checker.applyUntrackedCallFrontier(&instr.Call, state, instr) {
+		return
+	}
 	checker.applyCallCommonTransfer(&instr.Call, state, instr, "call")
 }
 
@@ -272,6 +278,10 @@ func (checker *ssaGWN001Checker) applyBoundCallTransfer(binding CallBinding, sta
 			}
 		case CapMub, CapRob:
 			checker.applyTemporaryBorrow(state, argPlace, paramCap, instr)
+		case CapUntracked:
+			if capTracked(checker.capForPlace(argPlace)) {
+				checker.enterFrontierAtInstruction(state, argPlace, instr, "untracked parameter")
+			}
 		}
 	}
 }
@@ -280,6 +290,7 @@ func (checker *ssaGWN001Checker) applyGoTransfer(instr *ssa.Go, state *SSAFuncti
 	if binding, ok := checker.bindings.GoCall(checker.pkg, instr); ok {
 		checker.applyBoundCallTransfer(binding, state, instr, "go")
 	} else {
+		checker.applyUntrackedCallFrontier(&instr.Call, state, instr)
 		checker.applyCallCommonTransfer(&instr.Call, state, instr, "go")
 	}
 	checker.applyGoClosureCaptureTransfer(instr, state)
@@ -293,6 +304,7 @@ func (checker *ssaGWN001Checker) applyDeferTransfer(instr *ssa.Defer, state *SSA
 			checker.activateDeferredNamedBorrow(state, place, instr)
 		}
 	} else {
+		checker.applyUntrackedCallFrontier(&instr.Call, state, instr)
 		checker.applyCallCommonTransfer(&instr.Call, state, instr, "defer")
 		checker.applyDeferredCallCommonTransfer(&instr.Call, state, instr)
 		for _, arg := range instr.Call.Args {
@@ -324,6 +336,26 @@ func (checker *ssaGWN001Checker) applyDeferredInferredBorrowArgs(binding CallBin
 			checker.reportViolation(checker.pkg.Fset.Position(instr.Pos()), violation)
 		}
 	}
+}
+
+func (checker *ssaGWN001Checker) applyUntrackedCallFrontier(call *ssa.CallCommon, state *SSAFunctionState, instr ssa.Instruction) bool {
+	if call == nil || call.StaticCallee() == nil {
+		return false
+	}
+	fn, _ := call.StaticCallee().Object().(*types.Func)
+	if checker.caps.FuncCap(fn) != nil {
+		return false
+	}
+	entered := false
+	for _, arg := range call.Args {
+		place, ok := checker.places.PlaceForValue(arg)
+		if !ok || place.Root == nil || !capTracked(checker.capForPlace(place)) {
+			continue
+		}
+		checker.enterFrontierAtInstruction(state, place, instr, "untracked call")
+		entered = true
+	}
+	return entered
 }
 
 func (checker *ssaGWN001Checker) applyDeferredCallCommonTransfer(call *ssa.CallCommon, state *SSAFunctionState, instr ssa.Instruction) {
@@ -378,17 +410,36 @@ func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, s
 			}
 		case CapMub, CapRob:
 			checker.applyTemporaryBorrow(state, argPlace, paramCap, instr)
+		case CapUntracked:
+			if capTracked(checker.capForPlace(argPlace)) {
+				checker.enterFrontierAtInstruction(state, argPlace, instr, "untracked parameter")
+			}
 		}
 	}
 }
 
 func (checker *ssaGWN001Checker) applyTemporaryBorrow(state *SSAFunctionState, place Place, cap Cap, instr ssa.Instruction) {
+	if site, frontiered := state.CheckFrontier(place.Key()); frontiered {
+		checker.reportFrontierViolation(checker.pkg.Fset.Position(instr.Pos()), place, site, cap.String())
+		return
+	}
 	violation, ok := state.BeginBorrow(place.Key(), cap)
 	if ok {
 		checker.reportViolation(checker.pkg.Fset.Position(instr.Pos()), violation)
 		return
 	}
 	state.EndBorrow(place.Key(), cap)
+}
+
+func (checker *ssaGWN001Checker) applyInterfaceFrontier(instr *ssa.MakeInterface, state *SSAFunctionState) {
+	if instr == nil {
+		return
+	}
+	place, ok := checker.places.PlaceForValue(instr.X)
+	if !ok || place.Root == nil || !capTracked(checker.capForPlace(place)) {
+		return
+	}
+	checker.enterFrontierAtInstruction(state, place, instr, "interface erasure")
 }
 
 func (checker *ssaGWN001Checker) applyDeferClosureCaptureTransfer(instr *ssa.Defer, state *SSAFunctionState) {
@@ -439,7 +490,11 @@ func (checker *ssaGWN001Checker) recordSourceDeferClosureEffects(instr *ssa.Defe
 }
 
 func (checker *ssaGWN001Checker) applyReturnTransfer(instr *ssa.Return, state *SSAFunctionState) {
-	if instr == nil || len(state.Deferred) == 0 {
+	if instr == nil {
+		return
+	}
+	checker.checkReturnFrontierConflicts(instr, state)
+	if len(state.Deferred) == 0 {
 		return
 	}
 	checker.checkReturnDeferredConflicts(instr, state)
@@ -448,6 +503,46 @@ func (checker *ssaGWN001Checker) applyReturnTransfer(instr *ssa.Return, state *S
 		checker.applyDeferredGroupAtExit(exitState.Deferred[i], &exitState)
 	}
 	*state = exitState
+}
+
+func (checker *ssaGWN001Checker) checkReturnFrontierConflicts(instr *ssa.Return, state *SSAFunctionState) {
+	resultCaps := checker.resultCapsForReturn(instr)
+	if len(resultCaps) == 0 {
+		return
+	}
+	sourcePlaces := checker.returns[sourcePositionKey(checker.pkg.Fset.Position(instr.Pos()))]
+	for i, resultCap := range resultCaps {
+		if !capTracked(resultCap) {
+			continue
+		}
+		var place Place
+		var ok bool
+		if i < len(sourcePlaces) {
+			place, ok = sourcePlaces[i], sourcePlaces[i].Root != nil
+		}
+		if !ok && i < len(instr.Results) {
+			place, ok = checker.places.PlaceForValue(instr.Results[i])
+		}
+		if !ok || place.Root == nil {
+			continue
+		}
+		if site, frontiered := state.CheckFrontier(place.Key()); frontiered {
+			checker.reportFrontierViolation(checker.pkg.Fset.Position(instr.Pos()), place, site, resultCap.String()+" return")
+			return
+		}
+	}
+}
+
+func (checker *ssaGWN001Checker) resultCapsForReturn(instr *ssa.Return) []Cap {
+	if instr == nil || instr.Block() == nil || instr.Block().Parent() == nil {
+		return nil
+	}
+	fnObj, _ := instr.Block().Parent().Object().(*types.Func)
+	funcCap := checker.caps.FuncCap(fnObj)
+	if funcCap == nil {
+		return nil
+	}
+	return funcCap.Results
 }
 
 func (checker *ssaGWN001Checker) checkReturnDeferredConflicts(instr *ssa.Return, state *SSAFunctionState) {
@@ -600,6 +695,10 @@ func deferredClosureFunction(instr *ssa.Defer) *ssa.Function {
 func (checker *ssaGWN001Checker) consumeRootAtInstruction(state *SSAFunctionState, place Place, instr ssa.Instruction, kind string) {
 	pos := checker.pkg.Fset.Position(instr.Pos())
 	key := place.Key()
+	if site, frontiered := state.CheckFrontier(key); frontiered {
+		checker.reportFrontierViolation(pos, place, site, kind)
+		return
+	}
 	site := SSAMoveSite{
 		Name: place.Root.Name(),
 		Kind: kind,
@@ -757,4 +856,31 @@ func debugRefExprKey(expr ast.Expr) ast.Expr {
 		}
 		expr = paren.X
 	}
+}
+
+func (checker *ssaGWN001Checker) enterFrontierAtInstruction(state *SSAFunctionState, place Place, instr ssa.Instruction, kind string) {
+	if place.Root == nil {
+		return
+	}
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	state.EnterFrontier(place.Key(), SSAFrontierSite{
+		Name: place.Root.Name(),
+		Kind: kind,
+		Line: sourceLine(pos),
+		Col:  sourceColumn(pos),
+	})
+}
+
+func (checker *ssaGWN001Checker) reportFrontierViolation(pos token.Position, place Place, site SSAFrontierSite, operation string) {
+	name := "<unknown>"
+	if place.Root != nil {
+		name = place.Root.Name()
+	}
+	message := fmt.Sprintf("cannot use %q as %s after proof ended at %d:%d (%s)",
+		name, operation, site.Line, site.Col, site.Kind)
+	checker.reportCheckerError(newCheckerErrorAtPosition(
+		GWN012,
+		pos,
+		message,
+	))
 }

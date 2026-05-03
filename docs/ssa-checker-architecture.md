@@ -47,8 +47,10 @@ Implemented:
   moved `\iso` use, conflicting inferred call borrows, non-sendable sends,
   channel/value capability mismatch, inferred freeze-on-send to `chan \imm`,
   goroutine borrow escapes, escaping closures that capture non-shareable
-  tracked values, read-only writes, borrow stores, returned borrows, untracked
-  call boundaries, and interface erasure.
+  tracked values, read-only writes, borrow stores, and returned borrows. They
+  also track proof frontiers when capability-tracked values reach untracked
+  calls, untracked parameters, or interface erasure, then reject later
+  operations that require the old proof.
 - Diagnostics report structured `GWN` errors against original `.gown` source
   and include source-line context.
 - CLI `-check` mode validates with a `go/packages` overlay and does not write
@@ -329,8 +331,9 @@ The checker should run a forward dataflow over each `ssa.Function`:
 Required transfer handlers:
 
 - `Call`: apply inferred borrow/move/share behavior from callee signature
-  metadata; require an explicit unsafe boundary for untracked code that
-  receives capability-tracked values.
+  metadata. When a capability-tracked value flows to an untracked callee or
+  untracked parameter, record a proof frontier rather than failing immediately.
+  Later operations that require a proven capability must reject the value.
 - `Send`: validate channel element capability; consume `\iso` sends; reject
   non-sendable `\mub` and `\rob`. Ownership moves are root-only: sending
   `x.f` as an owned move is rejected rather than silently clearing or rewriting
@@ -365,9 +368,12 @@ ownership steps:
 - `\mub` and `\rob` are non-sendable and must not escape through returns,
   heap stores, closures, goroutines, interfaces, or unknown calls.
 - Writes through `\rob` or `\imm` are rejected at every recoverable depth.
-- Passing capability-tracked values to untracked code requires `\unsafe`.
-- Interfaces, reflection, `sync`, atomics, and unsafe operations are treated
-  as boundaries until explicitly modeled.
+- Passing capability-tracked values to untracked code or into interfaces ends
+  the local proof for that place. The boundary itself is not a hard error
+  during incremental adoption, but later `\iso`, `\mub`, `\rob`, or `\imm`
+  operations must not pretend the capability is still proven.
+- Reflection, `sync`, atomics, and unsafe operations are treated as boundaries
+  until explicitly modeled.
 
 Conservative false rejections are acceptable. False acceptance is not.
 
@@ -441,7 +447,7 @@ func good(x \iso *T) \imm *T {
 }
 
 func bad(x \iso *T) \imm *T {
-    leakBorrowSomehow(x) // untracked/escaping borrow requires unsafe or reject
+    leakBorrowSomehow(x) // proof frontier: x is no longer proven isolated
     return x
 }
 ```
@@ -477,8 +483,11 @@ Completed checker slices:
 - `GWN005`: writes through `\rob`/`\imm`.
 - `GWN006`: storing borrows into escaping locations.
 - `GWN007`: returning borrows.
-- `GWN008`: passing tracked values to untracked user calls.
-- `GWN009`: erasing tracked values into interfaces.
+- `GWN008`/`GWN009`: legacy hard-boundary checks for untracked calls and
+  interface erasure. These have been superseded for ordinary tracked values by
+  proof frontier tracking in `GWN001`.
+- `GWN012`: using a value as a proven capability after its proof has ended at
+  an untracked call, untracked parameter, or interface-erasure frontier.
 
 Important limitation:
 
@@ -707,6 +716,18 @@ deferred closure that eventually performs a root `\iso` move is rejected as a
 possible repeated move, while repeated deferred read-only effects are allowed.
 This is conservative but matches Go's runtime defer stack semantics.
 
+Incremental annotation needs a different rule for unannotated code than the
+original hard-boundary design. Unannotated values and functions are outside the
+proof by default. Passing `a \iso *T` to `Plain(a)` or erasing it into `any`
+therefore records a proof frontier instead of reporting an immediate error.
+The checker marks the source place as no longer proven; ordinary unannotated
+uses may continue, but later operations that require the original proof, such
+as sending `a` on `chan \iso *T`, calling `Take(a)` where `Take` requires
+`\iso`, borrowing `a` for a `\rob`/`\mub` parameter, or returning it as a
+tracked result, are rejected with `GWN012`. Frontier facts merge
+conservatively across branches: if any predecessor can end the proof for `a`,
+the join treats `a` as no longer proven.
+
 Escaping closures add a second closure rule. Go function values are ordinary
 copyable values, so a returned, stored, or untracked-call-passed closure cannot
 safely capture `\iso`, `\mub`, or `\rob`. `\iso` is included because a copied
@@ -729,12 +750,14 @@ deferred closure borrow captures, deferred closure inferred borrow effects,
 deferred closure iso-consuming effects with LIFO exit ordering, deferred
 closure body CFG precision for branches, sends, calls, and ordinary reads,
 repeated deferred closure `\iso` move rejection, and projected field-move
-rejection. It
+rejection. It also tracks proof frontiers for untracked calls, untracked
+parameters of partially annotated calls, and interface erasure, rejecting later
+capability-required operations with `GWN012`. It
 also includes `GWN002` through `GWN010` parity for inferred call-borrow
 conflicts, send capability checks, goroutine borrow escapes, escaping closures
 that capture non-shareable tracked values, read-only writes, borrow stores,
-returned borrows, untracked call boundaries, and interface erasure. These SSA
-checks are now wired into the main checker pipeline, with AST/place
+and returned borrows. These SSA checks are now wired into the main checker
+pipeline, with AST/place
 implementations retained as fallbacks and comparison references.
 
 Wiring the SSA runner into the main pipeline exposed one diagnostic lesson:
@@ -770,7 +793,10 @@ mapping generated `.go` paths back to original `.gown` paths.
   root moves, named borrow liveness, deferred closure effects, and local closure
   aliases across back edges. Deferred closure body coverage now uses the
   closure's own SSA CFG for branches, sends, calls, ordinary reads, and
-  post-merge move checks at function exit. Explicit freeze/clone,
-  interprocedural and heap/container/interface closure flow, closure bodies
-  with nested defers or more complex escaping effects, and precise
+  post-merge move checks at function exit. Proof frontier coverage now handles
+  direct untracked calls, untracked parameters in otherwise annotated calls,
+  interface erasure, branch merges, later sends, later tracked calls, later
+  borrows, and tracked returns. Explicit freeze/clone, interprocedural and
+  heap/container/interface closure flow, closure bodies with nested defers or
+  more complex escaping effects, surfaced frontier notes, and precise
   unsafe/synchronization boundaries still need broader treatment.

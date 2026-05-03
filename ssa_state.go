@@ -1,9 +1,10 @@
 package gown
 
 type SSAFunctionState struct {
-	Consumed map[PlaceKey]SSAMoveSite
-	Borrows  []SSABorrow
-	Deferred []SSADeferredGroup
+	Consumed   map[PlaceKey]SSAMoveSite
+	Frontiered map[PlaceKey]SSAFrontierSite
+	Borrows    []SSABorrow
+	Deferred   []SSADeferredGroup
 }
 
 type SSAMoveSite struct {
@@ -18,6 +19,13 @@ type SSABorrow struct {
 	Cap   Cap
 }
 
+type SSAFrontierSite struct {
+	Name string
+	Kind string
+	Line int
+	Col  int
+}
+
 type SSAStateViolation struct {
 	Code    CheckerErrorCode
 	Place   PlaceKey
@@ -26,7 +34,8 @@ type SSAStateViolation struct {
 
 func NewSSAFunctionState() SSAFunctionState {
 	return SSAFunctionState{
-		Consumed: make(map[PlaceKey]SSAMoveSite),
+		Consumed:   make(map[PlaceKey]SSAMoveSite),
+		Frontiered: make(map[PlaceKey]SSAFrontierSite),
 	}
 }
 
@@ -34,6 +43,9 @@ func (state SSAFunctionState) Clone() SSAFunctionState {
 	clone := NewSSAFunctionState()
 	for place, site := range state.Consumed {
 		clone.Consumed[place] = site
+	}
+	for place, site := range state.Frontiered {
+		clone.Frontiered[place] = site
 	}
 	clone.Borrows = append(clone.Borrows, state.Borrows...)
 	clone.Deferred = append(clone.Deferred, state.Deferred...)
@@ -78,6 +90,33 @@ func (state *SSAFunctionState) UnconsumeRoot(place PlaceKey) {
 		return
 	}
 	delete(state.Consumed, PlaceKey{Root: place.Root})
+}
+
+func (state *SSAFunctionState) EnterFrontier(place PlaceKey, site SSAFrontierSite) {
+	if place.Root == nil {
+		return
+	}
+	state.Frontiered[place] = site
+}
+
+func (state *SSAFunctionState) CheckFrontier(place PlaceKey) (SSAFrontierSite, bool) {
+	for frontiered, site := range state.Frontiered {
+		if frontiered.Overlaps(place) {
+			return site, true
+		}
+	}
+	return SSAFrontierSite{}, false
+}
+
+func (state *SSAFunctionState) UnfrontierRoot(place PlaceKey) {
+	if place.Root == nil {
+		return
+	}
+	for frontiered := range state.Frontiered {
+		if frontiered.Root == place.Root {
+			delete(state.Frontiered, frontiered)
+		}
+	}
 }
 
 func (state *SSAFunctionState) BeginBorrow(place PlaceKey, cap Cap) (SSAStateViolation, bool) {
@@ -146,6 +185,14 @@ func MergeSSAFunctionStates(left, right SSAFunctionState) (SSAFunctionState, []S
 			merged.Consumed[place] = site
 		}
 	}
+	for place, site := range left.Frontiered {
+		merged.Frontiered[place] = site
+	}
+	for place, site := range right.Frontiered {
+		if _, ok := merged.Frontiered[place]; !ok {
+			merged.Frontiered[place] = site
+		}
+	}
 
 	var violations []SSAStateViolation
 	for _, borrow := range left.Borrows {
@@ -199,11 +246,19 @@ func borrowsConflict(a, b SSABorrow) bool {
 }
 
 func equalSSAFunctionState(a, b SSAFunctionState) bool {
-	if len(a.Consumed) != len(b.Consumed) || len(a.Borrows) != len(b.Borrows) || len(a.Deferred) != len(b.Deferred) {
+	if len(a.Consumed) != len(b.Consumed) ||
+		len(a.Frontiered) != len(b.Frontiered) ||
+		len(a.Borrows) != len(b.Borrows) ||
+		len(a.Deferred) != len(b.Deferred) {
 		return false
 	}
 	for place, site := range a.Consumed {
 		if b.Consumed[place] != site {
+			return false
+		}
+	}
+	for place, site := range a.Frontiered {
+		if b.Frontiered[place] != site {
 			return false
 		}
 	}

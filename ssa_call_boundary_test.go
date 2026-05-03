@@ -2,18 +2,22 @@ package gown
 
 import "testing"
 
-func TestSSAGWN008RejectsIsoPassedToUntrackedUserCall(t *testing.T) {
+func TestSSAGWN008AllowsIsoPassedToUntrackedUserCallAsFrontier(t *testing.T) {
 	gp := loadGownForSSACheck(t, "iso_plain_call.gown", gownIsoToPlainCallSource)
 
 	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN008)
+	if len(errs) != 0 {
+		t.Fatalf("SSA untracked-call checker unexpectedly rejected proof frontier: %#v", errs)
+	}
 }
 
-func TestSSAGWN008RejectsBorrowPassedToUntrackedUserCall(t *testing.T) {
+func TestSSAGWN008AllowsBorrowPassedToUntrackedUserCallAsFrontier(t *testing.T) {
 	gp := loadGownForSSACheck(t, "mub_plain_call.gown", gownMubToPlainCallSource)
 
 	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN008)
+	if len(errs) != 0 {
+		t.Fatalf("SSA untracked-call checker unexpectedly rejected borrow proof frontier: %#v", errs)
+	}
 }
 
 func TestSSAGWN008AllowsUntrackedValuePassedToUntrackedUserCall(t *testing.T) {

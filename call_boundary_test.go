@@ -74,14 +74,18 @@ func main() {
 }
 `
 
-func TestGWN008RejectsIsoPassedToUntrackedUserCall(t *testing.T) {
+func TestGWN008AllowsIsoPassedToUntrackedUserCallAsFrontier(t *testing.T) {
 	err := checkGownSource(t, "iso_plain_call.gown", gownIsoToPlainCallSource)
-	requireCheckerCode(t, err, GWN008)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestGWN008RejectsBorrowPassedToUntrackedUserCall(t *testing.T) {
+func TestGWN008AllowsBorrowPassedToUntrackedUserCallAsFrontier(t *testing.T) {
 	err := checkGownSource(t, "mub_plain_call.gown", gownMubToPlainCallSource)
-	requireCheckerCode(t, err, GWN008)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGWN008AllowsUntrackedValuePassedToUntrackedUserCall(t *testing.T) {
@@ -98,7 +102,9 @@ func TestGWN008AllowsTrackedValuePassedToBuiltin(t *testing.T) {
 	}
 }
 
-func TestGWN008RejectsTrackedFieldPassedToUntrackedUserCall(t *testing.T) {
+func TestGWN008AllowsTrackedFieldPassedToUntrackedUserCallAsFrontier(t *testing.T) {
 	err := checkGownSource(t, "field_plain_call.gown", gownTrackedFieldToPlainCallSource)
-	requireCheckerCode(t, err, GWN008)
+	if err != nil {
+		t.Fatal(err)
+	}
 }

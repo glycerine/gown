@@ -42,14 +42,18 @@ func main() {
 }
 `
 
-func TestGWN009RejectsIsoStoredIntoInterface(t *testing.T) {
+func TestGWN009AllowsIsoStoredIntoInterfaceAsFrontier(t *testing.T) {
 	err := checkGownSource(t, "iso_interface.gown", gownIsoToInterfaceValueSpecSource)
-	requireCheckerCode(t, err, GWN009)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestGWN009RejectsBorrowAssignedIntoInterface(t *testing.T) {
+func TestGWN009AllowsBorrowAssignedIntoInterfaceAsFrontier(t *testing.T) {
 	err := checkGownSource(t, "mub_interface.gown", gownMubToInterfaceAssignSource)
-	requireCheckerCode(t, err, GWN009)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGWN009AllowsUntrackedValueStoredIntoInterface(t *testing.T) {
@@ -59,7 +63,9 @@ func TestGWN009AllowsUntrackedValueStoredIntoInterface(t *testing.T) {
 	}
 }
 
-func TestGWN009RejectsTrackedFieldStoredIntoInterface(t *testing.T) {
+func TestGWN009AllowsTrackedFieldStoredIntoInterfaceAsFrontier(t *testing.T) {
 	err := checkGownSource(t, "iso_field_interface.gown", gownIsoFieldToInterfaceSource)
-	requireCheckerCode(t, err, GWN009)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
