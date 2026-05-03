@@ -46,8 +46,9 @@ type AnnotationToken struct {
 }
 
 type CapQualifierAnnotation struct {
-	Span SourceSpan
-	Cap  Cap
+	Span         SourceSpan
+	Cap          Cap
+	TargetOffset int
 }
 
 type IntrinsicAnnotation struct {

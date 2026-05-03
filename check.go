@@ -15,6 +15,7 @@ type GownPackage struct {
 	path  string // directory containing the package
 	pkg   *packages.Package
 	files []*gownFile
+	caps  *CapabilityIndex
 }
 
 func NewGownPackage(path string) *GownPackage {
@@ -74,6 +75,7 @@ func (gp *GownPackage) Check() error {
 	if len(gp.pkg.Errors) > 0 {
 		return fmt.Errorf("package error: %v", gp.pkg.Errors[0])
 	}
+	gp.caps = assignCapabilities(gp.pkg, gp.files)
 
 	for _, gf := range gp.files {
 		assignRegions(gp.pkg, gf)

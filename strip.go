@@ -132,7 +132,11 @@ func scanGownToken(gf *gownFile, emit, analysis, gownSrc []byte, lineStarts []in
 func recordCapQualifier(gf *gownFile, emit, analysis []byte, span SourceSpan, cap Cap) {
 	token := &AnnotationToken{Span: span, Kind: AnnotationCapQualifier}
 	gf.annotations = append(gf.annotations, token)
-	gf.capQualifiers = append(gf.capQualifiers, &CapQualifierAnnotation{Span: span, Cap: cap})
+	gf.capQualifiers = append(gf.capQualifiers, &CapQualifierAnnotation{
+		Span:         span,
+		Cap:          cap,
+		TargetOffset: firstNonSpaceOffset(emit, span.End),
+	})
 	if cap == CapIso {
 		gf.iso = append(gf.iso, &isoAnnotation{
 			offset: span.Offset,
@@ -231,6 +235,19 @@ func followedByCall(src []byte, offset int) bool {
 		}
 	}
 	return false
+}
+
+func firstNonSpaceOffset(src []byte, offset int) int {
+	for offset < len(src) {
+		switch src[offset] {
+		case ' ', '\t', '\n', '\r':
+			offset++
+			continue
+		default:
+			return offset
+		}
+	}
+	return 0
 }
 
 func skipLineComment(src []byte, offset int) int {
