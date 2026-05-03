@@ -134,14 +134,15 @@ func TestPositionPrecision(t *testing.T) {
 	// 6. Check that \iso annotations line up with AST positions.
 	// For each \iso at offset X, the type node should start at X+5
 	// (4 bytes for \iso + 1 space).
-	// Also verify the original source had \iso at those bytes.
+	// Also verify line/col are 1-based and correct.
 	matched := 0
 	for _, ann := range annotations {
 		expected := ann.offset + 5 // \iso + space
 		for _, p := range params {
 			if p.offset == expected {
-				t.Logf("MATCH: \\iso@%d → %s.%s type@%d",
-					ann.offset, p.funcName, p.paramName, p.offset)
+				t.Logf("MATCH: \\iso@%d:%d:%d → %s.%s type@%d",
+					ann.offset, ann.line, ann.col,
+					p.funcName, p.paramName, p.offset)
 				matched++
 
 				// Verify the original bytes
@@ -162,7 +163,7 @@ func TestPositionPrecision(t *testing.T) {
 		t.Errorf("matched %d of %d annotations", matched, len(annotations))
 		t.Log("\nDumping all offsets for debugging:")
 		for _, ann := range annotations {
-			t.Logf("  \\iso@%d, expected type@%d", ann.offset, ann.offset+5)
+			t.Logf("  \\iso@%d:%d:%d, expected type@%d", ann.offset, ann.line, ann.col, ann.offset+5)
 		}
 		for _, p := range params {
 			t.Logf("  AST %s.%s offset=%d", p.funcName, p.paramName, p.offset)
@@ -170,5 +171,21 @@ func TestPositionPrecision(t *testing.T) {
 		t.Fatal("not all annotations matched AST positions")
 	}
 
-	t.Logf("\nAll %d annotations matched AST positions — byte precision confirmed", matched)
+	// 7. Verify line/col are 1-based and match expected positions in the source.
+	// gownSource line 7: "func Send(ch chan *Msg, m \iso *Msg) {"
+	// gownSource line 11: "func Recv(ch chan *Msg) \iso *Msg {"
+	if annotations[0].line != 7 {
+		t.Errorf("annotation 0: expected line 7, got %d", annotations[0].line)
+	}
+	if annotations[1].line != 11 {
+		t.Errorf("annotation 1: expected line 11, got %d", annotations[1].line)
+	}
+	if annotations[0].col < 1 {
+		t.Errorf("annotation 0: col must be >= 1, got %d", annotations[0].col)
+	}
+	if annotations[1].col < 1 {
+		t.Errorf("annotation 1: col must be >= 1, got %d", annotations[1].col)
+	}
+
+	t.Logf("\nAll %d annotations matched — offset, line, col all confirmed", matched)
 }
