@@ -46,8 +46,9 @@ Implemented:
 - SSA-backed checker passes currently reject several capability violations:
   moved `\iso` use, conflicting inferred call borrows, non-sendable sends,
   channel/value capability mismatch, inferred freeze-on-send to `chan \imm`,
-  goroutine borrow escapes, read-only writes, borrow stores, returned borrows,
-  untracked call boundaries, and interface erasure.
+  goroutine borrow escapes, escaping closures that capture non-shareable
+  tracked values, read-only writes, borrow stores, returned borrows, untracked
+  call boundaries, and interface erasure.
 - Diagnostics report structured `GWN` errors against original `.gown` source
   and include source-line context.
 - CLI `-check` mode validates with a `go/packages` overlay and does not write
@@ -58,8 +59,8 @@ Implemented:
 Still missing:
 
 - Broader SSA dataflow beyond the current `GWN001` consumed-place and named
-  borrow-liveness engine, especially loops, complex closure-contained borrows,
-  and explicit freeze/clone/unsafe.
+  borrow-liveness engine, especially loops, closure aliasing beyond simple
+  local function variables, and explicit freeze/clone/unsafe.
 - Final emit behavior that inserts nil assignments after consumed `\iso`
   moves.
 - Semantics for explicit freeze/clone/unsafe beyond token recognition and
@@ -674,6 +675,14 @@ live-to-exit borrows. This is intentionally conservative; a more precise
 future model can reason about function-exit ordering, reassignment, and LIFO
 defer order.
 
+Escaping closures add a second closure rule. Go function values are ordinary
+copyable values, so a returned, stored, or untracked-call-passed closure cannot
+safely capture `\iso`, `\mub`, or `\rob`. `\iso` is included because a copied
+function value could invoke the same captured unique value more than once or
+from multiple places. The current checker rejects direct escaping function
+literals and simple local aliases such as `fn := func(){ ... }; return fn`.
+Non-escaping local closure calls remain allowed.
+
 Current SSA checker coverage includes `GWN001` parity for direct sends,
 inferred freeze-sends to `chan \imm`, iso-consuming calls, deferred
 iso-consuming calls, assignment moves, branch merges, goroutine calls, closure
@@ -682,10 +691,11 @@ deferred named borrow snapshots, deferred inferred borrow arguments, deferred
 closure borrow captures, deferred closure inferred borrow effects, deferred
 closure iso-consuming effects, and projected field-move rejection. It also
 includes `GWN002` through `GWN010` parity for inferred call-borrow
-conflicts, send capability checks, goroutine borrow escapes, read-only writes,
-borrow stores, returned borrows, untracked call boundaries, and interface
-erasure. These SSA checks are now wired into the main checker pipeline, with
-AST/place implementations retained as fallbacks and comparison references.
+conflicts, send capability checks, goroutine borrow escapes, escaping closures
+that capture non-shareable tracked values, read-only writes, borrow stores,
+returned borrows, untracked call boundaries, and interface erasure. These SSA
+checks are now wired into the main checker pipeline, with AST/place
+implementations retained as fallbacks and comparison references.
 
 Wiring the SSA runner into the main pipeline exposed one diagnostic lesson:
 operation positions and annotation positions are both valuable, but not
@@ -714,6 +724,8 @@ mapping generated `.go` paths back to original `.gown` paths.
   covers straight-line code and branches for sends, inferred freeze-sends,
   calls, goroutine calls, deferred inferred borrow arguments, deferred named
   borrow arguments, deferred closure captures, and tracked calls inside
-  deferred function literals. Explicit freeze/clone, loops under heavier
-  mutation, precise deferred closure exit ordering, and precise
-  unsafe/synchronization boundaries still need broader treatment.
+  deferred function literals. Closure escape checks now cover direct function
+  literals and simple local aliases returned, stored into escaping locations,
+  or passed to untracked calls. Explicit freeze/clone, loops under heavier
+  mutation, precise deferred closure exit ordering, richer closure aliasing,
+  and precise unsafe/synchronization boundaries still need broader treatment.

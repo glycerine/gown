@@ -18,6 +18,7 @@ var checkerPasses = []CheckerPass{
 	checkCallBorrows,
 	checkSends,
 	checkGoEscapes,
+	checkClosureEscapes,
 	checkStores,
 	checkReturns,
 	checkUntrackedCalls,
@@ -59,6 +60,13 @@ func checkGoEscapes(ctx *CheckerContext) CheckerErrors {
 		return checkGoBorrowEscapesSSA(ctx.Pkg, ctx.SSAPkg, ctx.Caps)
 	}
 	return checkGoBorrowEscapes(ctx.Pkg, ctx.Caps)
+}
+
+func checkClosureEscapes(ctx *CheckerContext) CheckerErrors {
+	if ctx.SSAPkg != nil {
+		return checkClosureEscapesSSA(ctx.Pkg, ctx.SSAPkg, ctx.Caps)
+	}
+	return nil
 }
 
 func checkStores(ctx *CheckerContext) CheckerErrors {
