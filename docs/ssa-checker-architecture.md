@@ -317,7 +317,9 @@ Required transfer handlers:
   metadata; require an explicit unsafe boundary for untracked code that
   receives capability-tracked values.
 - `Send`: validate channel element capability; consume `\iso` sends; reject
-  non-sendable `\mub` and `\rob`.
+  non-sendable `\mub` and `\rob`. Ownership moves are root-only: sending
+  `x.f` as an owned move is rejected rather than silently clearing or rewriting
+  the user's field.
 - `Go`: validate arguments and closure bindings; consume captured `\iso`;
   reject borrow captures.
 - `Store`: reject writes through `\rob`/`\imm`; reject heap stores of borrows.
@@ -553,6 +555,10 @@ Spike progress:
   `IndexAddr`, `Lookup`, and `MakeInterface`, back to the root place.
 - This supports the hybrid design: AST/types remain the source of truth for
   source places, while SSA can provide ordering, liveness, and CFG joins.
+- A prototype `SSAFunctionState` models consumed root places, temporary borrows,
+  and conservative CFG merges. It explicitly rejects ownership moves from field
+  projections (`x.f`) instead of inserting hidden nil assignments or silently
+  consuming sibling state.
 
 ## Open Implementation Notes
 
