@@ -1,7 +1,7 @@
 /-
   Gown: Mechanized Race Freedom Proof
   ====================================
-  Lean 4 formalization. No Mathlib. No sorry.
+  Lean 4 formalization. No Mathlib. No sorry. No custom axioms.
   To check: `lean Gown.lean`
 -/
 
@@ -49,7 +49,7 @@ structure Config where
 def canReach (cfg : Config) (g : GoroutineId) (ℓ : Loc) : Prop := ∃ c, cfg.owns g ℓ c
 
 -- ============================================================================
--- Isolation Invariant
+-- Invariants
 -- ============================================================================
 
 def Iso (cfg : Config) : Prop :=
@@ -58,10 +58,27 @@ def Iso (cfg : Config) : Prop :=
 def Fresh (cfg : Config) : Prop :=
   ∀ g ℓ c, cfg.owns g ℓ c → ℓ < cfg.nextLoc
 
-def WF (cfg : Config) : Prop := Iso cfg ∧ Fresh cfg
+def Coherent (cfg : Config) : Prop :=
+  ∀ g ℓ c, cfg.owns g ℓ c → Mutable c → ¬cfg.owns g ℓ imm
 
-axiom iso_excl (cfg : Config) (h : Iso cfg) (g : GoroutineId) (ℓ : Loc) :
-    cfg.owns g ℓ iso → ∀ g', g' ≠ g → ∀ c, ¬cfg.owns g' ℓ c
+def WF (cfg : Config) : Prop := Iso cfg ∧ Fresh cfg ∧ Coherent cfg
+
+-- ============================================================================
+-- Key Lemmas from Invariants
+-- ============================================================================
+
+theorem iso_excl (cfg : Config) (h : Iso cfg) (g : GoroutineId) (ℓ : Loc) :
+    cfg.owns g ℓ iso → ∀ g', g' ≠ g → ∀ c, ¬cfg.owns g' ℓ c := by
+  intro hown g' hne c hc
+  exact h g g' ℓ iso hown (by decide) (fun e => hne e.symm) ⟨c, hc⟩
+
+theorem no_mut_at_imm (cfg : Config) (hi : Iso cfg) (hco : Coherent cfg)
+    (g₀ : GoroutineId) (ℓ : Loc) (ho : cfg.owns g₀ ℓ imm)
+    (g : GoroutineId) (c : Cap) (hm : Mutable c) : ¬cfg.owns g ℓ c := by
+  intro hgc
+  by_cases heq : g = g₀
+  · subst heq; exact hco g ℓ c hgc hm ho
+  · exact hi g g₀ ℓ c hgc hm heq ⟨imm, ho⟩
 
 -- ============================================================================
 -- Steps (Relational)
@@ -145,67 +162,57 @@ theorem race_freedom (cfg : Config) (a₁ a₂ : Access)
 -- Isolation Preservation Helpers
 -- ============================================================================
 
--- Pattern 1: fresh allocation (new_, clone_)
 private theorem pres_fresh (o : Owns) (n : Loc) (g : GoroutineId)
     (hi : Iso ⟨o, n⟩) (hf : Fresh ⟨o, n⟩) :
     Iso ⟨fun g' ℓ c => (g' = g ∧ ℓ = n ∧ c = iso) ∨ o g' ℓ c, n + 1⟩ := by
   intro g₁ g₂ ℓ c h₁ hm h12 ⟨c₂, h₂⟩
   cases h₁ with
   | inl h₁ =>
-    obtain ⟨rfl, rfl, rfl⟩ := h₁
     cases h₂ with
-    | inl h₂ => exact h12 h₂.1
-    | inr h₂ => exact absurd (hf _ _ _ h₂) (by omega)
+    | inl h₂ => exact h12 (h₁.1.trans h₂.1.symm)
+    | inr h₂ => rw [h₁.2.1] at h₂; exact Nat.lt_irrefl _ (hf _ _ _ h₂)
   | inr h₁ =>
     cases h₂ with
-    | inl h₂ => obtain ⟨_, rfl, _⟩ := h₂; exact absurd (hf _ _ _ h₁) (by omega)
+    | inl h₂ => rw [h₂.2.1] at h₁; exact Nat.lt_irrefl _ (hf _ _ _ h₁)
     | inr h₂ => exact hi _ _ _ _ h₁ hm h12 ⟨_, h₂⟩
 
--- Pattern 2: add imm to receiver (send_imm, spawn_imm)
 private theorem pres_add_imm (o : Owns) (n : Loc) (g_src gr : GoroutineId)
-    (ℓ : Loc) (hi : Iso ⟨o, n⟩) (ho : o g_src ℓ imm) :
+    (ℓ : Loc) (hi : Iso ⟨o, n⟩) (hco : Coherent ⟨o, n⟩) (ho : o g_src ℓ imm) :
     Iso ⟨fun g' ℓ' c => (g' = gr ∧ ℓ' = ℓ ∧ c = imm) ∨ o g' ℓ' c, n⟩ := by
   intro g₁ g₂ ℓ' c h₁ hm h12 ⟨c₂, h₂⟩
   cases h₁ with
-  | inl h₁ => obtain ⟨_, _, rfl⟩ := h₁; exact absurd hm not_mutable_imm
+  | inl h₁ => rw [h₁.2.2] at hm; exact absurd hm not_mutable_imm
   | inr h₁ =>
     cases h₂ with
-    | inl h₂ => obtain ⟨_, rfl, _⟩ := h₂; exact hi _ _ _ _ h₁ hm h12 ⟨imm, ho⟩
+    | inl h₂ =>
+      rw [h₂.2.1] at h₁
+      exact absurd h₁ (no_mut_at_imm ⟨o, n⟩ hi hco g_src ℓ ho g₁ c hm)
     | inr h₂ => exact hi _ _ _ _ h₁ hm h12 ⟨_, h₂⟩
 
--- Pattern 3: transfer iso (send_iso, send_iso_imm, spawn_iso)
--- Sender loses refs at ℓ, receiver gains `rc` at ℓ.
 private theorem pres_transfer (o : Owns) (n : Loc) (gs gr : GoroutineId) (ℓ : Loc)
-    (rc : Cap) (hi : Iso ⟨o, n⟩) (ho : o gs ℓ iso) (hsr : gs ≠ gr)
-    (hrc_mut : Mutable rc → rc = iso) :  -- rc is either iso or imm
+    (rc : Cap) (hi : Iso ⟨o, n⟩) (ho : o gs ℓ iso) (_ : gs ≠ gr)
+    (_ : Mutable rc → rc = iso) :
     Iso ⟨fun g' ℓ' c =>
       if ℓ' = ℓ then (g' = gr ∧ c = rc) ∨ (g' ≠ gs ∧ o g' ℓ' c)
       else o g' ℓ' c, n⟩ := by
   intro g₁ g₂ ℓ' c h₁ hm h12 ⟨c₂, h₂⟩
   by_cases hℓ : ℓ' = ℓ
-  · subst hℓ
-    simp only [ite_true] at h₁ h₂
+  · subst hℓ; simp only [ite_true] at h₁ h₂
     cases h₁ with
     | inl h₁ =>
-      obtain ⟨rfl, rfl⟩ := h₁
-      -- g₁ = gr, c = rc. rc is mutable ⟹ rc = iso. g₂ ≠ gr.
       cases h₂ with
-      | inl h₂ => exact h12 h₂.1
-      | inr h₂ =>
-        -- g₂ ≠ gs, o g₂ ℓ c₂. But gs held iso on ℓ. iso_excl says g₂ can't.
-        exact iso_excl ⟨o,n⟩ hi gs ℓ ho g₂ (fun e => h₂.1 e.symm) c₂ h₂.2
-    | inr h₁ =>
-      -- g₁ ≠ gs, o g₁ ℓ c. But gs held iso ⟹ nobody else holds anything on ℓ.
-      exact absurd h₁.2 (iso_excl ⟨o,n⟩ hi gs ℓ ho g₁ (fun e => h₁.1 e.symm) c)
+      | inl h₂ => exact h12 (h₁.1.trans h₂.1.symm)
+      | inr h₂ => exact iso_excl ⟨o,n⟩ hi gs ℓ' ho g₂ h₂.1 c₂ h₂.2
+    | inr h₁ => exact absurd h₁.2 (iso_excl ⟨o,n⟩ hi gs ℓ' ho g₁ h₁.1 c)
   · simp only [show ¬(ℓ' = ℓ) from hℓ, ite_false] at h₁ h₂
     exact hi _ _ _ _ h₁ hm h12 ⟨_, h₂⟩
 
 -- ============================================================================
--- Main Preservation Theorem
+-- Isolation Preservation
 -- ============================================================================
 
 theorem iso_pres (cfg cfg' : Config) (h : Step cfg cfg') (hw : WF cfg) : Iso cfg' := by
-  obtain ⟨hi, hf⟩ := hw
+  obtain ⟨hi, hf, hc⟩ := hw
   cases h with
 
   | new_ o n g => exact pres_fresh o n g hi hf
@@ -216,15 +223,12 @@ theorem iso_pres (cfg cfg' : Config) (h : Step cfg cfg') (hw : WF cfg) : Iso cfg
   | freeze_ o n g ℓ ho =>
     intro g₁ g₂ ℓ' c h₁ hm h12 ⟨c₂, h₂⟩
     by_cases hg₁ : g₁ = g ∧ ℓ' = ℓ
-    · -- h₁ gives c = imm. Mutable imm = false. Contradiction.
-      simp only [hg₁.1, hg₁.2, and_self, ite_true] at h₁
+    · simp only [hg₁.1, hg₁.2, and_self, ite_true] at h₁
       rw [h₁] at hm; exact absurd hm not_mutable_imm
-    · -- h₁ from old state
-      simp only [show ¬(g₁ = g ∧ ℓ' = ℓ) from hg₁, ite_false] at h₁
+    · simp only [show ¬(g₁ = g ∧ ℓ' = ℓ) from hg₁, ite_false] at h₁
       by_cases hg₂ : g₂ = g ∧ ℓ' = ℓ
-      · -- g₂ = g, ℓ' = ℓ. Old state: g held iso on ℓ. iso_excl kills g₁.
-        obtain ⟨rfl, rfl⟩ := hg₂
-        exact iso_excl ⟨o,n⟩ hi g ℓ ho g₁ (fun e => hg₁ ⟨e.symm, rfl⟩) c h₁
+      · rw [hg₂.2] at h₁
+        exact iso_excl ⟨o,n⟩ hi g ℓ ho g₁ (fun e => hg₁ ⟨e, hg₂.2⟩) c h₁
       · simp only [show ¬(g₂ = g ∧ ℓ' = ℓ) from hg₂, ite_false] at h₂
         exact hi _ _ _ _ h₁ hm h12 ⟨_, h₂⟩
 
@@ -232,52 +236,263 @@ theorem iso_pres (cfg cfg' : Config) (h : Step cfg cfg') (hw : WF cfg) : Iso cfg
     intro g₁ g₂ ℓ' c h₁ hm h12 ⟨c₂, h₂⟩
     cases h₁ with
     | inl h₁ =>
-      obtain ⟨rfl, rfl, rfl⟩ := h₁
       cases h₂ with
-      | inl h₂ => exact h12 h₂.1
-      | inr h₂ => exact iso_excl ⟨o,n⟩ hi g ℓ ho g₂ (fun e => h12 e.symm) c₂ h₂
+      | inl h₂ => exact h12 (h₁.1.trans h₂.1.symm)
+      | inr h₂ =>
+        rw [h₁.2.1] at h₂
+        exact iso_excl ⟨o,n⟩ hi g ℓ ho g₂ (fun e => h12 (h₁.1.trans e.symm)) c₂ h₂
     | inr h₁ =>
       cases h₂ with
       | inl h₂ =>
-        obtain ⟨rfl, rfl, rfl⟩ := h₂
-        exact iso_excl ⟨o,n⟩ hi g ℓ ho g₁ (fun e => h12 e) c h₁
+        rw [h₂.2.1] at h₁
+        exact iso_excl ⟨o,n⟩ hi g ℓ ho g₁ (fun e => h12 (e.trans h₂.1.symm)) c h₁
       | inr h₂ => exact hi _ _ _ _ h₁ hm h12 ⟨_, h₂⟩
 
   | rob_iso o n g ℓ ho =>
     intro g₁ g₂ ℓ' c h₁ hm h12 ⟨c₂, h₂⟩
     cases h₁ with
-    | inl h₁ => obtain ⟨_, _, rfl⟩ := h₁; exact absurd hm not_mutable_rob
+    | inl h₁ => rw [h₁.2.2] at hm; exact absurd hm not_mutable_rob
     | inr h₁ =>
       cases h₂ with
       | inl h₂ =>
-        obtain ⟨rfl, rfl, rfl⟩ := h₂
-        exact iso_excl ⟨o,n⟩ hi g ℓ ho g₁ (fun e => h12 e) c h₁
+        rw [h₂.2.1] at h₁
+        exact iso_excl ⟨o,n⟩ hi g ℓ ho g₁ (fun e => h12 (e.trans h₂.1.symm)) c h₁
       | inr h₂ => exact hi _ _ _ _ h₁ hm h12 ⟨_, h₂⟩
 
   | rob_imm o n g ℓ ho =>
     intro g₁ g₂ ℓ' c h₁ hm h12 ⟨c₂, h₂⟩
     cases h₁ with
-    | inl h₁ => obtain ⟨_, _, rfl⟩ := h₁; exact absurd hm not_mutable_rob
+    | inl h₁ => rw [h₁.2.2] at hm; exact absurd hm not_mutable_rob
     | inr h₁ =>
       cases h₂ with
       | inl h₂ =>
-        obtain ⟨rfl, rfl, rfl⟩ := h₂
-        -- g₂ = g holds new rob. g₁ ≠ g holds mutable c in old state.
-        -- Old iso: g₁ mut on ℓ ⟹ ¬canReach g ℓ. But g holds imm on ℓ.
-        exact hi _ _ _ _ h₁ hm (fun e => h12 e) ⟨imm, ho⟩
+        rw [h₂.2.1] at h₁
+        exact hi _ _ _ _ h₁ hm (fun e => h12 (e.trans h₂.1.symm)) ⟨imm, ho⟩
       | inr h₂ => exact hi _ _ _ _ h₁ hm h12 ⟨_, h₂⟩
 
   | send_iso o n gs gr ℓ ho hsr =>
-    exact pres_transfer o n gs gr ℓ iso hi ho hsr (fun h => rfl)
+    exact pres_transfer o n gs gr ℓ iso hi ho hsr (fun _ => rfl)
 
   | send_iso_imm o n gs gr ℓ ho hsr =>
     exact pres_transfer o n gs gr ℓ imm hi ho hsr (fun h => absurd h not_mutable_imm)
 
-  | send_imm o n gs gr ℓ ho => exact pres_add_imm o n gs gr ℓ hi ho
-  | spawn_imm o n gp gc ℓ ho => exact pres_add_imm o n gp gc ℓ hi ho
+  | send_imm o n gs gr ℓ ho => exact pres_add_imm o n gs gr ℓ hi hc ho
+  | spawn_imm o n gp gc ℓ ho => exact pres_add_imm o n gp gc ℓ hi hc ho
 
   | spawn_iso o n gp gc ℓ ho hpc =>
-    exact pres_transfer o n gp gc ℓ iso hi ho hpc (fun h => rfl)
+    exact pres_transfer o n gp gc ℓ iso hi ho hpc (fun _ => rfl)
+
+-- ============================================================================
+-- Fresh Preservation
+-- ============================================================================
+
+theorem fresh_pres (cfg cfg' : Config) (h : Step cfg cfg') (hw : WF cfg) : Fresh cfg' := by
+  obtain ⟨_, hf, _⟩ := hw
+  cases h with
+  | new_ o n g =>
+    intro g' ℓ c hown
+    cases hown with
+    | inl h => rw [h.2.1]; exact Nat.le.refl
+    | inr h => exact Nat.le.step (hf _ _ _ h)
+  | clone_ o n g _ _ _ =>
+    intro g' ℓ c hown
+    cases hown with
+    | inl h => rw [h.2.1]; exact Nat.le.refl
+    | inr h => exact Nat.le.step (hf _ _ _ h)
+  | freeze_ o n g ℓ ho =>
+    intro g' ℓ' c hown
+    by_cases hgl : g' = g ∧ ℓ' = ℓ
+    · rw [hgl.2]; exact hf _ _ _ ho
+    · simp only [show ¬(g' = g ∧ ℓ' = ℓ) from hgl, ite_false] at hown
+      exact hf _ _ _ hown
+  | mub_ o n g ℓ ho =>
+    intro g' ℓ' c hown
+    cases hown with
+    | inl h => rw [h.2.1]; exact hf _ _ _ ho
+    | inr h => exact hf _ _ _ h
+  | rob_iso o n g ℓ ho =>
+    intro g' ℓ' c hown
+    cases hown with
+    | inl h => rw [h.2.1]; exact hf _ _ _ ho
+    | inr h => exact hf _ _ _ h
+  | rob_imm o n g ℓ ho =>
+    intro g' ℓ' c hown
+    cases hown with
+    | inl h => rw [h.2.1]; exact hf _ _ _ ho
+    | inr h => exact hf _ _ _ h
+  | write_ o n _ _ _ _ _ => exact hf
+  | read_ o n _ _ _ _ => exact hf
+  | send_iso o n gs gr ℓ ho _ =>
+    intro g' ℓ' c hown
+    by_cases hℓ : ℓ' = ℓ
+    · subst hℓ; simp only [ite_true] at hown
+      cases hown with
+      | inl _ => exact hf _ _ _ ho
+      | inr h => exact hf _ _ _ h.2
+    · simp only [show ¬(ℓ' = ℓ) from hℓ, ite_false] at hown
+      exact hf _ _ _ hown
+  | send_iso_imm o n gs gr ℓ ho _ =>
+    intro g' ℓ' c hown
+    by_cases hℓ : ℓ' = ℓ
+    · subst hℓ; simp only [ite_true] at hown
+      cases hown with
+      | inl _ => exact hf _ _ _ ho
+      | inr h => exact hf _ _ _ h.2
+    · simp only [show ¬(ℓ' = ℓ) from hℓ, ite_false] at hown
+      exact hf _ _ _ hown
+  | send_imm o n _ _ ℓ ho =>
+    intro g' ℓ' c hown
+    cases hown with
+    | inl h => rw [h.2.1]; exact hf _ _ _ ho
+    | inr h => exact hf _ _ _ h
+  | spawn_iso o n gp gc ℓ ho _ =>
+    intro g' ℓ' c hown
+    by_cases hℓ : ℓ' = ℓ
+    · subst hℓ; simp only [ite_true] at hown
+      cases hown with
+      | inl _ => exact hf _ _ _ ho
+      | inr h => exact hf _ _ _ h.2
+    · simp only [show ¬(ℓ' = ℓ) from hℓ, ite_false] at hown
+      exact hf _ _ _ hown
+  | spawn_imm o n _ _ ℓ ho =>
+    intro g' ℓ' c hown
+    cases hown with
+    | inl h => rw [h.2.1]; exact hf _ _ _ ho
+    | inr h => exact hf _ _ _ h
+
+-- ============================================================================
+-- Coherent Preservation
+-- ============================================================================
+
+theorem coherent_pres (cfg cfg' : Config) (h : Step cfg cfg') (hw : WF cfg) :
+    Coherent cfg' := by
+  obtain ⟨hi, hf, hc⟩ := hw
+  cases h with
+  | write_ o n _ _ _ _ _ => exact hc
+  | read_ o n _ _ _ _ => exact hc
+
+  | new_ o n g =>
+    intro g' ℓ c hown hm himm
+    have himm' : o g' ℓ imm := by
+      cases himm with
+      | inl h => exact absurd h.2.2 (by decide)
+      | inr h => exact h
+    cases hown with
+    | inl h =>
+      rw [h.2.1] at himm'
+      exact Nat.lt_irrefl _ (hf _ _ _ himm')
+    | inr h => exact hc _ _ _ h hm himm'
+
+  | clone_ o n g _ _ _ =>
+    intro g' ℓ c hown hm himm
+    have himm' : o g' ℓ imm := by
+      cases himm with
+      | inl h => exact absurd h.2.2 (by decide)
+      | inr h => exact h
+    cases hown with
+    | inl h =>
+      rw [h.2.1] at himm'
+      exact Nat.lt_irrefl _ (hf _ _ _ himm')
+    | inr h => exact hc _ _ _ h hm himm'
+
+  | freeze_ o n g ℓ _ =>
+    intro g' ℓ' c hown hm himm
+    by_cases hgl : g' = g ∧ ℓ' = ℓ
+    · simp only [hgl.1, hgl.2, and_self, ite_true] at hown
+      rw [hown] at hm; exact absurd hm not_mutable_imm
+    · simp only [show ¬(g' = g ∧ ℓ' = ℓ) from hgl, ite_false] at hown himm
+      exact hc _ _ _ hown hm himm
+
+  | mub_ o n g ℓ ho =>
+    intro g' ℓ' c hown hm himm
+    have himm' : o g' ℓ' imm := by
+      cases himm with
+      | inl h => exact absurd h.2.2 (by decide)
+      | inr h => exact h
+    cases hown with
+    | inl h =>
+      rw [h.1, h.2.1] at himm'
+      exact hc _ _ _ ho (by decide) himm'
+    | inr h => exact hc _ _ _ h hm himm'
+
+  | rob_iso o n g ℓ _ =>
+    intro g' ℓ' c hown hm himm
+    have himm' : o g' ℓ' imm := by
+      cases himm with
+      | inl h => exact absurd h.2.2 (by decide)
+      | inr h => exact h
+    cases hown with
+    | inl h => rw [h.2.2] at hm; exact absurd hm not_mutable_rob
+    | inr h => exact hc _ _ _ h hm himm'
+
+  | rob_imm o n g ℓ _ =>
+    intro g' ℓ' c hown hm himm
+    have himm' : o g' ℓ' imm := by
+      cases himm with
+      | inl h => exact absurd h.2.2 (by decide)
+      | inr h => exact h
+    cases hown with
+    | inl h => rw [h.2.2] at hm; exact absurd hm not_mutable_rob
+    | inr h => exact hc _ _ _ h hm himm'
+
+  | send_iso o n gs gr ℓ ho _ =>
+    intro g' ℓ' c hown hm himm
+    by_cases hℓ : ℓ' = ℓ
+    · subst hℓ; simp only [ite_true] at himm
+      cases himm with
+      | inl h => exact absurd h.2 (by decide)
+      | inr h => exact iso_excl ⟨o,n⟩ hi gs ℓ' ho g' h.1 imm h.2
+    · simp only [show ¬(ℓ' = ℓ) from hℓ, ite_false] at hown himm
+      exact hc _ _ _ hown hm himm
+
+  | send_iso_imm o n gs gr ℓ ho _ =>
+    intro g' ℓ' c hown hm himm
+    by_cases hℓ : ℓ' = ℓ
+    · subst hℓ; simp only [ite_true] at hown
+      cases hown with
+      | inl h => rw [h.2] at hm; exact absurd hm not_mutable_imm
+      | inr h => exact iso_excl ⟨o,n⟩ hi gs ℓ' ho g' h.1 c h.2
+    · simp only [show ¬(ℓ' = ℓ) from hℓ, ite_false] at hown himm
+      exact hc _ _ _ hown hm himm
+
+  | send_imm o n gs gr ℓ ho =>
+    intro g' ℓ' c hown hm himm
+    cases hown with
+    | inl h => rw [h.2.2] at hm; exact absurd hm not_mutable_imm
+    | inr h =>
+      cases himm with
+      | inl h' =>
+        rw [h'.2.1] at h
+        exact absurd h (no_mut_at_imm ⟨o,n⟩ hi hc gs ℓ ho g' c hm)
+      | inr h' => exact hc _ _ _ h hm h'
+
+  | spawn_iso o n gp gc ℓ ho _ =>
+    intro g' ℓ' c hown hm himm
+    by_cases hℓ : ℓ' = ℓ
+    · subst hℓ; simp only [ite_true] at himm
+      cases himm with
+      | inl h => exact absurd h.2 (by decide)
+      | inr h => exact iso_excl ⟨o,n⟩ hi gp ℓ' ho g' h.1 imm h.2
+    · simp only [show ¬(ℓ' = ℓ) from hℓ, ite_false] at hown himm
+      exact hc _ _ _ hown hm himm
+
+  | spawn_imm o n gp gc ℓ ho =>
+    intro g' ℓ' c hown hm himm
+    cases hown with
+    | inl h => rw [h.2.2] at hm; exact absurd hm not_mutable_imm
+    | inr h =>
+      cases himm with
+      | inl h' =>
+        rw [h'.2.1] at h
+        exact absurd h (no_mut_at_imm ⟨o,n⟩ hi hc gp ℓ ho g' c hm)
+      | inr h' => exact hc _ _ _ h hm h'
+
+-- ============================================================================
+-- WF Preservation (no axioms)
+-- ============================================================================
+
+theorem wf_pres (cfg cfg' : Config) (h : Step cfg cfg') (hw : WF cfg) : WF cfg' :=
+  ⟨iso_pres cfg cfg' h hw, fresh_pres cfg cfg' h hw, coherent_pres cfg cfg' h hw⟩
 
 -- ============================================================================
 -- Multi-Step Race Freedom
@@ -286,8 +501,6 @@ theorem iso_pres (cfg cfg' : Config) (h : Step cfg cfg') (hw : WF cfg) : Iso cfg
 inductive Multi : Config → Config → Prop where
   | refl : Multi cfg cfg
   | step : Step cfg cfg' → Multi cfg' cfg'' → Multi cfg cfg''
-
-axiom wf_pres : ∀ cfg cfg', Step cfg cfg' → WF cfg → WF cfg'
 
 theorem iso_multi (cfg cfg' : Config) (h : Multi cfg cfg') (hw : WF cfg) : Iso cfg' := by
   induction h with
@@ -329,16 +542,20 @@ theorem deep_rob (c₁ c₂ : Cap) :
 /-
   SUMMARY
   ═══════
-  Proven without sorry:
+  Proven without sorry or custom axioms:
   • race_freedom: Iso cfg → no data race
   • iso_pres: every Step preserves Iso (14 cases via 3 helper patterns)
+  • fresh_pres: every Step preserves Fresh
+  • coherent_pres: every Step preserves Coherent
+  • wf_pres: every Step preserves WF (combines iso/fresh/coherent)
   • iso_multi / multi_race_free: induction over traces
   • capSel soundness: iso consumed, imm retained
   • viewpoint soundness
 
-  Axioms (2):
-  • iso_excl: iso ⟹ exclusive ownership (derivable from Iso + Mutable iso)
-  • wf_pres: WF stable under steps (freshness bookkeeping)
+  Key invariants:
+  • Iso: mutable capability ⟹ exclusive goroutine access
+  • Fresh: owned locations below allocation counter
+  • Coherent: no goroutine holds both mutable and \imm on same location
 
   DESIGN NOTE: Isolation constrains MUTABLE capabilities only.
   \rob (read-only) is excluded — it cannot write and can be safely
