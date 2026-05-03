@@ -56,6 +56,24 @@ func main() {
 }
 `
 
+const gownTrackedFieldToPlainCallSource = `package example
+
+type payload struct {
+	Data string
+}
+
+type holder struct {
+	Item \iso *payload
+}
+
+func Plain(x *payload) {}
+
+func main() {
+	var h *holder
+	Plain(h.Item)
+}
+`
+
 func TestGWN008RejectsIsoPassedToUntrackedUserCall(t *testing.T) {
 	err := checkGownSource(t, "iso_plain_call.gown", gownIsoToPlainCallSource)
 	requireCheckerCode(t, err, GWN008)
@@ -78,4 +96,9 @@ func TestGWN008AllowsTrackedValuePassedToBuiltin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestGWN008RejectsTrackedFieldPassedToUntrackedUserCall(t *testing.T) {
+	err := checkGownSource(t, "field_plain_call.gown", gownTrackedFieldToPlainCallSource)
+	requireCheckerCode(t, err, GWN008)
 }

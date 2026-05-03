@@ -92,21 +92,6 @@ func (checker *ssaGWN001Checker) mergeSuccessorState(existing, incoming SSAFunct
 func (checker *ssaGWN001Checker) checkInstructionUses(instr ssa.Instruction, state *SSAFunctionState) {
 	if debug, ok := instr.(*ssa.DebugRef); ok {
 		checker.checkDebugRefUse(debug, state)
-		return
-	}
-	for _, operand := range instr.Operands(nil) {
-		if operand == nil || *operand == nil {
-			continue
-		}
-		place, ok := checker.places.PlaceForValue(*operand)
-		if !ok || place.Root == nil {
-			continue
-		}
-		site, moved := state.CheckUse(place.Key())
-		if !moved {
-			continue
-		}
-		checker.reportUseAfterMove(instr, place, site)
 	}
 }
 
@@ -133,6 +118,8 @@ func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction,
 		checker.applyCallTransfer(instr, state)
 	case *ssa.DebugRef:
 		checker.applyAssignmentMove(instr, state)
+	case *ssa.Go:
+		checker.applyGoTransfer(instr, state)
 	}
 }
 
@@ -173,7 +160,16 @@ func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFu
 }
 
 func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFunctionState) {
-	callee := instr.Call.StaticCallee()
+	checker.applyCallCommonTransfer(&instr.Call, state, instr, "call")
+}
+
+func (checker *ssaGWN001Checker) applyGoTransfer(instr *ssa.Go, state *SSAFunctionState) {
+	checker.applyCallCommonTransfer(&instr.Call, state, instr, "go")
+	checker.applyGoClosureCaptureTransfer(instr, state)
+}
+
+func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, state *SSAFunctionState, instr ssa.Instruction, kind string) {
+	callee := call.StaticCallee()
 	if callee == nil {
 		return
 	}
@@ -183,14 +179,28 @@ func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFu
 		return
 	}
 	for i, paramCap := range funcCap.Params {
-		if paramCap != CapIso || i >= len(instr.Call.Args) {
+		if paramCap != CapIso || i >= len(call.Args) {
 			continue
 		}
-		argPlace, ok := checker.places.PlaceForValue(instr.Call.Args[i])
+		argPlace, ok := checker.places.PlaceForValue(call.Args[i])
 		if !ok || argPlace.Root == nil || checker.capForPlace(argPlace) != CapIso {
 			continue
 		}
-		checker.consumeRootAtInstruction(state, argPlace, instr, "call")
+		checker.consumeRootAtInstruction(state, argPlace, instr, kind)
+	}
+}
+
+func (checker *ssaGWN001Checker) applyGoClosureCaptureTransfer(instr *ssa.Go, state *SSAFunctionState) {
+	closure, _ := instr.Call.Value.(*ssa.MakeClosure)
+	if closure == nil {
+		return
+	}
+	for _, binding := range closure.Bindings {
+		place, ok := checker.places.PlaceForValue(binding)
+		if !ok || place.Root == nil || checker.capForPlace(place) != CapIso {
+			continue
+		}
+		checker.consumeRootAtInstruction(state, place, instr, "go")
 	}
 }
 
@@ -236,12 +246,7 @@ func (checker *ssaGWN001Checker) reportViolation(pos token.Position, violation S
 }
 
 func (checker *ssaGWN001Checker) reportCheckerError(err CheckerError) {
-	key := fmt.Sprintf("%s:%d:%d:%s:%s", err.Path, err.Line, err.Col, err.Code, err.Message)
-	if checker.reported[key] {
-		return
-	}
-	checker.reported[key] = true
-	checker.errs = append(checker.errs, err)
+	reportCheckerErrorOnce(&checker.errs, checker.reported, err)
 }
 
 func blockPosition(pkg *packages.Package, block *ssa.BasicBlock) token.Position {
@@ -291,13 +296,7 @@ func capForSSAPlace(caps *CapabilityIndex, place Place) Cap {
 	if caps == nil || place.Root == nil {
 		return CapInvalid
 	}
-	if len(place.Projection) > 0 {
-		field := place.Projection[len(place.Projection)-1].Field
-		if fieldCap := caps.ObjectCap(field); capTracked(fieldCap) {
-			return fieldCap
-		}
-	}
-	return caps.ObjectCap(place.Root)
+	return caps.ObjectCap(capObjectForSSAPlace(caps, place))
 }
 
 func debugRefExprKey(expr ast.Expr) ast.Expr {

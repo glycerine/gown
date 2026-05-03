@@ -1,6 +1,9 @@
 package gown
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 const gownRobFieldWriteSource = `package example
 
@@ -97,6 +100,17 @@ func main() {
 func TestGWN005RejectsFieldWriteThroughReadBorrow(t *testing.T) {
 	err := checkGownSource(t, "rob_write.gown", gownRobFieldWriteSource)
 	requireCheckerCode(t, err, GWN005)
+}
+
+func TestGWN005ReportsFieldWriteThroughReadBorrowOnce(t *testing.T) {
+	err := checkGownSource(t, "rob_write.gown", gownRobFieldWriteSource)
+	var checkerErrs CheckerErrors
+	if !errors.As(err, &checkerErrs) {
+		t.Fatalf("got error %T %v, want CheckerErrors", err, err)
+	}
+	if len(checkerErrs) != 1 {
+		t.Fatalf("got %d checker errors, want 1: %v", len(checkerErrs), checkerErrs)
+	}
 }
 
 func TestGWN005RejectsFieldWriteThroughImmutable(t *testing.T) {

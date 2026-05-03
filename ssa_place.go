@@ -30,6 +30,7 @@ func buildSSAPlaceIndex(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capabi
 		places = buildPlaceIndex(pkg)
 	}
 
+	idx.seedGlobals(ssaPkg)
 	idx.seedFromASTPlaces(pkg, ssaPkg, places)
 	idx.propagateSSAPlaces(ssaPkg)
 	return idx
@@ -54,6 +55,18 @@ func (idx *SSAPlaceIndex) PlaceForInstruction(instr ssa.Instruction) (Place, boo
 	}
 	place, ok := idx.InstructionPlaces[instr]
 	return place, ok
+}
+
+func (idx *SSAPlaceIndex) seedGlobals(ssaPkg *ssa.Package) {
+	for _, member := range ssaPkg.Members {
+		global, ok := member.(*ssa.Global)
+		if !ok {
+			continue
+		}
+		if obj, ok := global.Object().(*types.Var); ok {
+			idx.ValuePlaces[global] = Place{Root: obj}
+		}
+	}
 }
 
 func (idx *SSAPlaceIndex) seedFromASTPlaces(pkg *packages.Package, ssaPkg *ssa.Package, places *PlaceIndex) {
@@ -146,4 +159,17 @@ func fieldAddrField(instr *ssa.FieldAddr) (*types.Var, bool) {
 		return nil, false
 	}
 	return st.Field(instr.Field), true
+}
+
+func capObjectForSSAPlace(caps *CapabilityIndex, place Place) types.Object {
+	if caps == nil || place.Root == nil {
+		return nil
+	}
+	if len(place.Projection) > 0 {
+		field := place.Projection[len(place.Projection)-1].Field
+		if fieldCap := caps.ObjectCap(field); capTracked(fieldCap) {
+			return field
+		}
+	}
+	return place.Root
 }

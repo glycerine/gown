@@ -597,6 +597,21 @@ hybrid source events anchored to SSA debug/source positions, such as
 `DebugRef`s for the right-hand side expression, so they can run in SSA block
 order without pretending assignment is always a normal SSA instruction.
 
+The same parity slice showed that raw SSA value operands are not authoritative
+for source-place uses after assignment. The same SSA value may represent both
+`a` and `b` after `b := a`, so a generic operand scan can falsely report
+`println(b)` as a use of moved `a`. Source-use checks should prefer exact
+`DebugRef` expressions and the AST `PlaceIndex`; SSA values should carry places
+for transfer reasoning, not override source identity in diagnostics.
+
+Current SSA checker spike coverage includes `GWN001` parity for direct sends,
+iso-consuming calls, assignment moves, branch merges, goroutine calls, closure
+captures, and projected field-move rejection. It also includes `GWN002` parity
+for inferred call-borrow conflicts, including field-sensitive sibling-field
+precision. These checks are still exercised as package-private SSA passes; they
+are not yet wired into the main checker pipeline as replacements for the
+AST/place passes.
+
 ## Open Implementation Notes
 
 - The `-check` CLI flag currently exists but is not wired through to avoid

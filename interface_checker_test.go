@@ -58,3 +58,8 @@ func TestGWN009AllowsUntrackedValueStoredIntoInterface(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGWN009RejectsTrackedFieldStoredIntoInterface(t *testing.T) {
+	err := checkGownSource(t, "iso_field_interface.gown", gownIsoFieldToInterfaceSource)
+	requireCheckerCode(t, err, GWN009)
+}

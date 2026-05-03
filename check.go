@@ -148,7 +148,7 @@ func (gp *GownPackage) Check() error {
 		assignCreates(gp.pkg, gf, reachable, poisoned)
 	}
 
-	if errs := runCheckerPasses(gp.pkg, gp.caps); len(errs) > 0 {
+	if errs := runCheckerPasses(gp.pkg, gp.ssaPkg, gp.caps); len(errs) > 0 {
 		return errs
 	}
 

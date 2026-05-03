@@ -35,6 +35,21 @@ func f(ch chan \iso *payload, h *holder) {
 }
 `
 
+const gownSSAGoIsoCallUseAfterSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Take(x \iso *payload) {}
+
+func main() {
+	var a \iso *payload
+	go Take(a)
+	println(a)
+}
+`
+
 func TestSSAGWN001ReportsDirectUseAfterIsoSend(t *testing.T) {
 	gp := loadGownForSSACheck(t, "use_after_send.gown", gownUseAfterIsoSendSource)
 
@@ -104,6 +119,35 @@ func TestSSAGWN001RejectsFieldMove(t *testing.T) {
 	requireSSAErrorCode(t, errs, GWN011)
 	if errs[0].Line != 12 {
 		t.Fatalf("SSA field move line = %d, want 12: %#v", errs[0].Line, errs[0])
+	}
+}
+
+func TestSSAGWN001ReportsGoIsoCallMove(t *testing.T) {
+	gp := loadGownForSSACheck(t, "go_iso_call_use.gown", gownSSAGoIsoCallUseAfterSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN001)
+	if errs[0].Line != 12 {
+		t.Fatalf("SSA go call GWN001 line = %d, want 12: %#v", errs[0].Line, errs[0])
+	}
+}
+
+func TestSSAGWN001ReportsGoClosureCaptureMove(t *testing.T) {
+	gp := loadGownForSSACheck(t, "go_iso_capture_use.gown", gownGoIsoClosureCaptureUseAfterSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN001)
+	if errs[0].Line != 12 {
+		t.Fatalf("SSA go capture GWN001 line = %d, want 12: %#v", errs[0].Line, errs[0])
+	}
+}
+
+func TestSSAGWN001AllowsGoClosureCaptureWithoutLaterUse(t *testing.T) {
+	gp := loadGownForSSACheck(t, "go_iso_capture.gown", gownGoIsoClosureCaptureSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA GWN001 unexpectedly reported go capture errors: %#v", errs)
 	}
 }
 
