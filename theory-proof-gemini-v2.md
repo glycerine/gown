@@ -157,7 +157,7 @@ $$ Active(\Gamma, \rho) \= \{ y \mid \Gamma(y) \= c * T^\rho \} $$
 
 \---
 
-## 4. Typing Rules (Selected)
+## 4.1 Typing Rules (Selected)
 
 **T-Mub (Borrowing):**  
 A borrow inherits the region $\rho$ of the source `\iso`.  
@@ -176,6 +176,92 @@ Writes are only permitted on mutable capabilities (`\iso`, `\mub`) .
 $$ \frac{\Gamma(x) \= c * T^\rho \quad \text{Mutable}(c)}{\Gamma \vdash\_g x.f \leftarrow e : () \dashv \Gamma'} $$
 
 \---
+
+## 4.2 Typing rules (all)
+
+To provide a "water-tight" formal foundation, the complete set of typing rules for Gown v2.0 must explicitly track the region $ho$ associated with every capability pointer[cite: 2]. This ensures that when an `\iso` moves, all local aliases (borrows) tied to that same region are statically invalidated[cite: 2].
+
+Below is the exhaustive set of typing rules for the Gown v2.0 core calculus.
+
+---
+
+## 4.2.1. Core Judgment and Environments
+The typing judgment is written as:
+$$ \Gamma \vdash_g e : \tau \dashv \Gamma' $$
+*   **$\Gamma$**: Initial typing environment mapping variables to qualified types $\tau = c * T^ho$[cite: 2].
+*   **$e$**: The expression being checked[cite: 1].
+*   **$\tau$**: The resulting type[cite: 1].
+*   **$\Gamma'$**: The updated environment, reflecting consumption of linear `\iso` variables[cite: 2].
+
+---
+
+## 4.2.2. Basic Expressions
+
+**T-Var**
+$$ \frac{\Gamma(x) = \tau \quad \tau \neq \bot}{\Gamma \vdash_g x : \tau \dashv \Gamma} \text{[cite: 1]} $$
+
+**T-ConsumedVar**
+$$ \frac{\Gamma(x) = \bot}{\Gamma \vdash_g x : \text{error (GWN001)}} \text{[cite: 1]} $$
+
+**T-New**
+$$ \frac{\ell \text{ fresh} \quad ho \text{ fresh region}}{\Gamma \vdash_g \backslash\text{new}(T) : \backslash\text{iso} * T^ho \dashv \Gamma} \text{[cite: 2]} $$
+
+**T-Clone**
+$$ \frac{\Gamma \vdash_g e : c * T^{ho_{old}} \dashv \Gamma' \quad ho_{new} \text{ fresh}}{\Gamma \vdash_g \backslash\text{clone}(e) : \backslash\text{iso} * T^{ho_{new}} \dashv \Gamma'} \text{[cite: 2]} $$
+
+---
+
+## 4.2.3. Transformations and Borrows
+
+**T-Freeze**
+$$ \frac{\Gamma(x) = \backslash\text{iso} * T^ho \quad Active(\Gamma, ho) = \{x\}}{\Gamma \vdash_g \backslash\text{freeze}(x) : \backslash\text{imm} * T \dashv \Gamma[x \mapsto \bot]} \text{[cite: 2]} $$
+
+**T-Mub (Mutable Borrow)**
+$$ \frac{\Gamma(x) = \backslash\text{iso} * T^ho \quad y \text{ fresh}}{\Gamma \vdash_g \backslash\text{mub}(x) : \backslash\text{mub} * T^ho \dashv \Gamma, y : \backslash\text{mub} * T^ho} \text{[cite: 2]} $$
+
+**T-Rob (Read-Only Borrow)**
+$$ \frac{\Gamma(x) = ( \backslash\text{iso} \lor \backslash\text{imm} ) * T^ho \quad y \text{ fresh}}{\Gamma \vdash_g \backslash\text{rob}(x) : \backslash\text{rob} * T^ho \dashv \Gamma, y : \backslash\text{rob} * T^ho} \text{[cite: 2]} $$
+
+---
+
+## 4.2.4. Field Access and Mutability
+
+**T-FieldRead (Viewpoint Adaptation)**
+Field access preserves the region $ho$ of the root pointer to ensure aliases are correctly tracked[cite: 2].
+$$ \frac{\Gamma \vdash_g x : c_{outer} * T^ho \dashv \Gamma' \quad \text{field } f : c_{field} * U}{\Gamma \vdash_g x.f : V(c_{outer}, c_{field}) * U^ho \dashv \Gamma'} \text{[cite: 2]} $$
+
+**T-Write**
+$$ \frac{\Gamma \vdash_g x : c * T^ho \dashv \Gamma' \quad \text{Mutable}(c) \quad \Gamma' \vdash_g e : \tau_f \dashv \Gamma''}{\Gamma \vdash_g x.f \leftarrow e : () \dashv \Gamma''} \text{[cite: 1, 2]} $$
+
+---
+
+## 4.2.5. Concurrency and Communication
+
+**T-Send-Iso (Movement)**
+The critical "Water-Tight" rule: an `\iso` can only be sent if its region $ho$ has no other active references (borrows) in the local environment[cite: 2].
+$$ \frac{\Gamma(x) = \backslash\text{iso} * T^ho \quad Active(\Gamma, ho) = \{x\} \quad \text{ch} : \text{chan } \backslash\text{iso} * T}{\Gamma \vdash_g \text{send}(\text{ch}, x) : () \dashv \Gamma[x \mapsto \bot]} \text{[cite: 2]} $$
+
+**T-Send-Imm (Sharing)**
+$$ \frac{\Gamma(x) = \backslash\text{imm} * T \quad \text{ch} : \text{chan } \backslash\text{imm} * T}{\Gamma \vdash_g \text{send}(\text{ch}, x) : () \dashv \Gamma} \text{[cite: 1, 2]} $$
+
+**T-Spawn (Goroutine Capture)**
+Captured variables must be Sendable; captured `\iso` variables must be the sole occupants of their region[cite: 2].
+$$ \frac{\forall i: \text{Sendable}(c_i) \quad (c_i = \backslash\text{iso} \implies Active(\Gamma, ho_i) = \{x_i\})}{\Gamma \vdash_g \text{go}(\lambda(x_1,...,x_n).e) : () \dashv \Gamma[x_i \mapsto \bot \mid c_i = \backslash\text{iso}]} \text{[cite: 2]} $$
+
+---
+
+## 4.2.6. Control Flow
+
+**T-Select**
+For `select`, an `\iso` or any member of its region $ho$ is invalidated in the output environment if the region is consumed in *any* chosen branch.
+
+$$ \frac{\Gamma_{out} = \bigsqcap \{ \Gamma'_k \}}{\Gamma \vdash_g \text{select}(\text{arms}) : \tau \dashv \Gamma_{out}} \text{[cite: 2]} $$
+The meet operator ($\sqcap$) ensures that if $Active(\Gamma'_k, ho)$ contains $\bot$ in branch $k$, then for all $y \in Active(\Gamma, ho)$, $\Gamma_{out}(y) = \bot$[cite: 2].
+
+## 4.2 conclusion
+
+This complete set of rules prevents the "Ghost Borrow" race condition by strictly linking the lifecycle of an `\iso` to its derived borrows through the $Active(\Gamma, ho)$ set[cite: 2]. If any alias exists, the root `\iso` is "pinned" to the current goroutine and cannot be moved or captured.
+
 
 ## 5. Invariants
 
