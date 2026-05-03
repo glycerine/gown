@@ -3,6 +3,7 @@ package gown
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -10,6 +11,8 @@ import (
 // assignCreates walks the AST to find new(T), make(...), and &T{}
 // creation points, recording each as a createAnew on gf.
 func assignCreates(pkg *packages.Package, gf *gownFile) {
+	structs := collectStructNames(pkg)
+
 	for _, file := range pkg.Syntax {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -69,10 +72,14 @@ func assignCreates(pkg *packages.Package, gf *gownFile) {
 					if !ok || cl.Type == nil {
 						return true
 					}
+					name, ok := classifyCompositeLit(cl.Type, structs)
+					if !ok {
+						return true
+					}
 					pos := pkg.Fset.Position(x.Pos())
 					ca = &createAnew{
 						kind:     "ampersand",
-						typeName: baseTypeName(cl.Type),
+						typeName: name,
 						offset:   pos.Offset,
 						line:     pos.Line,
 						col:      pos.Column,
@@ -99,6 +106,50 @@ func assignCreates(pkg *packages.Package, gf *gownFile) {
 			})
 		}
 	}
+}
+
+func collectStructNames(pkg *packages.Package) map[string]bool {
+	names := make(map[string]bool)
+	scope := pkg.Types.Scope()
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		tn, ok := obj.(*types.TypeName)
+		if !ok {
+			continue
+		}
+		if _, isStruct := tn.Type().Underlying().(*types.Struct); isStruct {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+// classifyCompositeLit decides whether a &T{} composite literal should
+// be tracked. It returns the base type name and true if:
+//   - T is a known struct name, or
+//   - T is a slice/array whose element type is a pointer, or
+//   - T is a map whose key or value type is a pointer.
+//
+// For maps with pointer keys, the key's base type name is returned.
+func classifyCompositeLit(expr ast.Expr, structs map[string]bool) (string, bool) {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		if structs[t.Name] {
+			return t.Name, true
+		}
+	case *ast.ArrayType:
+		if _, isStar := t.Elt.(*ast.StarExpr); isStar {
+			return baseTypeName(t.Elt), true
+		}
+	case *ast.MapType:
+		if _, isStar := t.Key.(*ast.StarExpr); isStar {
+			return baseTypeName(t.Key), true
+		}
+		if _, isStar := t.Value.(*ast.StarExpr); isStar {
+			return baseTypeName(t.Value), true
+		}
+	}
+	return "", false
 }
 
 func baseTypeName(expr ast.Expr) string {
