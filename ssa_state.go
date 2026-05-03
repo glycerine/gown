@@ -124,7 +124,7 @@ func (state *SSAFunctionState) HasBorrow(place PlaceKey, cap Cap) bool {
 }
 
 func (state *SSAFunctionState) AddDeferred(group SSADeferredGroup) {
-	if len(group.Effects) == 0 {
+	if group.Closure == nil && len(group.Effects) == 0 {
 		return
 	}
 	for i := range state.Deferred {
@@ -231,7 +231,7 @@ func hasSSABorrow(borrows []SSABorrow, want SSABorrow) bool {
 
 func hasSSADeferredGroup(groups []SSADeferredGroup, want SSADeferredGroup) bool {
 	for _, group := range groups {
-		if group.Key == want.Key && group.Repeat == want.Repeat {
+		if group.Key == want.Key && group.Repeat == want.Repeat && group.Closure == want.Closure {
 			return true
 		}
 	}

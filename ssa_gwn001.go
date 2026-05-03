@@ -60,11 +60,17 @@ func (checker *ssaGWN001Checker) checkFunction(fn *ssa.Function) {
 	checker.beginFunction(fn)
 	defer checker.endFunction()
 
+	checker.runFunctionBody(fn, NewSSAFunctionState())
+}
+
+func (checker *ssaGWN001Checker) runFunctionBody(fn *ssa.Function, initial SSAFunctionState) (SSAFunctionState, bool) {
 	in := make(map[*ssa.BasicBlock]SSAFunctionState)
 	queued := make(map[*ssa.BasicBlock]bool)
-	in[fn.Blocks[0]] = NewSSAFunctionState()
+	in[fn.Blocks[0]] = initial.Clone()
 	worklist := []*ssa.BasicBlock{fn.Blocks[0]}
 	queued[fn.Blocks[0]] = true
+	var exit SSAFunctionState
+	haveExit := false
 
 	for len(worklist) > 0 {
 		block := worklist[0]
@@ -72,9 +78,25 @@ func (checker *ssaGWN001Checker) checkFunction(fn *ssa.Function) {
 		queued[block] = false
 
 		state := in[block].Clone()
+		returned := false
 		for _, instr := range block.Instrs {
 			checker.checkInstructionUses(instr, &state)
 			checker.applyInstructionTransfer(instr, &state)
+			if _, ok := instr.(*ssa.Return); ok {
+				returned = true
+			}
+		}
+		if returned {
+			if !haveExit {
+				exit = state.Clone()
+				haveExit = true
+			} else {
+				merged, violations := MergeSSAFunctionStates(exit, state)
+				for _, violation := range violations {
+					checker.reportViolation(blockPosition(checker.pkg, block), violation)
+				}
+				exit = merged
+			}
 		}
 
 		for _, succ := range block.Succs {
@@ -89,6 +111,7 @@ func (checker *ssaGWN001Checker) checkFunction(fn *ssa.Function) {
 			}
 		}
 	}
+	return exit, haveExit
 }
 
 func (checker *ssaGWN001Checker) beginFunction(fn *ssa.Function) {
@@ -126,7 +149,7 @@ func (checker *ssaGWN001Checker) deferEffectInfoForFunction(fn *ssa.Function) SS
 }
 
 func (checker *ssaGWN001Checker) mergeSuccessorState(existing, incoming SSAFunctionState, block *ssa.BasicBlock) (SSAFunctionState, bool) {
-	if existing.Consumed == nil && len(existing.Borrows) == 0 {
+	if existing.Consumed == nil && len(existing.Borrows) == 0 && len(existing.Deferred) == 0 {
 		return incoming.Clone(), true
 	}
 	merged, violations := MergeSSAFunctionStates(existing, incoming)
@@ -235,14 +258,21 @@ func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFu
 
 func (checker *ssaGWN001Checker) applyBoundCallTransfer(binding CallBinding, state *SSAFunctionState, instr ssa.Instruction, kind string) {
 	for i, paramCap := range binding.ParamCaps {
-		if paramCap != CapIso || i >= len(binding.ArgPlaces) {
+		if i >= len(binding.ArgPlaces) {
 			continue
 		}
 		argPlace := binding.ArgPlaces[i]
-		if argPlace.Root == nil || checker.capForPlace(argPlace) != CapIso {
+		if argPlace.Root == nil {
 			continue
 		}
-		checker.consumeRootAtInstruction(state, argPlace, instr, kind)
+		switch paramCap {
+		case CapIso:
+			if checker.capForPlace(argPlace) == CapIso {
+				checker.consumeRootAtInstruction(state, argPlace, instr, kind)
+			}
+		case CapMub, CapRob:
+			checker.applyTemporaryBorrow(state, argPlace, paramCap, instr)
+		}
 	}
 }
 
@@ -334,15 +364,31 @@ func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, s
 		return
 	}
 	for i, paramCap := range funcCap.Params {
-		if paramCap != CapIso || i >= len(call.Args) {
+		if i >= len(call.Args) {
 			continue
 		}
 		argPlace, ok := checker.places.PlaceForValue(call.Args[i])
-		if !ok || argPlace.Root == nil || checker.capForPlace(argPlace) != CapIso {
+		if !ok || argPlace.Root == nil {
 			continue
 		}
-		checker.consumeRootAtInstruction(state, argPlace, instr, kind)
+		switch paramCap {
+		case CapIso:
+			if checker.capForPlace(argPlace) == CapIso {
+				checker.consumeRootAtInstruction(state, argPlace, instr, kind)
+			}
+		case CapMub, CapRob:
+			checker.applyTemporaryBorrow(state, argPlace, paramCap, instr)
+		}
 	}
+}
+
+func (checker *ssaGWN001Checker) applyTemporaryBorrow(state *SSAFunctionState, place Place, cap Cap, instr ssa.Instruction) {
+	violation, ok := state.BeginBorrow(place.Key(), cap)
+	if ok {
+		checker.reportViolation(checker.pkg.Fset.Position(instr.Pos()), violation)
+		return
+	}
+	state.EndBorrow(place.Key(), cap)
 }
 
 func (checker *ssaGWN001Checker) applyDeferClosureCaptureTransfer(instr *ssa.Defer, state *SSAFunctionState) {
@@ -373,14 +419,16 @@ func (checker *ssaGWN001Checker) applySourceDeferClosureCaptureTransfer(instr *s
 func (checker *ssaGWN001Checker) recordSourceDeferClosureEffects(instr *ssa.Defer, state *SSAFunctionState) {
 	key := sourcePositionKey(checker.pkg.Fset.Position(instr.Pos()))
 	effects := checker.activeDeferEffects.Effects[key]
-	if len(effects) == 0 {
+	closure := deferredClosureFunction(instr)
+	if len(effects) == 0 && closure == nil {
 		return
 	}
 	group := SSADeferredGroup{
-		Key: key,
-		Pos: checker.pkg.Fset.Position(instr.Pos()),
+		Key:     key,
+		Pos:     checker.pkg.Fset.Position(instr.Pos()),
+		Closure: closure,
 	}
-	for _, effect := range checker.activeDeferEffects.Effects[key] {
+	for _, effect := range effects {
 		group.Effects = append(group.Effects, SSADeferredEffect{
 			Place: effect.Place,
 			Cap:   effect.Cap,
@@ -399,6 +447,7 @@ func (checker *ssaGWN001Checker) applyReturnTransfer(instr *ssa.Return, state *S
 	for i := len(exitState.Deferred) - 1; i >= 0; i-- {
 		checker.applyDeferredGroupAtExit(exitState.Deferred[i], &exitState)
 	}
+	*state = exitState
 }
 
 func (checker *ssaGWN001Checker) checkReturnDeferredConflicts(instr *ssa.Return, state *SSAFunctionState) {
@@ -434,9 +483,28 @@ func (checker *ssaGWN001Checker) applyDeferredGroupAtExit(group SSADeferredGroup
 	if checker.reportRepeatedDeferredMoves(group) {
 		return
 	}
+	if group.Closure != nil {
+		checker.applyDeferredClosureAtExit(group, state)
+		return
+	}
 	for _, effect := range group.Effects {
 		checker.applyDeferredEffectAtExit(effect, state)
 	}
+}
+
+func (checker *ssaGWN001Checker) applyDeferredClosureAtExit(group SSADeferredGroup, state *SSAFunctionState) {
+	if group.Closure == nil || len(group.Closure.Blocks) == 0 {
+		return
+	}
+	outerDeferred := state.Deferred
+	initial := state.Clone()
+	initial.Deferred = nil
+	exit, ok := checker.runFunctionBody(group.Closure, initial)
+	if !ok {
+		return
+	}
+	exit.Deferred = outerDeferred
+	*state = exit
 }
 
 func (checker *ssaGWN001Checker) reportRepeatedDeferredMoves(group SSADeferredGroup) bool {
@@ -515,6 +583,18 @@ func (checker *ssaGWN001Checker) applyGoClosureCaptureTransfer(instr *ssa.Go, st
 		}
 		checker.consumeRootAtInstruction(state, place, instr, "go")
 	}
+}
+
+func deferredClosureFunction(instr *ssa.Defer) *ssa.Function {
+	if instr == nil {
+		return nil
+	}
+	closure, _ := instr.Call.Value.(*ssa.MakeClosure)
+	if closure == nil {
+		return nil
+	}
+	fn, _ := closure.Fn.(*ssa.Function)
+	return fn
 }
 
 func (checker *ssaGWN001Checker) consumeRootAtInstruction(state *SSAFunctionState, place Place, instr ssa.Instruction, kind string) {

@@ -178,6 +178,122 @@ func Make(a \iso *payload, b \iso *payload) \iso *payload {
 }
 `
 
+const gownDeferredClosureBranchExclusiveTakeOrReadAllowsSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Take(x \iso *payload) {}
+func Read(x \rob *payload) {}
+
+func main(cond bool) {
+	var a \iso *payload
+	defer func() {
+		if cond {
+			Take(a)
+		} else {
+			Read(a)
+		}
+	}()
+}
+`
+
+const gownDeferredClosureBranchExclusiveDuplicateTakeAllowsSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Take(x \iso *payload) {}
+
+func main(cond bool) {
+	var a \iso *payload
+	defer func() {
+		if cond {
+			Take(a)
+		} else {
+			Take(a)
+		}
+	}()
+}
+`
+
+const gownDeferredClosureReadAfterSendRejectsSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	defer func() {
+		println(a)
+	}()
+	ch := make(chan \iso *payload)
+	ch <- a
+}
+`
+
+const gownDeferredClosureBranchExclusiveSendOrReadAllowsSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main(cond bool) {
+	var a \iso *payload
+	ch := make(chan \iso *payload)
+	defer func() {
+		if cond {
+			ch <- a
+		} else {
+			println(a)
+		}
+	}()
+}
+`
+
+const gownDeferredClosureSamePathUseAfterTakeRejectsSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Take(x \iso *payload) {}
+func Read(x \rob *payload) {}
+
+func main(cond bool) {
+	var a \iso *payload
+	defer func() {
+		if cond {
+			Take(a)
+			Read(a)
+		}
+	}()
+}
+`
+
+const gownDeferredClosurePostMergeUseAfterPossibleTakeRejectsSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Take(x \iso *payload) {}
+func Read(x \rob *payload) {}
+
+func main(cond bool) {
+	var a \iso *payload
+	defer func() {
+		if cond {
+			Take(a)
+		}
+		Read(a)
+	}()
+}
+`
+
 func TestSSAGWN001RejectsSendBeforeDeferredClosureInferredBorrow(t *testing.T) {
 	gp := loadGownForSSACheck(t, "defer_closure_inferred_borrow.gown", gownDeferredClosureInferredBorrowBlocksSendSource)
 
@@ -312,4 +428,88 @@ func TestGWN001AllowsReturnUnrelatedValueWithDeferredClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestSSAGWN001AllowsDeferredClosureBranchExclusiveTakeOrRead(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_closure_branch_take_read.gown", gownDeferredClosureBranchExclusiveTakeOrReadAllowsSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA GWN001 unexpectedly rejected branch-exclusive deferred closure effects: %#v", errs)
+	}
+}
+
+func TestGWN001AllowsDeferredClosureBranchExclusiveTakeOrRead(t *testing.T) {
+	err := checkGownSource(t, "defer_closure_branch_take_read.gown", gownDeferredClosureBranchExclusiveTakeOrReadAllowsSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSAGWN001AllowsDeferredClosureBranchExclusiveDuplicateTake(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_closure_branch_duplicate_take.gown", gownDeferredClosureBranchExclusiveDuplicateTakeAllowsSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA GWN001 unexpectedly rejected mutually exclusive deferred moves: %#v", errs)
+	}
+}
+
+func TestGWN001AllowsDeferredClosureBranchExclusiveDuplicateTake(t *testing.T) {
+	err := checkGownSource(t, "defer_closure_branch_duplicate_take.gown", gownDeferredClosureBranchExclusiveDuplicateTakeAllowsSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSAGWN001RejectsDeferredClosureReadAfterSend(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_closure_read_after_send.gown", gownDeferredClosureReadAfterSendRejectsSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN001)
+}
+
+func TestGWN001RejectsDeferredClosureReadAfterSend(t *testing.T) {
+	err := checkGownSource(t, "defer_closure_read_after_send.gown", gownDeferredClosureReadAfterSendRejectsSource)
+	requireCheckerCode(t, err, GWN001)
+}
+
+func TestSSAGWN001AllowsDeferredClosureBranchExclusiveSendOrRead(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_closure_branch_send_read.gown", gownDeferredClosureBranchExclusiveSendOrReadAllowsSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA GWN001 unexpectedly rejected branch-exclusive deferred send/read: %#v", errs)
+	}
+}
+
+func TestGWN001AllowsDeferredClosureBranchExclusiveSendOrRead(t *testing.T) {
+	err := checkGownSource(t, "defer_closure_branch_send_read.gown", gownDeferredClosureBranchExclusiveSendOrReadAllowsSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSAGWN001RejectsDeferredClosureSamePathUseAfterTake(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_closure_same_path_take_read.gown", gownDeferredClosureSamePathUseAfterTakeRejectsSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN001)
+}
+
+func TestGWN001RejectsDeferredClosureSamePathUseAfterTake(t *testing.T) {
+	err := checkGownSource(t, "defer_closure_same_path_take_read.gown", gownDeferredClosureSamePathUseAfterTakeRejectsSource)
+	requireCheckerCode(t, err, GWN001)
+}
+
+func TestSSAGWN001RejectsDeferredClosurePostMergeUseAfterPossibleTake(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_closure_post_merge_take_read.gown", gownDeferredClosurePostMergeUseAfterPossibleTakeRejectsSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN001)
+}
+
+func TestGWN001RejectsDeferredClosurePostMergeUseAfterPossibleTake(t *testing.T) {
+	err := checkGownSource(t, "defer_closure_post_merge_take_read.gown", gownDeferredClosurePostMergeUseAfterPossibleTakeRejectsSource)
+	requireCheckerCode(t, err, GWN001)
 }

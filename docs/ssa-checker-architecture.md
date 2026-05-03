@@ -675,14 +675,26 @@ function exit even if the local variable `b` is reassigned later. Deferred
 closures also need analysis because they may capture named borrow variables;
 Gown now uses SSA closure bindings and a source-position fallback for deferred
 function literals to conservatively activate those captured borrows until
-function exit. Tracked call effects inside deferred function literals are now
-recorded as pending deferred effects rather than applied at the defer
-registration site. At each SSA return, pending deferred closure effects are
-checked in LIFO order: `\iso` calls move at function exit, inferred
-`\mub`/`\rob` calls borrow temporarily while that deferred closure runs, and
-returning the same place a deferred closure will later use is rejected. This
-keeps ordinary use before function exit precise while preserving Go's defer
-ordering.
+function exit. Deferred function literals are now recorded as pending closure
+effects rather than applied at the defer registration site. At each SSA return,
+pending deferred closures are checked in LIFO order by running the closure's
+own SSA CFG against the outer function's exit state. That means `\iso` calls
+and sends move at function exit, inferred `\mub`/`\rob` calls borrow
+temporarily while that deferred closure runs, ordinary reads can detect a
+previous move, and returning the same place a deferred closure will later use
+is rejected. The older flat AST call-effect list remains useful as a summary
+for return conflicts and repeated-defer move detection, but it no longer
+defines intra-closure ordering when the SSA closure body is available.
+
+The deferred-closure CFG slice removed an important false-positive source.
+Flattening calls from a function literal made mutually exclusive branches look
+sequential: `if cond { Take(a) } else { Read(a) }` looked like `Take(a);
+Read(a)`. Running the closure body through the same SSA dataflow engine instead
+preserves branch structure: branch-exclusive take/read and take/take effects
+are allowed, while `Take(a); Read(a)` on one path and `if cond { Take(a) };
+Read(a)` after a join are rejected. The same machinery also catches deferred
+closures that only use ordinary expressions, such as `println(a)`, after the
+outer function has moved `a`.
 
 Loops validated the state-merge rule that had been implicit in the SSA
 prototype. At a loop join, consumed roots and live named borrows are interpreted
@@ -714,8 +726,10 @@ captures, named borrow liveness, branch-sensitive named borrow liveness,
 loop fixpoint state, loop-local named borrow death, loop-carried named borrow
 liveness, deferred named borrow snapshots, deferred inferred borrow arguments,
 deferred closure borrow captures, deferred closure inferred borrow effects,
-deferred closure iso-consuming effects with LIFO exit ordering, repeated
-deferred closure `\iso` move rejection, and projected field-move rejection. It
+deferred closure iso-consuming effects with LIFO exit ordering, deferred
+closure body CFG precision for branches, sends, calls, and ordinary reads,
+repeated deferred closure `\iso` move rejection, and projected field-move
+rejection. It
 also includes `GWN002` through `GWN010` parity for inferred call-borrow
 conflicts, send capability checks, goroutine borrow escapes, escaping closures
 that capture non-shareable tracked values, read-only writes, borrow stores,
@@ -754,7 +768,9 @@ mapping generated `.go` paths back to original `.gown` paths.
   literals and flow-sensitive local closure aliases returned, stored into
   escaping locations, or passed to untracked calls. Loop coverage now exercises
   root moves, named borrow liveness, deferred closure effects, and local closure
-  aliases across back edges. Explicit freeze/clone, deferred closure bodies with
-  richer internal control flow, interprocedural and heap/container/interface
-  closure flow, and precise unsafe/synchronization boundaries still need broader
-  treatment.
+  aliases across back edges. Deferred closure body coverage now uses the
+  closure's own SSA CFG for branches, sends, calls, ordinary reads, and
+  post-merge move checks at function exit. Explicit freeze/clone,
+  interprocedural and heap/container/interface closure flow, closure bodies
+  with nested defers or more complex escaping effects, and precise
+  unsafe/synchronization boundaries still need broader treatment.

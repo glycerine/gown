@@ -6,6 +6,7 @@ import (
 	"go/types"
 
 	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/go/ssa"
 )
 
 type SSADeferredClosureEffect struct {
@@ -28,6 +29,7 @@ type SSADeferredGroup struct {
 	Key     sourcePosKey
 	Pos     token.Position
 	Repeat  bool
+	Closure *ssa.Function
 	Effects []SSADeferredEffect
 }
 
