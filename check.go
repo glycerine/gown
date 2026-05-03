@@ -41,7 +41,10 @@ func (gp *GownPackage) Check() error {
 			return fmt.Errorf("reading %s: %w", gownPath, err)
 		}
 
-		goSrc, gf := scanAndStrip(e.Name(), src)
+		goSrc, _, gf, err := scanAndClassify(e.Name(), src)
+		if err != nil {
+			return err
+		}
 		gp.files = append(gp.files, gf)
 
 		goName := strings.TrimSuffix(e.Name(), ".gown") + ".go"
