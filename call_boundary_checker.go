@@ -44,15 +44,12 @@ func checkUntrackedCallBoundary(pkg *packages.Package, caps *CapabilityIndex, ca
 		if !capTracked(cap) {
 			continue
 		}
-		pos := pkg.Fset.Position(arg.Pos())
-		return CheckerError{
-			Code:    GWN008,
-			Path:    gownSourcePath(pos.Filename),
-			Offset:  pos.Offset,
-			Line:    pos.Line,
-			Col:     pos.Column,
-			Message: fmt.Sprintf("cannot pass %s value %q to untracked function", cap, place.Root.Name()),
-		}, true
+		return newCheckerErrorAtNode(
+			pkg,
+			GWN008,
+			arg,
+			fmt.Sprintf("cannot pass %s value %q to untracked function", cap, place.Root.Name()),
+		), true
 	}
 	return CheckerError{}, false
 }

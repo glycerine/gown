@@ -43,14 +43,14 @@ func checkGoCallBorrowEscape(caps *CapabilityIndex, stmt *ast.GoStmt) (CheckerEr
 				name = root.Name()
 			}
 		}
-		return CheckerError{
-			Code:    GWN004,
-			Path:    binding.Path,
-			Offset:  binding.Offset,
-			Line:    binding.Line,
-			Col:     binding.Col,
-			Message: fmt.Sprintf("cannot pass inferred %s borrow of %q to goroutine", paramCap, name),
-		}, true
+		return newCheckerErrorAtSource(
+			GWN004,
+			binding.Path,
+			binding.Offset,
+			binding.Line,
+			binding.Col,
+			fmt.Sprintf("cannot pass inferred %s borrow of %q to goroutine", paramCap, name),
+		), true
 	}
 	return CheckerError{}, false
 }
@@ -66,14 +66,11 @@ func checkGoClosureBorrowCaptures(pkg *packages.Package, caps *CapabilityIndex, 
 		if root := capture.Place.RegionKey().Root; root != nil {
 			name = root.Name()
 		}
-		errs = append(errs, CheckerError{
-			Code:    GWN004,
-			Path:    gownSourcePath(pos.Filename),
-			Offset:  pos.Offset,
-			Line:    pos.Line,
-			Col:     pos.Column,
-			Message: fmt.Sprintf("cannot capture non-sendable %s value %q in goroutine", capture.Cap, name),
-		})
+		errs = append(errs, newCheckerErrorAtPosition(
+			GWN004,
+			pos,
+			fmt.Sprintf("cannot capture non-sendable %s value %q in goroutine", capture.Cap, name),
+		))
 	}
 	return errs
 }

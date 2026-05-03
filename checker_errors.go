@@ -3,8 +3,13 @@ package gown
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/token"
+	"go/types"
 	"os"
 	"strings"
+
+	"golang.org/x/tools/go/packages"
 )
 
 type CheckerErrorCode string
@@ -53,6 +58,40 @@ func (errs CheckerErrors) Error() string {
 	default:
 		return fmt.Sprintf("%s and %d more checker errors", errs[0].Error(), len(errs)-1)
 	}
+}
+
+func newCheckerErrorAtPosition(code CheckerErrorCode, pos token.Position, message string) CheckerError {
+	return CheckerError{
+		Code:    code,
+		Path:    gownSourcePath(pos.Filename),
+		Offset:  pos.Offset,
+		Line:    pos.Line,
+		Col:     pos.Column,
+		Message: message,
+	}
+}
+
+func newCheckerErrorAtSource(code CheckerErrorCode, path string, offset, line, col int, message string) CheckerError {
+	return newCheckerErrorAtPosition(code, token.Position{
+		Filename: path,
+		Offset:   offset,
+		Line:     line,
+		Column:   col,
+	}, message)
+}
+
+func newCheckerErrorAtNode(pkg *packages.Package, code CheckerErrorCode, node ast.Node, message string) CheckerError {
+	if pkg == nil || node == nil {
+		return CheckerError{Code: code, Message: message}
+	}
+	return newCheckerErrorAtPosition(code, pkg.Fset.Position(node.Pos()), message)
+}
+
+func newCheckerErrorAtObject(pkg *packages.Package, code CheckerErrorCode, obj types.Object, fallback token.Position, message string) CheckerError {
+	if pkg != nil && obj != nil && obj.Pos().IsValid() {
+		return newCheckerErrorAtPosition(code, pkg.Fset.Position(obj.Pos()), message)
+	}
+	return newCheckerErrorAtPosition(code, fallback, message)
 }
 
 func FormatError(err error) string {

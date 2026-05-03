@@ -40,14 +40,14 @@ func checkCallBorrowConflict(binding CallBinding) (CheckerError, bool) {
 			name: key.Root.Name(),
 		}
 		if _, ok := conflictingActiveBorrow(active, next); ok {
-			return CheckerError{
-				Code:    GWN002,
-				Path:    binding.Path,
-				Offset:  binding.Offset,
-				Line:    binding.Line,
-				Col:     binding.Col,
-				Message: fmt.Sprintf("conflicting inferred borrows of %q in call", next.name),
-			}, true
+			return newCheckerErrorAtSource(
+				GWN002,
+				binding.Path,
+				binding.Offset,
+				binding.Line,
+				binding.Col,
+				fmt.Sprintf("conflicting inferred borrows of %q in call", next.name),
+			), true
 		}
 		active[key] = next
 	}

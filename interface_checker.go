@@ -69,15 +69,12 @@ func checkInterfaceSource(pkg *packages.Package, caps *CapabilityIndex, src ast.
 	if !capTracked(cap) {
 		return CheckerError{}, false
 	}
-	pos := pkg.Fset.Position(src.Pos())
-	return CheckerError{
-		Code:    GWN009,
-		Path:    gownSourcePath(pos.Filename),
-		Offset:  pos.Offset,
-		Line:    pos.Line,
-		Col:     pos.Column,
-		Message: fmt.Sprintf("cannot erase %s value %q into interface", cap, place.Root.Name()),
-	}, true
+	return newCheckerErrorAtNode(
+		pkg,
+		GWN009,
+		src,
+		fmt.Sprintf("cannot erase %s value %q into interface", cap, place.Root.Name()),
+	), true
 }
 
 func isInterfaceExpr(pkg *packages.Package, expr ast.Expr) bool {

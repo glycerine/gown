@@ -158,15 +158,12 @@ func (checker *gwn001Checker) checkExprUses(expr ast.Expr) {
 }
 
 func (checker *gwn001Checker) reportUseAfterMove(use ast.Expr, consumed moveSite) {
-	pos := checker.pkg.Fset.Position(use.Pos())
-	checker.errs = append(checker.errs, CheckerError{
-		Code:    GWN001,
-		Path:    gownSourcePath(pos.Filename),
-		Offset:  pos.Offset,
-		Line:    pos.Line,
-		Col:     pos.Column,
-		Message: fmt.Sprintf("use of moved \\iso value %q after %s at %d:%d", consumed.name, consumed.kind, consumed.line, consumed.col),
-	})
+	checker.errs = append(checker.errs, newCheckerErrorAtNode(
+		checker.pkg,
+		GWN001,
+		use,
+		fmt.Sprintf("use of moved \\iso value %q after %s at %d:%d", consumed.name, consumed.kind, consumed.line, consumed.col),
+	))
 }
 
 func (checker *gwn001Checker) recordIsoSend(stmt *ast.SendStmt) {

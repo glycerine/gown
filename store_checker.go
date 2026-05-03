@@ -66,15 +66,12 @@ func checkBorrowStoreEscape(pkg *packages.Package, caps *CapabilityIndex, lhs, r
 	if !storeTargetEscapes(pkg, lhs) {
 		return CheckerError{}, false
 	}
-	pos := pkg.Fset.Position(rhs.Pos())
-	return CheckerError{
-		Code:    GWN006,
-		Path:    gownSourcePath(pos.Filename),
-		Offset:  pos.Offset,
-		Line:    pos.Line,
-		Col:     pos.Column,
-		Message: fmt.Sprintf("cannot store %s borrow %q into escaping location", rhsCap, rhsPlace.Root.Name()),
-	}, true
+	return newCheckerErrorAtNode(
+		pkg,
+		GWN006,
+		rhs,
+		fmt.Sprintf("cannot store %s borrow %q into escaping location", rhsCap, rhsPlace.Root.Name()),
+	), true
 }
 
 func checkWriteTarget(pkg *packages.Package, caps *CapabilityIndex, expr ast.Expr) (CheckerError, bool) {
@@ -89,15 +86,12 @@ func checkWriteTarget(pkg *packages.Package, caps *CapabilityIndex, expr ast.Exp
 	if cap != CapRob && cap != CapImm {
 		return CheckerError{}, false
 	}
-	pos := pkg.Fset.Position(expr.Pos())
-	return CheckerError{
-		Code:    GWN005,
-		Path:    gownSourcePath(pos.Filename),
-		Offset:  pos.Offset,
-		Line:    pos.Line,
-		Col:     pos.Column,
-		Message: fmt.Sprintf("cannot write through %s value %q", cap, place.Root.Name()),
-	}, true
+	return newCheckerErrorAtNode(
+		pkg,
+		GWN005,
+		expr,
+		fmt.Sprintf("cannot write through %s value %q", cap, place.Root.Name()),
+	), true
 }
 
 func isProjectedWrite(expr ast.Expr) bool {

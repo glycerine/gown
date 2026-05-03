@@ -3,6 +3,7 @@ package gown
 import (
 	"fmt"
 	"go/token"
+	"go/types"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -26,18 +27,18 @@ func checkSendCapabilities(pkg *packages.Package, caps *CapabilityIndex) Checker
 func nonSendableError(pkg *packages.Package, binding SendBinding) CheckerError {
 	name := "<unknown>"
 	pos := bindingPosition(binding)
+	var root types.Object
 	if root := binding.ValueKey().Root; root != nil {
 		name = root.Name()
-		pos = pkg.Fset.Position(root.Pos())
 	}
-	return CheckerError{
-		Code:    GWN003,
-		Path:    gownSourcePath(pos.Filename),
-		Offset:  pos.Offset,
-		Line:    pos.Line,
-		Col:     pos.Column,
-		Message: fmt.Sprintf("cannot send non-sendable %s value %q", binding.ValueCap, name),
-	}
+	root = binding.ValueKey().Root
+	return newCheckerErrorAtObject(
+		pkg,
+		GWN003,
+		root,
+		pos,
+		fmt.Sprintf("cannot send non-sendable %s value %q", binding.ValueCap, name),
+	)
 }
 
 func bindingPosition(binding SendBinding) token.Position {
@@ -57,14 +58,14 @@ func checkSendCapabilityMatch(binding SendBinding) (CheckerError, bool) {
 	if root := binding.ValueKey().Root; root != nil {
 		name = root.Name()
 	}
-	return CheckerError{
-		Code:    GWN010,
-		Path:    binding.Path,
-		Offset:  binding.Offset,
-		Line:    binding.Line,
-		Col:     binding.Col,
-		Message: fmt.Sprintf("cannot send %s value %q on %s channel", binding.ValueCap, name, binding.ChanElemCap),
-	}, true
+	return newCheckerErrorAtSource(
+		GWN010,
+		binding.Path,
+		binding.Offset,
+		binding.Line,
+		binding.Col,
+		fmt.Sprintf("cannot send %s value %q on %s channel", binding.ValueCap, name, binding.ChanElemCap),
+	), true
 }
 
 func capSendable(cap Cap) bool {

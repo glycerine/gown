@@ -38,13 +38,10 @@ func checkReturnBorrowEscape(pkg *packages.Package, caps *CapabilityIndex, resul
 	if cap != CapMub && cap != CapRob {
 		return CheckerError{}, false
 	}
-	pos := pkg.Fset.Position(result.Pos())
-	return CheckerError{
-		Code:    GWN007,
-		Path:    gownSourcePath(pos.Filename),
-		Offset:  pos.Offset,
-		Line:    pos.Line,
-		Col:     pos.Column,
-		Message: fmt.Sprintf("cannot return %s borrow %q", cap, place.Root.Name()),
-	}, true
+	return newCheckerErrorAtNode(
+		pkg,
+		GWN007,
+		result,
+		fmt.Sprintf("cannot return %s borrow %q", cap, place.Root.Name()),
+	), true
 }
