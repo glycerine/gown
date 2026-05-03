@@ -493,12 +493,24 @@ We must verify that g₁ has no remaining path to ℓ. The only way g₁ could
 retain a path is through:
   (a) Another variable in Γ_{g₁} pointing to ℓ — but this would mean a
       second reference to an `\iso` object, which violates the Unique property
-      of `\iso`. The checker enforces uniqueness: creating a `\mub` or `\rob`
-      from x does not create an independently sendable alias, and by T-Spawn
-      and T-Send-Reject, `\mub` and `\rob` cannot leave the goroutine. At
-      the point of send, the checker requires that no `\mub` or `\rob`
-      derived from x is live (this is the borrow scope constraint from §6.4
-      of the spec).
+      of `\iso`. Creating a `\mub` or `\rob` from x does not create an
+      independently sendable alias, and by T-Spawn and T-Send-Reject, `\mub`
+      and `\rob` cannot leave the goroutine. However, these borrows *do*
+      create same-goroutine aliases to ℓ that would survive the send unless
+      explicitly invalidated.
+
+      **Borrow-scope precondition (critical for implementors).** At the point
+      of send, the checker MUST verify that no `\mub` or `\rob` derived from
+      x is live in Γ_{g₁}. "Derived from x" means: any variable bound by
+      `\mub(x)`, `\rob(x)`, or by viewpoint adaptation through x's fields
+      (e.g., `y = \mub(x.f)` produces a borrow that aliases a sub-location
+      of x). The mechanized proof in `Gown.lean` models this as the
+      `send_iso` step removing ALL of the sender's access at ℓ (via a
+      `g' ≠ gs` filter on ownership). If the checker fails to kill all
+      borrows before executing this step, the runtime ownership state will
+      not match the step's postcondition, and the proof's guarantee does not
+      apply. See §15 for the complete set of checker obligations.
+
   (b) A heap location reachable from g₁ that transitively points to ℓ — this
       would require that ℓ was stored in a field of another object that g₁
       can still reach. But if such a store occurred, it occurred through a
@@ -880,12 +892,245 @@ for `\unsafe`-free programs.
 
 ---
 
-## 14. Summary
+## 14. Mechanized Proof
 
-The proof establishes race freedom through two invariants:
+The arguments in this document have been mechanized in Lean 4 (`Gown.lean`).
+The mechanized proof establishes race freedom with zero custom axioms and zero
+`sorry` — the only axiom dependency is Lean's kernel `propext`.
+
+The mechanized proof operates on a "flat" ownership model: each
+(goroutine, location, capability) triple is tracked independently, without
+modeling heap connectivity. This is sufficient for the proof because each
+`Step` constructor encodes the correct ownership transition, and the three
+invariants (Iso, Fresh, Coherent) are shown to be preserved by all 14 steps.
+
+The division of labor is:
+
+- **This document** explains *why* the design works — the intuition behind
+  each invariant, why each reduction rule preserves them, and how the pieces
+  fit together.
+- **`Gown.lean`** proves *that* the ownership semantics are race-free — a
+  machine-checked guarantee that no sequence of valid steps produces a data
+  race.
+- **§15 below** specifies what the type checker must enforce so that
+  well-typed programs only produce valid step sequences.
+
+The mechanized proof also revealed the need for a third invariant
+(**Coherent**: no goroutine holds both a mutable capability and `\imm` on
+the same location) that was implicit in the original hand proof but required
+for the `pres_add_imm` case (sending or spawning `\imm`). This invariant
+captures the fact that `\freeze` consumes the `\iso` before creating `\imm`,
+so mutable and `\imm` never coexist on the same goroutine at the same
+location.
+
+---
+
+## 15. Type Checker Contract
+
+The proof in §6 and the mechanized proof in `Gown.lean` establish:
+
+> If every ownership transition follows a valid `Step`, then `WF`
+> (Iso ∧ Fresh ∧ Coherent) is preserved and no data race occurs.
+
+The type checker's role is the converse obligation: ensure that every
+operation in a well-typed program produces an ownership transition that
+matches a valid `Step`. This section makes that obligation concrete.
+
+### 15.1 How to Read This Section
+
+Each `Step` constructor defines a **precondition** (what must hold before the
+operation) and a **postcondition** (how ownership changes). The preconditions
+are what the checker must verify. The postconditions define the ownership
+bookkeeping the checker must perform internally. If the checker's internal
+state diverges from the Step postconditions, the proof's guarantee no longer
+applies.
+
+### 15.2 Allocation (`new_`, `clone_`)
+
+**Precondition:** None for `new_`; source variable must be live for `clone_`.
+
+**Postcondition:** A fresh location ℓ is created with capability `\iso` for
+the allocating goroutine. The allocation counter increments.
+
+**Checker obligation:** Bind the result variable to `\iso`. For `clone_`,
+verify the source is live (any capability). The "fresh location" maps to
+a new heap allocation in the Go runtime.
+
+### 15.3 Freeze (`freeze_`)
+
+**Precondition:** Source variable x has `\iso` at location ℓ.
+
+**Postcondition:** ALL capabilities at (g, ℓ) are **replaced** with just
+`\imm`. Not "iso changes to imm" — everything at that location for that
+goroutine is replaced.
+
+**Checker obligation (critical):**
+1. Verify x has `\iso`.
+2. Consume x (map to ⊥).
+3. **Kill all borrows at the same location.** Any `\mub` or `\rob` variable
+   that aliases the same location as x must be dead (out of scope or already
+   consumed). If a live borrow exists, the program's actual state would
+   retain a mutable path to ℓ, but the Step's postcondition says only `\imm`
+   exists. The Coherent invariant (no mutable + `\imm` coexistence) depends
+   on this.
+
+**Why this matters:** The Step definition uses `if g' = g ∧ ℓ' = ℓ then
+c = imm else ...`, which replaces all capabilities at (g, ℓ) unconditionally.
+A checker that allows `\freeze(x)` while a `\mub(x)` borrow y is still live
+would leave `y` dangling — the checker's internal state would include
+(g, ℓ, mub) but the Step says only (g, ℓ, imm) exists. Subsequent use of y
+for a write would not correspond to any valid Step (write_ requires the
+capability to exist in the ownership relation).
+
+### 15.4 Borrow Creation (`mub_`, `rob_iso`, `rob_imm`)
+
+**Precondition:** Source has `\iso` (for `mub_`, `rob_iso`) or `\imm`
+(for `rob_imm`).
+
+**Postcondition:** The borrow capability is **added alongside** the existing
+capabilities. The source is not consumed.
+
+**Checker obligation:**
+1. Verify source capability.
+2. Bind the result to `\mub` or `\rob`.
+3. Do NOT consume the source — both the `\iso` and the borrow coexist.
+4. **Track that the borrow aliases the source's location.** The checker
+   must record this so that it can later verify borrow-liveness constraints
+   at freeze, send, and spawn points.
+
+### 15.5 Write and Read (`write_`, `read_`)
+
+**Precondition:** Variable has any capability for reads; must have
+`Mutable` capability (`\iso` or `\mub`) for writes.
+
+**Postcondition:** No ownership change.
+
+**Checker obligation:** Reject writes through `\rob` or `\imm`. This is
+the Immutability Invariant, enforced syntactically.
+
+### 15.6 Send/Spawn of `\iso` (`send_iso`, `send_iso_imm`, `spawn_iso`)
+
+**Precondition:** Source variable x has `\iso` at location ℓ; sender and
+receiver are distinct goroutines.
+
+**Postcondition:** The sender **loses ALL access at ℓ** — not just `\iso`,
+but every capability the sender held at that location. The receiver gains
+`\iso` (for `send_iso`, `spawn_iso`) or `\imm` (for `send_iso_imm`).
+
+**Checker obligation (most critical):**
+1. Verify x has `\iso`.
+2. Consume x (map to ⊥).
+3. **Verify that no borrow derived from x is live.** This includes:
+   - Direct borrows: variables bound by `\mub(x)` or `\rob(x)`.
+   - Sub-object borrows: variables bound by accessing fields through x,
+     e.g., `y = \mub(x.f)`. These alias sub-locations of x's object graph.
+   - Transitive borrows: if `z = \mub(y.g)` where y was itself a borrow
+     of x, then z must also be dead.
+
+**Why this is the hardest checker obligation:** The mechanized proof models
+ownership as a flat relation over individual locations. The `send_iso` step
+removes the sender's access at location ℓ specifically. But in a real
+program, `\iso` ownership of ℓ implies ownership of the entire object graph
+reachable from ℓ. When the sender sends x, the *entire* graph transfers —
+and all borrows into that graph must be dead.
+
+The flat model handles this correctly *provided* the checker does its job:
+if no borrows of sub-locations exist, then the sender has no access to
+sub-locations either (the sender only reached them through x, and x is
+consumed). The proof doesn't model sub-locations explicitly because it
+doesn't need to — sub-location ownership is a consequence of root ownership
+when no borrows exist.
+
+**Implementation guidance:** The checker should track a "borrow region" for
+each `\iso` variable. When `\mub(x)` or `\rob(x)` creates a borrow, the
+borrow is assigned to x's region. When `y.f` is accessed through a borrow y
+in region R, the result is also in region R. At a send/spawn/freeze point,
+the checker verifies that the region contains only the root `\iso` being
+consumed — i.e., `Active(Γ, region(x)) = {x}`.
+
+### 15.7 Send/Spawn of `\imm` (`send_imm`, `spawn_imm`)
+
+**Precondition:** Source variable has `\imm` at location ℓ.
+
+**Postcondition:** The receiver **gains `\imm`** at ℓ. The sender's
+ownership is unchanged — `\imm` is freely sharable.
+
+**Checker obligation:** Verify the source has `\imm`. No consumption, no
+borrow invalidation needed. The proof's `no_mut_at_imm` lemma guarantees
+that if anyone holds `\imm` at ℓ, nobody holds a mutable capability at ℓ,
+so adding another `\imm` reader is safe.
+
+### 15.8 Invariant Maintenance
+
+Beyond individual operations, the checker must maintain three invariants
+across the entire program:
+
+**Iso (Isolation):** A mutable capability at ℓ implies exclusive goroutine
+access to ℓ.
+- Enforced by: only allowing cross-goroutine transfer via send/spawn, only
+  for sendable capabilities (`\iso`, `\imm`), and consuming the sender's
+  `\iso` on transfer. The checker must reject `send` and `go` captures of
+  `\mub` and `\rob`.
+
+**Fresh (Freshness):** All owned locations are below the allocation counter.
+- Enforced by: each `new_`/`clone_` uses a fresh location. In practice,
+  Go's runtime allocator guarantees this. The checker does not need to track
+  allocation counters explicitly.
+
+**Coherent (No mutable + `\imm` coexistence):** If a goroutine holds a
+mutable capability at ℓ, it does not also hold `\imm` at ℓ.
+- Enforced by: `\freeze` consuming the `\iso` and killing all borrows
+  before creating `\imm`. The only paths to `\imm` are freeze (which
+  removes mutable) and receiving from another goroutine (which can't target
+  a location where the receiver holds mutable, since the sender couldn't
+  have reached it by Iso).
+
+### 15.9 What the Proof Does Not Cover
+
+The proof establishes that the ownership *semantics* (Steps) are race-free.
+It does not prove that the type checker correctly maps programs to Steps.
+Specifically:
+
+1. **Borrow tracking correctness.** The proof assumes that when `send_iso`
+   fires, the sender genuinely has no remaining access at ℓ. The checker
+   must enforce this via borrow tracking (§15.6). A bug in borrow tracking
+   — e.g., failing to track borrows through field access, or allowing a
+   borrow to outlive its scope — would break the correspondence between
+   the program's actual state and the Step postconditions.
+
+2. **Heap connectivity.** The flat model tracks each location independently.
+   It does not model that location ℓ₁ may contain a pointer to location ℓ₂.
+   The checker must independently ensure that sending `\iso` at ℓ₁
+   invalidates all borrows at ℓ₂ (and transitively deeper), because the
+   receiver gains access to the entire graph.
+
+3. **Borrow scoping.** The Steps allow borrows to be created freely
+   (`mub_`, `rob_iso`, `rob_imm` have no scoping constraints). The proof
+   works because the Steps also remove all access on send/spawn. But the
+   checker must ensure that borrows don't outlive their source — not because
+   the proof requires it, but because the Go runtime doesn't have a
+   mechanism to atomically invalidate borrows. The checker's borrow scoping
+   is what ensures the flat model's "remove all access" postcondition
+   actually matches runtime reality.
+
+4. **Adequacy.** A complete soundness argument would include a simulation
+   proof: that for every well-typed program, the checker's internal state
+   transitions simulate the Steps. This would close the gap between "Steps
+   are race-free" and "well-typed programs are race-free." This is deferred
+   to future work but is not needed if the checker is implemented
+   conservatively — rejecting programs whenever borrow-liveness is in doubt
+   causes false rejections, not false acceptances.
+
+---
+
+## 16. Summary
+
+The proof establishes race freedom through three invariants:
 
 1. **Isolation:** Non-`\imm` objects are reachable from at most one goroutine.
 2. **Immutability:** `\imm` and `\rob` objects are never written.
+3. **Coherent:** No goroutine holds both a mutable capability and `\imm` on
+   the same location (discovered during mechanization in Lean 4).
 
 These invariants are maintained by the type system through four mechanisms:
 
@@ -901,9 +1146,14 @@ These invariants are maintained by the type system through four mechanisms:
 
 The proof is modular: each lemma is independent, the theorem follows directly
 from the lemmas, and the viewpoint adaptation and `select` soundness arguments
-are self-contained. The total proof obligation is small — the system's strength
-comes from having very few capabilities and very simple interaction rules,
-not from complex invariants.
+are self-contained.
+
+The total proof obligation is small — the system's strength comes from having
+very few capabilities and very simple interaction rules, not from complex
+invariants. The proof has been mechanized in Lean 4 (`Gown.lean`) with zero
+custom axioms, zero `sorry`, and a sole dependency on Lean's kernel axiom
+`propext`. The type checker obligations derived from the proof are specified in
+§15.
 
 ---
 
