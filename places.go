@@ -11,6 +11,7 @@ import (
 type Place struct {
 	Root       types.Object
 	Projection Projection
+	Collapsed  bool
 }
 
 type Projection []FieldProjection
@@ -31,10 +32,28 @@ type PlaceIndex struct {
 }
 
 func (place Place) Key() PlaceKey {
+	if place.Collapsed {
+		return place.RegionKey()
+	}
 	return PlaceKey{
 		Root: place.Root,
 		Path: place.Projection.String(),
 	}
+}
+
+func (place Place) RegionKey() PlaceKey {
+	return PlaceKey{Root: place.Root}
+}
+
+func (key PlaceKey) Overlaps(other PlaceKey) bool {
+	if key.Root == nil || key.Root != other.Root {
+		return false
+	}
+	if key.Path == "" || other.Path == "" || key.Path == other.Path {
+		return true
+	}
+	return strings.HasPrefix(key.Path, other.Path+".") ||
+		strings.HasPrefix(other.Path, key.Path+".")
 }
 
 func (projection Projection) String() string {
@@ -91,12 +110,54 @@ func resolveRootPlace(pkg *packages.Package, expr ast.Expr) (Place, bool) {
 	case *ast.ParenExpr:
 		return resolveRootPlace(pkg, expr.X)
 	case *ast.SelectorExpr:
-		return resolveRootPlace(pkg, expr.X)
+		return resolveSelectorPlace(pkg, expr)
 	case *ast.IndexExpr:
-		return resolveRootPlace(pkg, expr.X)
+		return collapseRootPlace(pkg, expr.X)
 	default:
 		return Place{}, false
 	}
+}
+
+func resolveSelectorPlace(pkg *packages.Package, expr *ast.SelectorExpr) (Place, bool) {
+	base, ok := resolveRootPlace(pkg, expr.X)
+	if !ok {
+		return Place{}, false
+	}
+	if base.Collapsed {
+		return base, true
+	}
+	selection := pkg.TypesInfo.Selections[expr]
+	if selection == nil || selection.Kind() != types.FieldVal {
+		return collapsePlace(base), true
+	}
+	field, _ := selection.Obj().(*types.Var)
+	if field == nil {
+		return collapsePlace(base), true
+	}
+	index := -1
+	if path := selection.Index(); len(path) > 0 {
+		index = path[len(path)-1]
+	}
+	base.Projection = append(base.Projection, FieldProjection{
+		Name:  field.Name(),
+		Index: index,
+		Field: field,
+	})
+	return base, true
+}
+
+func collapseRootPlace(pkg *packages.Package, expr ast.Expr) (Place, bool) {
+	place, ok := resolveRootPlace(pkg, expr)
+	if !ok {
+		return Place{}, false
+	}
+	return collapsePlace(place), true
+}
+
+func collapsePlace(place Place) Place {
+	place.Projection = nil
+	place.Collapsed = true
+	return place
 }
 
 func directRootPlace(pkg *packages.Package, expr ast.Expr) (Place, bool) {

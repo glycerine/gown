@@ -11,6 +11,23 @@ const (
 	CapUntracked
 )
 
+func (cap Cap) String() string {
+	switch cap {
+	case CapIso:
+		return `\iso`
+	case CapMub:
+		return `\mub`
+	case CapRob:
+		return `\rob`
+	case CapImm:
+		return `\imm`
+	case CapUntracked:
+		return "untracked"
+	default:
+		return "invalid"
+	}
+}
+
 type AnnotationKind uint8
 
 const (

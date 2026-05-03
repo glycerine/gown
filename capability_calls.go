@@ -46,6 +46,7 @@ func bindCallCapability(pkg *packages.Package, idx *CapabilityIndex, funcName st
 		Offset:     pos.Offset,
 		Line:       pos.Line,
 		Col:        pos.Column,
+		Path:       gownSourcePath(pos.Filename),
 		FuncName:   funcName,
 		Call:       call,
 		Callee:     callee,

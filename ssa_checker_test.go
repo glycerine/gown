@@ -99,6 +99,35 @@ func main() {
 }
 `
 
+const gownUseAfterIsoAssignSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	b := a
+	println(b)
+	println(a)
+}
+`
+
+const gownFreshIsoAssignThenSendSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	ch := make(chan \iso *payload)
+	a := &payload{}
+	b := a
+	ch <- b
+	println(a)
+}
+`
+
 func TestBuildsSSAPackage(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"ssa.gown": gownSSASmokeSource})
 
@@ -200,4 +229,14 @@ func TestGWN001IgnoresRobCall(t *testing.T) {
 	if err := gp.Check(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestGWN001ReportsDirectUseAfterIsoAssign(t *testing.T) {
+	err := checkGownSource(t, "use_after_assign.gown", gownUseAfterIsoAssignSource)
+	requireCheckerCode(t, err, GWN001)
+}
+
+func TestGWN001MovesFreshIsoThroughAssignmentBeforeSend(t *testing.T) {
+	err := checkGownSource(t, "fresh_assign_send.gown", gownFreshIsoAssignThenSendSource)
+	requireCheckerCode(t, err, GWN001)
 }

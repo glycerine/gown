@@ -9,6 +9,15 @@ type CheckerErrorCode string
 
 const (
 	GWN001 CheckerErrorCode = "GWN001"
+	GWN002 CheckerErrorCode = "GWN002"
+	GWN003 CheckerErrorCode = "GWN003"
+	GWN004 CheckerErrorCode = "GWN004"
+	GWN005 CheckerErrorCode = "GWN005"
+	GWN006 CheckerErrorCode = "GWN006"
+	GWN007 CheckerErrorCode = "GWN007"
+	GWN008 CheckerErrorCode = "GWN008"
+	GWN009 CheckerErrorCode = "GWN009"
+	GWN010 CheckerErrorCode = "GWN010"
 )
 
 type CheckerError struct {

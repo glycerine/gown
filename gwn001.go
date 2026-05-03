@@ -66,6 +66,7 @@ func (checker *gwn001Checker) checkStmt(stmt ast.Stmt) {
 		for _, rhs := range stmt.Rhs {
 			checker.checkExpr(rhs)
 		}
+		checker.recordIsoAssignMoves(stmt)
 	case *ast.BlockStmt:
 		checker.checkBlock(stmt)
 	case *ast.DeclStmt:
@@ -81,6 +82,7 @@ func (checker *gwn001Checker) checkStmt(stmt ast.Stmt) {
 		checker.checkStmt(stmt.Post)
 	case *ast.GoStmt:
 		checker.checkExpr(stmt.Call)
+		checker.recordIsoGoCaptures(stmt)
 	case *ast.IfStmt:
 		checker.checkStmt(stmt.Init)
 		checker.checkExpr(stmt.Cond)
@@ -146,7 +148,7 @@ func (checker *gwn001Checker) checkExprUses(expr ast.Expr) {
 		if !ok {
 			return true
 		}
-		consumed, ok := checker.consumed[place.Key()]
+		consumed, ok := checker.consumed[place.RegionKey()]
 		if !ok {
 			return true
 		}
@@ -207,7 +209,7 @@ func (checker *gwn001Checker) recordIsoCallMove(call *ast.CallExpr) {
 		if paramCap != CapIso || i >= len(binding.ArgPlaces) {
 			continue
 		}
-		key := binding.ArgPlaces[i].Key()
+		key := binding.ArgPlaces[i].RegionKey()
 		if key.Root == nil || checker.caps.ObjectCap(key.Root) != CapIso {
 			continue
 		}
@@ -216,6 +218,54 @@ func (checker *gwn001Checker) recordIsoCallMove(call *ast.CallExpr) {
 			kind: "call",
 			line: binding.Line,
 			col:  binding.Col,
+		}
+	}
+}
+
+func (checker *gwn001Checker) recordIsoGoCaptures(stmt *ast.GoStmt) {
+	pos := checker.pkg.Fset.Position(stmt.Go)
+	for _, capture := range goClosureCaptures(checker.pkg, checker.caps, stmt) {
+		if capture.Cap != CapIso {
+			continue
+		}
+		key := capture.Place.RegionKey()
+		if key.Root == nil {
+			continue
+		}
+		checker.consumed[key] = moveSite{
+			name: key.Root.Name(),
+			kind: "go",
+			line: pos.Line,
+			col:  pos.Column,
+		}
+	}
+}
+
+func (checker *gwn001Checker) recordIsoAssignMoves(stmt *ast.AssignStmt) {
+	if len(stmt.Lhs) != len(stmt.Rhs) {
+		return
+	}
+	for i, lhs := range stmt.Lhs {
+		dst, ok := checker.caps.PlaceForExpr(lhs)
+		if !ok || dst.Root == nil {
+			continue
+		}
+		src, ok := checker.caps.PlaceForExpr(stmt.Rhs[i])
+		if !ok || src.Root == nil || src.Root == dst.Root {
+			continue
+		}
+		if checker.caps.ObjectCap(src.Root) != CapIso {
+			continue
+		}
+		dstKey := dst.RegionKey()
+		srcKey := src.RegionKey()
+		delete(checker.consumed, dstKey)
+		pos := checker.pkg.Fset.Position(stmt.Rhs[i].Pos())
+		checker.consumed[srcKey] = moveSite{
+			name: src.Root.Name(),
+			kind: "assignment",
+			line: pos.Line,
+			col:  pos.Column,
 		}
 	}
 }

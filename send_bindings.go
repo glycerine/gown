@@ -15,6 +15,7 @@ type SendBinding struct {
 	Offset      int
 	Line        int
 	Col         int
+	Path        string
 }
 
 func (binding SendBinding) IsIsoMove() bool {
@@ -22,7 +23,7 @@ func (binding SendBinding) IsIsoMove() bool {
 }
 
 func (binding SendBinding) ValueKey() PlaceKey {
-	return binding.Value.Key()
+	return binding.Value.RegionKey()
 }
 
 func bindSendBindings(pkg *packages.Package, idx *CapabilityIndex) {
@@ -60,6 +61,7 @@ func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.Send
 		Offset:      pos.Offset,
 		Line:        pos.Line,
 		Col:         pos.Column,
+		Path:        gownSourcePath(pos.Filename),
 	})
 }
 

@@ -168,27 +168,43 @@ func bindValueSpecCapabilities(pkg *packages.Package, idx *CapabilityIndex, qual
 		chanElemCap := typeChanElemCap
 		if spec.Type == nil && i < len(spec.Values) {
 			cap, chanElemCap = capsForValueExpr(pkg, quals, spec.Values[i])
+			if cap == CapInvalid {
+				cap = isoMoveCapForValueExpr(pkg, idx, spec.Values[i])
+			}
 		}
 		bindObjectCaps(idx, obj, cap, chanElemCap)
 	}
 }
 
 func bindAssignStmtCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, stmt *ast.AssignStmt) {
-	if stmt.Tok != token.DEFINE || len(stmt.Lhs) != len(stmt.Rhs) {
+	if stmt.Tok != token.DEFINE && stmt.Tok != token.ASSIGN {
+		return
+	}
+	if len(stmt.Lhs) != len(stmt.Rhs) {
 		return
 	}
 	for i, lhs := range stmt.Lhs {
-		name, ok := lhs.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		obj := pkg.TypesInfo.Defs[name]
+		obj := assignedObject(pkg, lhs)
 		if obj == nil {
 			continue
 		}
 		cap, chanElemCap := capsForValueExpr(pkg, quals, stmt.Rhs[i])
+		if cap == CapInvalid {
+			cap = isoMoveCapForValueExpr(pkg, idx, stmt.Rhs[i])
+		}
 		bindObjectCaps(idx, obj, cap, chanElemCap)
 	}
+}
+
+func assignedObject(pkg *packages.Package, expr ast.Expr) types.Object {
+	name, ok := expr.(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	if obj := pkg.TypesInfo.Defs[name]; obj != nil {
+		return obj
+	}
+	return pkg.TypesInfo.Uses[name]
 }
 
 func bindObjectCaps(idx *CapabilityIndex, obj types.Object, cap, chanElemCap Cap) {
@@ -223,6 +239,9 @@ func chanElemCapForType(pkg *packages.Package, quals map[int]*CapQualifierAnnota
 }
 
 func capsForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) (Cap, Cap) {
+	if isFreshOwnedValueExpr(expr) {
+		return CapIso, CapInvalid
+	}
 	call, ok := expr.(*ast.CallExpr)
 	if !ok {
 		return directCapForType(pkg, quals, expr), chanElemCapForType(pkg, quals, expr)
@@ -232,6 +251,29 @@ func capsForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotati
 		return CapInvalid, CapInvalid
 	}
 	return CapInvalid, chanElemCapForType(pkg, quals, call.Args[0])
+}
+
+func isoMoveCapForValueExpr(pkg *packages.Package, idx *CapabilityIndex, expr ast.Expr) Cap {
+	place, ok := directRootPlace(pkg, expr)
+	if !ok || idx.ObjectCap(place.Root) != CapIso {
+		return CapInvalid
+	}
+	return CapIso
+}
+
+func isFreshOwnedValueExpr(expr ast.Expr) bool {
+	switch expr := expr.(type) {
+	case *ast.ParenExpr:
+		return isFreshOwnedValueExpr(expr.X)
+	case *ast.UnaryExpr:
+		_, ok := expr.X.(*ast.CompositeLit)
+		return expr.Op == token.AND && ok
+	case *ast.CallExpr:
+		fun, ok := expr.Fun.(*ast.Ident)
+		return ok && fun.Name == "new"
+	default:
+		return false
+	}
 }
 
 func fillCaps(caps []Cap, cap Cap) {

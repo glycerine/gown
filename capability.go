@@ -25,6 +25,7 @@ type CallBinding struct {
 	Offset     int
 	Line       int
 	Col        int
+	Path       string
 	FuncName   string
 	Call       *ast.CallExpr
 	Callee     *types.Func

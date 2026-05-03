@@ -34,6 +34,26 @@ func main() {
 }
 `
 
+const gownNestedSelectorPlaceSource = `package example
+
+type payload struct {
+	Data string
+}
+
+type inner struct {
+	Item *payload
+}
+
+type holder struct {
+	Inner inner
+}
+
+func main() {
+	var x \iso *holder
+	_ = x.Inner.Item
+}
+`
+
 const gownParenPlaceSource = `package example
 
 type payload struct {
@@ -179,7 +199,7 @@ func TestPlaceIndexResolvesRootIdentifier(t *testing.T) {
 	}
 }
 
-func TestPlaceIndexCollapsesSelectorToRoot(t *testing.T) {
+func TestPlaceIndexRecordsSelectorProjection(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"selector.gown": gownSelectorPlaceSource})
 
 	gp := NewGownPackage(dir)
@@ -196,8 +216,30 @@ func TestPlaceIndexCollapsesSelectorToRoot(t *testing.T) {
 	if place.Root != root {
 		t.Fatalf("selector place root = %v, want %v", place.Root, root)
 	}
-	if key := place.Key(); key.Root != root || key.Path != "" {
-		t.Fatalf("selector place key = %#v, want root x with empty path", key)
+	if key := place.Key(); key.Root != root || key.Path != ".Item" {
+		t.Fatalf("selector place key = %#v, want root x with path .Item", key)
+	}
+	if key := place.RegionKey(); key.Root != root || key.Path != "" {
+		t.Fatalf("selector region key = %#v, want root x with empty path", key)
+	}
+}
+
+func TestPlaceIndexRecordsNestedSelectorProjection(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"nested_selector.gown": gownNestedSelectorPlaceSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	selector := findFirstSelectorExprBySelName(t, gp, "Item")
+	place, ok := gp.caps.PlaceForExpr(selector)
+	if !ok {
+		t.Fatal("nested selector has no place")
+	}
+	root := lookupLocalVar(t, gp, "main", "x")
+	if key := place.Key(); key.Root != root || key.Path != ".Inner.Item" {
+		t.Fatalf("nested selector place key = %#v, want root x with path .Inner.Item", key)
 	}
 }
 
@@ -234,8 +276,8 @@ func TestPlaceIndexCollapsesParenthesizedSelectorToRoot(t *testing.T) {
 		t.Fatal("parenthesized selector has no place")
 	}
 	root := lookupLocalVar(t, gp, "main", "x")
-	if place.Key().Root != root || place.Key().Path != "" {
-		t.Fatalf("parenthesized selector place key = %#v, want root x", place.Key())
+	if place.Key().Root != root || place.Key().Path != ".Item" {
+		t.Fatalf("parenthesized selector place key = %#v, want root x path .Item", place.Key())
 	}
 }
 
@@ -255,6 +297,9 @@ func TestPlaceIndexCollapsesIndexExprToRoot(t *testing.T) {
 	root := lookupLocalVar(t, gp, "main", "x")
 	if place.Key().Root != root || place.Key().Path != "" {
 		t.Fatalf("index expression place key = %#v, want root x", place.Key())
+	}
+	if !place.Collapsed {
+		t.Fatal("index expression place should be collapsed")
 	}
 }
 
@@ -334,9 +379,8 @@ func TestSendBindingRecordsIsoChannelUntrackedValueAsNonMove(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"iso_untracked.gown": gownIsoChannelUntrackedValueSendSource})
 
 	gp := NewGownPackage(dir)
-	if err := gp.Check(); err != nil {
-		t.Fatal(err)
-	}
+	err := gp.Check()
+	requireCheckerCode(t, err, GWN010)
 
 	send := findFirstSendStmt(t, gp)
 	binding, ok := gp.caps.SendBinding(send)
@@ -537,6 +581,29 @@ func findFirstSelectorExpr(t *testing.T, gp *GownPackage) *ast.SelectorExpr {
 		}
 	}
 	t.Fatal("could not find selector expression")
+	return nil
+}
+
+func findFirstSelectorExprBySelName(t *testing.T, gp *GownPackage, name string) *ast.SelectorExpr {
+	t.Helper()
+	for _, file := range gp.pkg.Syntax {
+		var found *ast.SelectorExpr
+		ast.Inspect(file, func(n ast.Node) bool {
+			if found != nil {
+				return false
+			}
+			selector, ok := n.(*ast.SelectorExpr)
+			if !ok || selector.Sel.Name != name {
+				return true
+			}
+			found = selector
+			return false
+		})
+		if found != nil {
+			return found
+		}
+	}
+	t.Fatalf("could not find selector expression %s", name)
 	return nil
 }
 

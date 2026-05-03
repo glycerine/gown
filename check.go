@@ -148,8 +148,18 @@ func (gp *GownPackage) Check() error {
 		assignCreates(gp.pkg, gf, reachable, poisoned)
 	}
 
-	if errs := checkGWN001(gp.pkg, gp.caps); len(errs) > 0 {
-		return errs
+	var checkerErrs CheckerErrors
+	checkerErrs = append(checkerErrs, checkGWN001(gp.pkg, gp.caps)...)
+	checkerErrs = append(checkerErrs, checkCallBorrowConflicts(gp.caps)...)
+	checkerErrs = append(checkerErrs, checkSendCapabilities(gp.caps)...)
+	checkerErrs = append(checkerErrs, checkGoBorrowEscapes(gp.pkg, gp.caps)...)
+	checkerErrs = append(checkerErrs, checkReadOnlyWrites(gp.pkg, gp.caps)...)
+	checkerErrs = append(checkerErrs, checkBorrowStoreEscapes(gp.pkg, gp.caps)...)
+	checkerErrs = append(checkerErrs, checkReturnBorrowEscapes(gp.pkg, gp.caps)...)
+	checkerErrs = append(checkerErrs, checkUntrackedCallBoundaries(gp.pkg, gp.caps)...)
+	checkerErrs = append(checkerErrs, checkInterfaceErasure(gp.pkg, gp.caps)...)
+	if len(checkerErrs) > 0 {
+		return checkerErrs
 	}
 
 	return nil
