@@ -21,6 +21,10 @@ type GownPackage struct {
 	ssaPkg  *ssa.Package
 }
 
+type CheckOptions struct {
+	CheckOnly bool
+}
+
 func NewGownPackage(path string) *GownPackage {
 	return &GownPackage{path: path}
 }
@@ -30,11 +34,19 @@ func NewGownPackage(path string) *GownPackage {
 // (overwriting any existing .go alongside each .gown), loads the
 // package with go/packages, and assigns regions/funcNames from the AST.
 func (gp *GownPackage) Check() error {
+	return gp.CheckWithOptions(CheckOptions{})
+}
+
+// CheckWithOptions runs the Gown checker. In normal mode it writes generated
+// .go files beside .gown files. In check-only mode it keeps generated sources
+// in a go/packages overlay so validation does not modify the package directory.
+func (gp *GownPackage) CheckWithOptions(opts CheckOptions) error {
 	entries, err := os.ReadDir(gp.path)
 	if err != nil {
 		return fmt.Errorf("reading directory %s: %w", gp.path, err)
 	}
 
+	overlay := make(map[string][]byte)
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".gown") {
 			continue
@@ -45,7 +57,7 @@ func (gp *GownPackage) Check() error {
 			return fmt.Errorf("reading %s: %w", gownPath, err)
 		}
 
-		goSrc, _, gf, err := scanAndClassify(e.Name(), src)
+		emitSrc, analysisSrc, gf, err := scanAndClassify(e.Name(), src)
 		if err != nil {
 			return err
 		}
@@ -53,7 +65,15 @@ func (gp *GownPackage) Check() error {
 
 		goName := strings.TrimSuffix(e.Name(), ".gown") + ".go"
 		goPath := filepath.Join(gp.path, goName)
-		if err := os.WriteFile(goPath, goSrc, 0644); err != nil {
+		if opts.CheckOnly {
+			absGoPath, err := filepath.Abs(goPath)
+			if err != nil {
+				return fmt.Errorf("resolving %s: %w", goPath, err)
+			}
+			overlay[absGoPath] = analysisSrc
+			continue
+		}
+		if err := os.WriteFile(goPath, emitSrc, 0644); err != nil {
 			return fmt.Errorf("writing %s: %w", goPath, err)
 		}
 	}
@@ -67,6 +87,9 @@ func (gp *GownPackage) Check() error {
 			packages.NeedTypesInfo | packages.NeedName |
 			packages.NeedImports | packages.NeedTypesSizes,
 		Dir: gp.path,
+	}
+	if len(overlay) > 0 {
+		cfg.Overlay = overlay
 	}
 	pkgs, err := packages.Load(cfg, ".")
 	if err != nil {

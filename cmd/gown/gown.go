@@ -53,7 +53,7 @@ func run(args []string, stderr io.Writer) int {
 
 	for _, dir := range dirs {
 		gp := gown.NewGownPackage(dir)
-		if err := gp.Check(); err != nil {
+		if err := gp.CheckWithOptions(gown.CheckOptions{CheckOnly: cfg.CheckOnly}); err != nil {
 			fmt.Fprintln(stderr, gown.FormatError(err))
 			return 1
 		}

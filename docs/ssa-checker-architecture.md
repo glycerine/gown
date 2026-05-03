@@ -2,8 +2,10 @@
 
 This document describes the checker architecture for Gown's lifetime and borrow
 analysis. It is a living design artifact: some pieces are implemented, some are
-only partially implemented, and the SSA dataflow engine remains the highest
-risk planned work.
+only partially implemented, and the SSA checker is now the main execution path
+for the completed diagnostic slices. The remaining highest-risk work is deeper
+lifetime/liveness behavior for named borrows, freeze/clone/unsafe, and final
+emit semantics.
 
 The central decision is that Go's AST, type checker, and SSA builder remain
 ordinary Go tooling. They do not learn about `\iso`, `\mub`, `\rob`, or
@@ -21,8 +23,11 @@ of the main path and should not drive the first checker milestones.
 ## Current State
 
 The current implementation now has a working front end, side-table binding
-layer, SSA construction step, and a suite of AST/place-based checker passes.
-The full SSA dataflow engine described below is not implemented yet.
+layer, SSA construction step, and an SSA-backed checker runner for the current
+capability diagnostics. The older AST/place checkers remain useful fallback
+implementations and comparison points, but `GownPackage.Check` now builds SSA
+and routes the main checker passes through the SSA implementations when SSA is
+available.
 
 Implemented:
 
@@ -38,27 +43,29 @@ Implemented:
 - `PlaceIndex` recovers source places from AST/types, including statically
   typed selector projections such as `x.f.g`; dynamic index expressions
   collapse to the root region.
-- Checker passes currently reject several capability violations: moved `\iso`
-  use, conflicting inferred call borrows, non-sendable sends, channel/value
-  capability mismatch, goroutine borrow escapes, read-only writes, borrow
-  stores, returned borrows, untracked call boundaries, and interface erasure.
+- SSA-backed checker passes currently reject several capability violations:
+  moved `\iso` use, conflicting inferred call borrows, non-sendable sends,
+  channel/value capability mismatch, goroutine borrow escapes, read-only
+  writes, borrow stores, returned borrows, untracked call boundaries, and
+  interface erasure.
 - Diagnostics report structured `GWN` errors against original `.gown` source
   and include source-line context.
+- CLI `-check` mode validates with a `go/packages` overlay and does not write
+  generated `.go` files into the package directory.
 - `gownfmt` formats `.gown` source through `go/format` while preserving Gown
   annotations.
 
 Still missing:
 
-- A real SSA CFG/dataflow engine with instruction-level transfer functions,
-  liveness, and conservative merge behavior.
-- A check-only load path that avoids writing generated `.go` files.
+- Broader SSA dataflow beyond the current `GWN001` consumed-place engine,
+  especially named borrow liveness, defers, loops, and freeze/clone/unsafe.
 - Final emit behavior that inserts nil assignments after consumed `\iso`
   moves.
 - Semantics for freeze/clone/unsafe beyond token recognition and formatting.
 - Broader boundary modeling for reflection, `sync`, atomics, and unsafe code.
 
-This architecture now extends the working AST/place checker rather than just a
-front-end scaffold.
+This architecture now treats the hybrid AST/types/place plus SSA model as the
+main checker shape rather than just a front-end scaffold.
 
 ## End-To-End Pipeline
 
@@ -85,8 +92,9 @@ The target pipeline is:
 6. Build SSA with `golang.org/x/tools/go/ssa`.
 7. Seed checker state from capability side tables.
 8. Infer borrow/move/freeze behavior from typed contexts and run capability
-   checking. Today this is done by AST/place-based passes; the target is a
-   forward SSA dataflow engine.
+   checking. Today the completed diagnostics use SSA-backed passes over the
+   side tables, with full forward CFG dataflow currently concentrated in
+   `GWN001`.
 9. Report structured GWN errors at original `.gown` positions.
 10. If checking succeeds and `-check` is false, emit final Go.
 
@@ -96,10 +104,12 @@ index so they cannot drift.
 Current status:
 
 - Stages 1 through 7 exist for qualifier-oriented programs.
-- Stage 8 exists as AST/place checker passes, not as SSA dataflow.
+- Stage 8 exists as SSA-backed checker passes over capability side tables, with
+  full CFG dataflow currently concentrated in `GWN001`.
 - Stage 9 exists.
-- Stage 10 partially exists: stripped Go is written, but check-only mode and
-  nil insertion after consumed `\iso` moves remain open.
+- Stage 10 partially exists: stripped Go is written in normal mode and avoided
+  in CLI `-check` mode through a `go/packages` overlay. Nil insertion after
+  consumed `\iso` moves remains open.
 
 ## Analysis Source Strategy
 
@@ -467,16 +477,20 @@ Completed checker slices:
 
 Important limitation:
 
-The completed checker slices are AST/place-based. They use the same side-table
-model the SSA checker should use, but they do not yet perform forward dataflow
-over SSA basic blocks, instruction-level liveness, or conservative CFG merges.
+The completed checker slices now run through SSA when SSA is available.
+`GWN001` uses a forward worklist over SSA basic blocks with conservative state
+merges. The other completed slices are still simpler SSA instruction scans
+backed by AST/types place side tables; they validate the instruction mapping
+and side-table precision, but they are not yet general lifetime/liveness
+passes.
 
-## SSA Dataflow Spike Plan
+## SSA Dataflow Spike Status
 
-The next high-risk work should be a spike, not a broad rewrite. The goal is to
-validate that an SSA dataflow engine can reproduce the first useful checker
+The high-risk SSA work started as a spike rather than a broad rewrite. The
+goal was to validate that an SSA dataflow engine can reproduce useful checker
 behaviors while preserving original `.gown` diagnostics and field-sensitive
-place recovery.
+place recovery. That spike has succeeded for the current diagnostic set, and
+the SSA path is now wired into the main checker runner.
 
 Spike questions:
 
@@ -495,7 +509,8 @@ Spike questions:
 
 Spike non-goals:
 
-- Do not replace every existing checker pass.
+- Do not remove the existing AST/place checker code until the SSA path has
+  enough soak time.
 - Do not implement freeze/clone/unsafe semantics.
 - Do not implement nil insertion.
 - Do not solve all loop precision. Conservative rejection at loop joins is
@@ -523,23 +538,21 @@ Proposed TDD slices:
 
 Spike deliverables:
 
-- A small package-private SSA dataflow prototype, ideally isolated in
-  `ssa_dataflow.go` and test helpers.
-- A written decision in this document: continue with full SSA dataflow,
-  keep a hybrid AST/place plus SSA-control-flow architecture, or defer SSA
-  dataflow if it does not buy enough precision yet.
-- A short list of existing checker passes that should be migrated first, if
-  the spike succeeds.
+- A package-private SSA dataflow prototype and focused SSA checkers.
+- A written decision in this document: continue with the hybrid AST/types/place
+  plus SSA-control-flow architecture.
+- A migrated main checker runner that prefers SSA implementations and falls
+  back to AST/place implementations when SSA is unavailable.
 
 Spike exit criteria:
 
-- Existing `go test ./...` remains green.
-- The spike can model `GWN001` over SSA without worse diagnostics.
-- The spike can either recover field-sensitive struct projections through SSA
-  or clearly validates the hybrid approach: AST/types provide places, SSA
-  provides ordering, liveness, and CFG joins.
+- Existing `go test ./...` remains green. Completed.
+- The spike can model `GWN001` over SSA without worse diagnostics. Completed.
+- The spike can recover field-sensitive struct projections through SSA while
+  preserving the hybrid rule: AST/types provide places, SSA provides ordering,
+  liveness, and CFG joins. Completed.
 - The team has enough evidence to choose the next vertical slice without
-  redesigning the side-table model.
+  redesigning the side-table model. Completed.
 
 Spike progress:
 
@@ -559,6 +572,18 @@ Spike progress:
   and conservative CFG merges. It explicitly rejects ownership moves from field
   projections (`x.f`) instead of inserting hidden nil assignments or silently
   consuming sibling state.
+- SSA parity passes now cover `GWN001` through `GWN010` plus `GWN011`, with
+  `GWN001` implemented as CFG dataflow and the remaining completed checks as
+  SSA instruction scans over side-table places.
+- `GownPackage.Check` now routes the main checker runner through the SSA passes
+  when SSA is available, while keeping AST/place checkers as fallbacks.
+- Integration tests cover precision improvements that the root-only AST passes
+  missed, including tracked struct fields passed to untracked functions and
+  tracked struct fields erased into interfaces.
+- Diagnostic placement remains an explicit contract: SSA checks may use SSA
+  instruction positions for operation errors, but should prefer annotated
+  object/field positions when the user needs to see the source qualifier in the
+  reported `.gown` line.
 
 ## Spike Learnings
 
@@ -583,11 +608,12 @@ write hidden nil assignments into user fields. Therefore, field projections are
 valid for borrow precision, but they are rejected as ownership move sources
 with `GWN011`.
 
-The remaining high-risk question is not whether SSA has the right instruction
-shapes or whether field-sensitive places can be represented. It is whether the
-state machine can run over real SSA CFGs, preserve original `.gown`
-diagnostics, and reproduce `GWN001` parity before migrating broader checker
-passes.
+The spike answered the first high-risk question: SSA has the right instruction
+shapes, field-sensitive places can be represented, the state machine can run
+over real SSA CFGs, and `GWN001` can preserve original `.gown` diagnostics
+while using SSA ordering and CFG merges. The next risk is generalizing that
+liveness machinery from consumed roots to named borrows, freeze/clone
+semantics, defers, loops, and unknown synchronization/unsafe boundaries.
 
 A further SSA parity finding is that assignment moves are source-level events
 that optimized SSA can erase. A move such as `b := a` may not survive as a
@@ -604,28 +630,38 @@ for source-place uses after assignment. The same SSA value may represent both
 `DebugRef` expressions and the AST `PlaceIndex`; SSA values should carry places
 for transfer reasoning, not override source identity in diagnostics.
 
-Current SSA checker spike coverage includes `GWN001` parity for direct sends,
+Current SSA checker coverage includes `GWN001` parity for direct sends,
 iso-consuming calls, assignment moves, branch merges, goroutine calls, closure
-captures, and projected field-move rejection. It also includes `GWN002` parity
-for inferred call-borrow conflicts, including field-sensitive sibling-field
-precision. These checks are still exercised as package-private SSA passes; they
-are not yet wired into the main checker pipeline as replacements for the
-AST/place passes.
+captures, and projected field-move rejection. It also includes `GWN002` through
+`GWN010` parity for inferred call-borrow conflicts, send capability checks,
+goroutine borrow escapes, read-only writes, borrow stores, returned borrows,
+untracked call boundaries, and interface erasure. These SSA checks are now
+wired into the main checker pipeline, with AST/place implementations retained
+as fallbacks and comparison references.
+
+Wiring the SSA runner into the main pipeline exposed one diagnostic lesson:
+operation positions and annotation positions are both valuable, but not
+interchangeable. For example, a non-sendable `\mub` send is logically detected
+at the send instruction, while the most helpful source context may be the
+annotated declaration or field. SSA checkers should choose positions based on
+what the user needs to see to understand and fix the error, while always
+mapping generated `.go` paths back to original `.gown` paths.
 
 ## Open Implementation Notes
 
-- The `-check` CLI flag currently exists but is not wired through to avoid
-  writing `.go` files. The architecture assumes check-only mode will eventually
-  load analysis Go without changing committed generated files.
+- Normal `Check` still writes generated `.go` files; CLI `-check` uses an
+  overlay to avoid writing. Future library APIs may want a clearer split
+  between check-only analysis, emit, and combined check-and-emit workflows.
 - Explicit expression syntax is recognized by the scanner and formatter, but
   most semantics are not implemented. It should not pollute final output or
   collide silently with user declarations.
 - Diagnostics should always point to `.gown` positions, never generated
-  analysis Go positions. The current diagnostics already do this, and the SSA
-  spike must preserve it.
-- Field-sensitive precision already exists for AST/types selector paths. The
-  SSA spike should validate whether SSA propagation can preserve that precision
-  or whether the long-term design should be explicitly hybrid.
-- The existing checker passes provide useful safety coverage, but their
-  AST traversal order is not a substitute for SSA CFG dataflow once named
-  borrows, loops, branches, defers, closures, and precise liveness matter.
+  analysis Go positions. The current diagnostics already do this, and SSA
+  checks must preserve it.
+- Field-sensitive precision exists for AST/types selector paths and now also
+  survives through key SSA forms. The long-term design should remain explicitly
+  hybrid.
+- The existing SSA checker passes provide useful safety coverage, but only
+  `GWN001` currently performs full CFG dataflow. Named borrows, loops,
+  branches, defers, closures, and precise liveness still need broader dataflow
+  treatment.

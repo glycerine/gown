@@ -75,6 +75,22 @@ func TestRunReturnsZeroForPassingPackage(t *testing.T) {
 	}
 }
 
+func TestRunCheckOnlyDoesNotWriteGeneratedGo(t *testing.T) {
+	dir := writeCLIGownDir(t, "passing.gown", cliPassingSource)
+	var stderr bytes.Buffer
+
+	code := run([]string{"-check", dir}, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	goPath := filepath.Join(dir, "passing.go")
+	if _, err := os.Stat(goPath); err == nil {
+		t.Fatalf("-check wrote generated file %s", goPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
 func TestRunFormatsOriginalGownLineForAnnotatedCheckerError(t *testing.T) {
 	dir := writeCLIGownDir(t, "annotated.gown", cliAnnotatedCheckerErrorSource)
 	var stderr bytes.Buffer
