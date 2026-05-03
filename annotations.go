@@ -76,3 +76,27 @@ type IntrinsicAnnotation struct {
 type UnsafeBoundaryAnnotation struct {
 	Span SourceSpan
 }
+
+type GownSourceViews struct {
+	EmitSrc       []byte
+	AnalysisSrc   []byte
+	Annotations   []*AnnotationToken
+	CapQualifiers []*CapQualifierAnnotation
+	Intrinsics    []*IntrinsicAnnotation
+	UnsafeUses    []*UnsafeBoundaryAnnotation
+}
+
+func ClassifyGownSource(path string, src []byte) (*GownSourceViews, error) {
+	emitSrc, analysisSrc, gf, err := scanAndClassify(path, src)
+	if err != nil {
+		return nil, err
+	}
+	return &GownSourceViews{
+		EmitSrc:       emitSrc,
+		AnalysisSrc:   analysisSrc,
+		Annotations:   gf.annotations,
+		CapQualifiers: gf.capQualifiers,
+		Intrinsics:    gf.intrinsics,
+		UnsafeUses:    gf.unsafeUses,
+	}, nil
+}

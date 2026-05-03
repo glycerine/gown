@@ -22,7 +22,16 @@ type GownPackage struct {
 }
 
 type CheckOptions struct {
-	CheckOnly bool
+	CheckOnly   bool
+	GownOverlay map[string][]byte
+}
+
+type GownAnalysis struct {
+	Path    string
+	Package *packages.Package
+	Files   []*gownFile
+	Caps    *CapabilityIndex
+	SSAPkg  *ssa.Package
 }
 
 func NewGownPackage(path string) *GownPackage {
@@ -41,45 +50,72 @@ func (gp *GownPackage) Check() error {
 // .go files beside .gown files. In check-only mode it keeps generated sources
 // in a go/packages overlay so validation does not modify the package directory.
 func (gp *GownPackage) CheckWithOptions(opts CheckOptions) error {
+	_, err := gp.AnalyzeWithOptions(opts)
+	return err
+}
+
+func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, error) {
+	gp.pkg = nil
+	gp.files = nil
+	gp.caps = nil
+	gp.ssaProg = nil
+	gp.ssaPkg = nil
+
+	if len(opts.GownOverlay) > 0 {
+		opts.CheckOnly = true
+	}
+
 	entries, err := os.ReadDir(gp.path)
 	if err != nil {
-		return fmt.Errorf("reading directory %s: %w", gp.path, err)
+		return nil, fmt.Errorf("reading directory %s: %w", gp.path, err)
+	}
+
+	gownNames := make(map[string]bool)
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".gown") {
+			gownNames[e.Name()] = true
+		}
+	}
+	for path := range opts.GownOverlay {
+		if strings.HasSuffix(path, ".gown") && samePackagePath(gp.path, path) {
+			gownNames[filepath.Base(path)] = true
+		}
 	}
 
 	overlay := make(map[string][]byte)
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".gown") {
-			continue
-		}
-		gownPath := filepath.Join(gp.path, e.Name())
-		src, err := os.ReadFile(gownPath)
-		if err != nil {
-			return fmt.Errorf("reading %s: %w", gownPath, err)
+	for name := range gownNames {
+		gownPath := filepath.Join(gp.path, name)
+		src, ok := lookupGownOverlay(opts.GownOverlay, gownPath)
+		if !ok {
+			src, err = os.ReadFile(gownPath)
+			if err != nil {
+				return nil, fmt.Errorf("reading %s: %w", gownPath, err)
+			}
 		}
 
-		emitSrc, analysisSrc, gf, err := scanAndClassify(e.Name(), src)
+		emitSrc, analysisSrc, gf, err := scanAndClassify(name, src)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		gp.files = append(gp.files, gf)
 
-		goName := strings.TrimSuffix(e.Name(), ".gown") + ".go"
+		goName := strings.TrimSuffix(name, ".gown") + ".go"
 		goPath := filepath.Join(gp.path, goName)
 		if opts.CheckOnly {
 			absGoPath, err := filepath.Abs(goPath)
 			if err != nil {
-				return fmt.Errorf("resolving %s: %w", goPath, err)
+				return nil, fmt.Errorf("resolving %s: %w", goPath, err)
 			}
 			overlay[absGoPath] = analysisSrc
 			continue
 		}
 		if err := os.WriteFile(goPath, emitSrc, 0644); err != nil {
-			return fmt.Errorf("writing %s: %w", goPath, err)
+			return nil, fmt.Errorf("writing %s: %w", goPath, err)
 		}
 	}
 
 	if len(gp.files) == 0 {
-		return fmt.Errorf("no .gown files found in %s", gp.path)
+		return nil, fmt.Errorf("no .gown files found in %s", gp.path)
 	}
 
 	cfg := &packages.Config{
@@ -93,18 +129,18 @@ func (gp *GownPackage) CheckWithOptions(opts CheckOptions) error {
 	}
 	pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
-		return fmt.Errorf("packages.Load: %w", err)
+		return nil, fmt.Errorf("packages.Load: %w", err)
 	}
 	if len(pkgs) == 0 {
-		return fmt.Errorf("no packages found in %s", gp.path)
+		return nil, fmt.Errorf("no packages found in %s", gp.path)
 	}
 	gp.pkg = pkgs[0]
 	if len(gp.pkg.Errors) > 0 {
-		return fmt.Errorf("package error: %v", gp.pkg.Errors[0])
+		return nil, fmt.Errorf("package error: %v", gp.pkg.Errors[0])
 	}
 	gp.caps = assignCapabilities(gp.pkg, gp.files)
 	if err := gp.buildSSA(); err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, gf := range gp.files {
@@ -172,8 +208,49 @@ func (gp *GownPackage) CheckWithOptions(opts CheckOptions) error {
 	}
 
 	if errs := runCheckerPasses(gp.pkg, gp.ssaPkg, gp.caps); len(errs) > 0 {
-		return errs
+		return gp.analysis(), errs
 	}
 
-	return nil
+	return gp.analysis(), nil
+}
+
+func (gp *GownPackage) analysis() *GownAnalysis {
+	return &GownAnalysis{
+		Path:    gp.path,
+		Package: gp.pkg,
+		Files:   gp.files,
+		Caps:    gp.caps,
+		SSAPkg:  gp.ssaPkg,
+	}
+}
+
+func samePackagePath(pkgPath, filePath string) bool {
+	absPkg, err := filepath.Abs(pkgPath)
+	if err != nil {
+		return false
+	}
+	absFile, err := filepath.Abs(filePath)
+	if err != nil {
+		return false
+	}
+	return filepath.Dir(absFile) == absPkg
+}
+
+func lookupGownOverlay(overlay map[string][]byte, path string) ([]byte, bool) {
+	if len(overlay) == 0 {
+		return nil, false
+	}
+	if src, ok := overlay[path]; ok {
+		return src, true
+	}
+	absPath, err := filepath.Abs(path)
+	if err == nil {
+		if src, ok := overlay[absPath]; ok {
+			return src, true
+		}
+	}
+	if src, ok := overlay[filepath.Base(path)]; ok {
+		return src, true
+	}
+	return nil, false
 }
