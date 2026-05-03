@@ -71,6 +71,54 @@ func main() {
 }
 `
 
+const gownDeferredInferredMutableBorrowBlocksSendSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Mut(x \mub *payload) {}
+
+func main() {
+	var a \iso *payload
+	defer Mut(a)
+	ch := make(chan \iso *payload)
+	ch <- a
+}
+`
+
+const gownDeferredInferredReadBorrowBlocksSendSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Read(x \rob *payload) {}
+
+func main() {
+	var a \iso *payload
+	defer Read(a)
+	ch := make(chan \iso *payload)
+	ch <- a
+}
+`
+
+const gownDeferredInferredBorrowConflictSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Mut(x \mub *payload) {}
+func Read(x \rob *payload) {}
+
+func main() {
+	var a \iso *payload
+	defer Mut(a)
+	defer Read(a)
+}
+`
+
 func TestSSAGWN002RejectsSendAfterDeferredNamedBorrowArg(t *testing.T) {
 	gp := loadGownForSSACheck(t, "defer_arg.gown", gownDeferNamedBorrowArgBlocksSendSource)
 
@@ -103,5 +151,41 @@ func TestSSAGWN002AllowsSendAfterUnrelatedDefer(t *testing.T) {
 
 func TestGWN002RejectsSendAfterDeferredNamedBorrowArg(t *testing.T) {
 	err := checkGownSource(t, "defer_arg.gown", gownDeferNamedBorrowArgBlocksSendSource)
+	requireCheckerCode(t, err, GWN002)
+}
+
+func TestSSAGWN002RejectsSendAfterDeferredInferredMutableBorrow(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_inferred_mut.gown", gownDeferredInferredMutableBorrowBlocksSendSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN002)
+}
+
+func TestSSAGWN002RejectsSendAfterDeferredInferredReadBorrow(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_inferred_read.gown", gownDeferredInferredReadBorrowBlocksSendSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN002)
+}
+
+func TestSSAGWN002RejectsConflictingDeferredInferredBorrows(t *testing.T) {
+	gp := loadGownForSSACheck(t, "defer_inferred_conflict.gown", gownDeferredInferredBorrowConflictSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN002)
+}
+
+func TestGWN002RejectsSendAfterDeferredInferredMutableBorrow(t *testing.T) {
+	err := checkGownSource(t, "defer_inferred_mut.gown", gownDeferredInferredMutableBorrowBlocksSendSource)
+	requireCheckerCode(t, err, GWN002)
+}
+
+func TestGWN002RejectsSendAfterDeferredInferredReadBorrow(t *testing.T) {
+	err := checkGownSource(t, "defer_inferred_read.gown", gownDeferredInferredReadBorrowBlocksSendSource)
+	requireCheckerCode(t, err, GWN002)
+}
+
+func TestGWN002RejectsConflictingDeferredInferredBorrows(t *testing.T) {
+	err := checkGownSource(t, "defer_inferred_conflict.gown", gownDeferredInferredBorrowConflictSource)
 	requireCheckerCode(t, err, GWN002)
 }

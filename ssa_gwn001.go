@@ -237,10 +237,12 @@ func (checker *ssaGWN001Checker) applyGoTransfer(instr *ssa.Go, state *SSAFuncti
 
 func (checker *ssaGWN001Checker) applyDeferTransfer(instr *ssa.Defer, state *SSAFunctionState) {
 	if binding, ok := checker.bindings.DeferCall(checker.pkg, instr); ok {
+		checker.applyDeferredInferredBorrowArgs(binding, state, instr)
 		for _, place := range binding.ArgPlaces {
 			checker.activateDeferredNamedBorrow(state, place, instr)
 		}
 	} else {
+		checker.applyDeferredCallCommonTransfer(&instr.Call, state, instr)
 		for _, arg := range instr.Call.Args {
 			place, ok := checker.places.PlaceForValue(arg)
 			if !ok {
@@ -251,6 +253,51 @@ func (checker *ssaGWN001Checker) applyDeferTransfer(instr *ssa.Defer, state *SSA
 	}
 	checker.applyDeferClosureCaptureTransfer(instr, state)
 	checker.applySourceDeferClosureCaptureTransfer(instr, state)
+}
+
+func (checker *ssaGWN001Checker) applyDeferredInferredBorrowArgs(binding CallBinding, state *SSAFunctionState, instr ssa.Instruction) {
+	for i, paramCap := range binding.ParamCaps {
+		if paramCap != CapMub && paramCap != CapRob {
+			continue
+		}
+		if i >= len(binding.ArgPlaces) {
+			continue
+		}
+		place := binding.ArgPlaces[i]
+		if place.Root == nil {
+			continue
+		}
+		if violation, ok := state.BeginBorrow(place.Key(), paramCap); ok {
+			checker.reportViolation(checker.pkg.Fset.Position(instr.Pos()), violation)
+		}
+	}
+}
+
+func (checker *ssaGWN001Checker) applyDeferredCallCommonTransfer(call *ssa.CallCommon, state *SSAFunctionState, instr ssa.Instruction) {
+	callee := call.StaticCallee()
+	if callee == nil {
+		return
+	}
+	fn, _ := callee.Object().(*types.Func)
+	funcCap := checker.caps.FuncCap(fn)
+	if funcCap == nil {
+		return
+	}
+	for i, paramCap := range funcCap.Params {
+		if paramCap != CapMub && paramCap != CapRob {
+			continue
+		}
+		if i >= len(call.Args) {
+			continue
+		}
+		argPlace, ok := checker.places.PlaceForValue(call.Args[i])
+		if !ok || argPlace.Root == nil {
+			continue
+		}
+		if violation, ok := state.BeginBorrow(argPlace.Key(), paramCap); ok {
+			checker.reportViolation(checker.pkg.Fset.Position(instr.Pos()), violation)
+		}
+	}
 }
 
 func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, state *SSAFunctionState, instr ssa.Instruction, kind string) {

@@ -580,9 +580,10 @@ Spike progress:
   liveness for named `\mub`/`\rob` borrows and rejects root transfers while a
   derived named borrow is live. Sending `\iso` on `chan \imm` is modeled as an
   inferred freeze-send transfer that consumes the sender's root and consults
-  the same named-borrow liveness guard. Deferred named borrow arguments and
-  deferred closure captures are modeled as borrows that remain active until
-  function exit.
+  the same named-borrow liveness guard. Deferred arguments whose parameter
+  types infer `\mub` or `\rob`, deferred named borrow arguments, and deferred
+  closure captures are modeled as borrows that remain active until function
+  exit.
 - `GownPackage.Check` now routes the main checker runner through the SSA passes
   when SSA is available, while keeping AST/place checkers as fallbacks.
 - Integration tests cover precision improvements that the root-only AST passes
@@ -654,21 +655,24 @@ the transfer instruction. This is the durable rule: source bindings identify
 what the user wrote; SSA tells us where it is live.
 
 Defer handling adds a Go-specific lifetime rule that is easy to miss. For a
-plain deferred call such as `defer use(b)`, Go evaluates and saves the argument
-values at the point where the defer is registered, not when the deferred call
-runs at function exit. Therefore, if `b` is a named `\mub` or `\rob` borrow,
-that borrow must be treated as live until function exit even if the local
-variable `b` is reassigned later. Deferred closures also need analysis because
-they may capture named borrow variables; Gown now uses SSA closure bindings and
-a source-position fallback for deferred function literals to conservatively
+plain deferred call, Go evaluates and saves the argument values at the point
+where the defer is registered, not when the deferred call runs at function
+exit. Therefore, a call such as `defer Mut(a)`, where `Mut` takes `\mub *T`,
+creates an inferred mutable borrow of `a` that remains live until function
+exit. Similarly, `defer use(b)` extends the source borrow behind a named
+`\mub` or `\rob` variable `b` until function exit even if the local variable
+`b` is reassigned later. Deferred closures also need analysis because they may
+capture named borrow variables; Gown now uses SSA closure bindings and a
+source-position fallback for deferred function literals to conservatively
 activate those captured borrows until function exit.
 
 Current SSA checker coverage includes `GWN001` parity for direct sends,
 inferred freeze-sends to `chan \imm`, iso-consuming calls, assignment moves,
 branch merges, goroutine calls, closure captures, named borrow liveness,
 branch-sensitive named borrow liveness, deferred named borrow snapshots,
-deferred closure borrow captures, and projected field-move rejection. It also
-includes `GWN002` through `GWN010` parity for inferred call-borrow
+deferred inferred borrow arguments, deferred closure borrow captures, and
+projected field-move rejection. It also includes `GWN002` through `GWN010`
+parity for inferred call-borrow
 conflicts, send capability checks, goroutine borrow escapes, read-only writes,
 borrow stores, returned borrows, untracked call boundaries, and interface
 erasure. These SSA checks are now wired into the main checker pipeline, with
@@ -699,7 +703,7 @@ mapping generated `.go` paths back to original `.gown` paths.
 - The existing SSA checker passes provide useful safety coverage, but only
   `GWN001` currently performs full CFG dataflow. Named borrow liveness now
   covers straight-line code and branches for sends, inferred freeze-sends,
-  calls, goroutine calls, plain defer arguments, and deferred closure captures.
-  Explicit freeze/clone, loops under heavier mutation, complex closure-contained
-  named borrows, and precise unsafe/synchronization boundaries still need
-  broader treatment.
+  calls, goroutine calls, deferred inferred borrow arguments, deferred named
+  borrow arguments, and deferred closure captures. Explicit freeze/clone, loops
+  under heavier mutation, complex closure-contained named borrows, and precise
+  unsafe/synchronization boundaries still need broader treatment.
