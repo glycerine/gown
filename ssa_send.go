@@ -13,11 +13,11 @@ func checkSendCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *
 		return nil
 	}
 	checker := &ssaSendChecker{
-		pkg:          pkg,
-		caps:         caps,
-		places:       buildSSAPlaceIndex(pkg, ssaPkg, caps),
-		sendBindings: sendBindingsByPosition(caps),
-		reported:     make(map[string]bool),
+		pkg:      pkg,
+		caps:     caps,
+		places:   buildSSAPlaceIndex(pkg, ssaPkg, caps),
+		bindings: NewSSABindingIndex(caps),
+		reported: make(map[string]bool),
 	}
 	for _, fn := range collectSSAFunctions(ssaPkg) {
 		checker.checkFunction(fn)
@@ -26,12 +26,12 @@ func checkSendCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *
 }
 
 type ssaSendChecker struct {
-	pkg          *packages.Package
-	caps         *CapabilityIndex
-	places       *SSAPlaceIndex
-	sendBindings map[sourcePosKey]SendBinding
-	errs         CheckerErrors
-	reported     map[string]bool
+	pkg      *packages.Package
+	caps     *CapabilityIndex
+	places   *SSAPlaceIndex
+	bindings *SSABindingIndex
+	errs     CheckerErrors
+	reported map[string]bool
 }
 
 func (checker *ssaSendChecker) checkFunction(fn *ssa.Function) {
@@ -50,7 +50,7 @@ func (checker *ssaSendChecker) checkFunction(fn *ssa.Function) {
 }
 
 func (checker *ssaSendChecker) checkSend(send *ssa.Send) {
-	if binding, ok := ssaSendBinding(checker.pkg, checker.sendBindings, send); ok {
+	if binding, ok := checker.bindings.Send(checker.pkg, send); ok {
 		checker.checkBoundSend(binding, send)
 		return
 	}

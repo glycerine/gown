@@ -15,6 +15,18 @@ type sourcePosKey struct {
 	Col    int
 }
 
+type SSABindingIndex struct {
+	Sends map[sourcePosKey]SendBinding
+	Calls map[sourcePosKey]CallBinding
+}
+
+func NewSSABindingIndex(caps *CapabilityIndex) *SSABindingIndex {
+	return &SSABindingIndex{
+		Sends: sendBindingsByPosition(caps),
+		Calls: callBindingsByPosition(caps),
+	}
+}
+
 func sendBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]SendBinding {
 	byPos := make(map[sourcePosKey]SendBinding)
 	if caps == nil {
@@ -42,23 +54,23 @@ func callBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]CallBinding 
 	return byPos
 }
 
-func ssaSendBinding(pkg *packages.Package, bindings map[sourcePosKey]SendBinding, send *ssa.Send) (SendBinding, bool) {
-	if pkg == nil || send == nil {
+func (idx *SSABindingIndex) Send(pkg *packages.Package, send *ssa.Send) (SendBinding, bool) {
+	if idx == nil || pkg == nil || send == nil {
 		return SendBinding{}, false
 	}
-	binding, ok := bindings[sourcePositionKey(pkg.Fset.Position(send.Pos()))]
+	binding, ok := idx.Sends[sourcePositionKey(pkg.Fset.Position(send.Pos()))]
 	return binding, ok
 }
 
-func ssaCallBinding(pkg *packages.Package, bindings map[sourcePosKey]CallBinding, call *ssa.Call) (CallBinding, bool) {
-	if pkg == nil || call == nil {
+func (idx *SSABindingIndex) Call(pkg *packages.Package, call *ssa.Call) (CallBinding, bool) {
+	if idx == nil || pkg == nil || call == nil {
 		return CallBinding{}, false
 	}
 	pos := sourcePositionKey(pkg.Fset.Position(call.Pos()))
-	if binding, ok := bindings[pos]; ok {
+	if binding, ok := idx.Calls[pos]; ok {
 		return binding, true
 	}
-	for _, binding := range bindings {
+	for _, binding := range idx.Calls {
 		if binding.Path != pos.Path || binding.Call == nil {
 			continue
 		}
@@ -70,13 +82,13 @@ func ssaCallBinding(pkg *packages.Package, bindings map[sourcePosKey]CallBinding
 	return CallBinding{}, false
 }
 
-func ssaGoCallBinding(pkg *packages.Package, bindings map[sourcePosKey]CallBinding, goInstr *ssa.Go) (CallBinding, bool) {
-	if pkg == nil || goInstr == nil {
+func (idx *SSABindingIndex) GoCall(pkg *packages.Package, goInstr *ssa.Go) (CallBinding, bool) {
+	if idx == nil || pkg == nil || goInstr == nil {
 		return CallBinding{}, false
 	}
 	pos := sourcePositionKey(pkg.Fset.Position(goInstr.Pos()))
 	callee := goInstr.Call.StaticCallee()
-	for _, binding := range bindings {
+	for _, binding := range idx.Calls {
 		if binding.Path != pos.Path || binding.Line != pos.Line || binding.Call == nil {
 			continue
 		}

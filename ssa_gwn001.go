@@ -21,8 +21,7 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 		places:       places,
 		assigns:      collectSSAAssignmentMoves(pkg, caps),
 		namedBorrows: collectSSANamedBorrows(pkg, caps),
-		sendBindings: sendBindingsByPosition(caps),
-		callBindings: callBindingsByPosition(caps),
+		bindings:     NewSSABindingIndex(caps),
 		reported:     make(map[string]bool),
 	}
 	for _, fn := range collectSSAFunctions(ssaPkg) {
@@ -37,8 +36,7 @@ type ssaGWN001Checker struct {
 	places              *SSAPlaceIndex
 	assigns             map[ast.Expr]ssaAssignmentMove
 	namedBorrows        map[*types.Func]SSANamedBorrowInfo
-	sendBindings        map[sourcePosKey]SendBinding
-	callBindings        map[sourcePosKey]CallBinding
+	bindings            *SSABindingIndex
 	activeNamedBorrows  SSANamedBorrowInfo
 	namedBorrowLiveness *SSANamedBorrowLiveness
 	errs                CheckerErrors
@@ -179,7 +177,7 @@ func (checker *ssaGWN001Checker) applyAssignmentMove(instr *ssa.DebugRef, state 
 }
 
 func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFunctionState) {
-	if binding, ok := ssaSendBinding(checker.pkg, checker.sendBindings, instr); ok {
+	if binding, ok := checker.bindings.Send(checker.pkg, instr); ok {
 		if !binding.IsIsoMove() {
 			return
 		}
@@ -198,7 +196,7 @@ func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFu
 }
 
 func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFunctionState) {
-	if binding, ok := ssaCallBinding(checker.pkg, checker.callBindings, instr); ok {
+	if binding, ok := checker.bindings.Call(checker.pkg, instr); ok {
 		checker.applyBoundCallTransfer(binding, state, instr, "call")
 		return
 	}
@@ -219,7 +217,7 @@ func (checker *ssaGWN001Checker) applyBoundCallTransfer(binding CallBinding, sta
 }
 
 func (checker *ssaGWN001Checker) applyGoTransfer(instr *ssa.Go, state *SSAFunctionState) {
-	if binding, ok := ssaGoCallBinding(checker.pkg, checker.callBindings, instr); ok {
+	if binding, ok := checker.bindings.GoCall(checker.pkg, instr); ok {
 		checker.applyBoundCallTransfer(binding, state, instr, "go")
 	} else {
 		checker.applyCallCommonTransfer(&instr.Call, state, instr, "go")

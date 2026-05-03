@@ -20,8 +20,10 @@ type SSANamedBorrowInfo struct {
 }
 
 type SSANamedBorrowLiveness struct {
-	LiveAfter map[ssa.Instruction]map[types.Object]bool
+	LiveAfter map[ssa.Instruction]objectSet
 }
+
+type objectSet map[types.Object]bool
 
 func collectSSANamedBorrows(pkg *packages.Package, caps *CapabilityIndex) map[*types.Func]SSANamedBorrowInfo {
 	byFunc := make(map[*types.Func]SSANamedBorrowInfo)
@@ -123,20 +125,20 @@ func namedBorrowSourceAllowed(caps *CapabilityIndex, borrowCap Cap, source Place
 
 func buildSSANamedBorrowLiveness(fn *ssa.Function, caps *CapabilityIndex, info SSANamedBorrowInfo) *SSANamedBorrowLiveness {
 	liveness := &SSANamedBorrowLiveness{
-		LiveAfter: make(map[ssa.Instruction]map[types.Object]bool),
+		LiveAfter: make(map[ssa.Instruction]objectSet),
 	}
 	if fn == nil || len(info.Borrows) == 0 {
 		return liveness
 	}
 
-	use := make(map[*ssa.BasicBlock]map[types.Object]bool)
-	def := make(map[*ssa.BasicBlock]map[types.Object]bool)
-	liveIn := make(map[*ssa.BasicBlock]map[types.Object]bool)
-	liveOut := make(map[*ssa.BasicBlock]map[types.Object]bool)
+	use := make(map[*ssa.BasicBlock]objectSet)
+	def := make(map[*ssa.BasicBlock]objectSet)
+	liveIn := make(map[*ssa.BasicBlock]objectSet)
+	liveOut := make(map[*ssa.BasicBlock]objectSet)
 
 	for _, block := range fn.Blocks {
-		blockUse := make(map[types.Object]bool)
-		blockDef := make(map[types.Object]bool)
+		blockUse := make(objectSet)
+		blockDef := make(objectSet)
 		for _, instr := range block.Instrs {
 			for obj := range namedBorrowUses(caps, info, instr) {
 				if !blockDef[obj] {
@@ -149,8 +151,8 @@ func buildSSANamedBorrowLiveness(fn *ssa.Function, caps *CapabilityIndex, info S
 		}
 		use[block] = blockUse
 		def[block] = blockDef
-		liveIn[block] = make(map[types.Object]bool)
-		liveOut[block] = make(map[types.Object]bool)
+		liveIn[block] = make(objectSet)
+		liveOut[block] = make(objectSet)
 	}
 
 	changed := true
@@ -158,16 +160,16 @@ func buildSSANamedBorrowLiveness(fn *ssa.Function, caps *CapabilityIndex, info S
 		changed = false
 		for i := len(fn.Blocks) - 1; i >= 0; i-- {
 			block := fn.Blocks[i]
-			nextOut := make(map[types.Object]bool)
+			nextOut := make(objectSet)
 			for _, succ := range block.Succs {
-				addNamedBorrowSet(nextOut, liveIn[succ])
+				nextOut.addAll(liveIn[succ])
 			}
-			nextIn := copyNamedBorrowSet(nextOut)
+			nextIn := nextOut.clone()
 			for obj := range def[block] {
 				delete(nextIn, obj)
 			}
-			addNamedBorrowSet(nextIn, use[block])
-			if !equalNamedBorrowSet(liveOut[block], nextOut) || !equalNamedBorrowSet(liveIn[block], nextIn) {
+			nextIn.addAll(use[block])
+			if !liveOut[block].equal(nextOut) || !liveIn[block].equal(nextIn) {
 				liveOut[block] = nextOut
 				liveIn[block] = nextIn
 				changed = true
@@ -176,10 +178,10 @@ func buildSSANamedBorrowLiveness(fn *ssa.Function, caps *CapabilityIndex, info S
 	}
 
 	for _, block := range fn.Blocks {
-		live := copyNamedBorrowSet(liveOut[block])
+		live := liveOut[block].clone()
 		for i := len(block.Instrs) - 1; i >= 0; i-- {
 			instr := block.Instrs[i]
-			liveness.LiveAfter[instr] = copyNamedBorrowSet(live)
+			liveness.LiveAfter[instr] = live.clone()
 			for obj := range namedBorrowDefs(info, instr) {
 				delete(live, obj)
 			}
@@ -192,15 +194,15 @@ func buildSSANamedBorrowLiveness(fn *ssa.Function, caps *CapabilityIndex, info S
 	return liveness
 }
 
-func (liveness *SSANamedBorrowLiveness) LiveAfterInstruction(instr ssa.Instruction) map[types.Object]bool {
+func (liveness *SSANamedBorrowLiveness) LiveAfterInstruction(instr ssa.Instruction) objectSet {
 	if liveness == nil || instr == nil {
 		return nil
 	}
 	return liveness.LiveAfter[instr]
 }
 
-func namedBorrowUses(caps *CapabilityIndex, info SSANamedBorrowInfo, instr ssa.Instruction) map[types.Object]bool {
-	uses := make(map[types.Object]bool)
+func namedBorrowUses(caps *CapabilityIndex, info SSANamedBorrowInfo, instr ssa.Instruction) objectSet {
+	uses := make(objectSet)
 	debug, ok := instr.(*ssa.DebugRef)
 	if !ok || debug.IsAddr {
 		return uses
@@ -215,8 +217,8 @@ func namedBorrowUses(caps *CapabilityIndex, info SSANamedBorrowInfo, instr ssa.I
 	return uses
 }
 
-func namedBorrowDefs(info SSANamedBorrowInfo, instr ssa.Instruction) map[types.Object]bool {
-	defs := make(map[types.Object]bool)
+func namedBorrowDefs(info SSANamedBorrowInfo, instr ssa.Instruction) objectSet {
+	defs := make(objectSet)
 	debug, ok := instr.(*ssa.DebugRef)
 	if !ok {
 		return defs
@@ -227,24 +229,24 @@ func namedBorrowDefs(info SSANamedBorrowInfo, instr ssa.Instruction) map[types.O
 	return defs
 }
 
-func copyNamedBorrowSet(src map[types.Object]bool) map[types.Object]bool {
-	dst := make(map[types.Object]bool)
-	addNamedBorrowSet(dst, src)
-	return dst
+func (set objectSet) clone() objectSet {
+	clone := make(objectSet)
+	clone.addAll(set)
+	return clone
 }
 
-func addNamedBorrowSet(dst, src map[types.Object]bool) {
+func (set objectSet) addAll(src objectSet) {
 	for obj := range src {
-		dst[obj] = true
+		set[obj] = true
 	}
 }
 
-func equalNamedBorrowSet(a, b map[types.Object]bool) bool {
-	if len(a) != len(b) {
+func (set objectSet) equal(other objectSet) bool {
+	if len(set) != len(other) {
 		return false
 	}
-	for obj := range a {
-		if !b[obj] {
+	for obj := range set {
+		if !other[obj] {
 			return false
 		}
 	}

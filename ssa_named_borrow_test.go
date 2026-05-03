@@ -298,7 +298,7 @@ func TestSSACallBindingMatchesNamedBorrowIsoCall(t *testing.T) {
 	fn := lookupSSAFunction(t, gp, "main")
 	call := firstSSAInstructionOfType[*ssa.Call](t, fn)
 
-	binding, ok := ssaCallBinding(gp.pkg, callBindingsByPosition(gp.caps), call)
+	binding, ok := NewSSABindingIndex(gp.caps).Call(gp.pkg, call)
 	if !ok {
 		t.Fatalf("SSA call at %#v did not match call bindings %#v", gp.pkg.Fset.Position(call.Pos()), gp.caps.CallBindings)
 	}
