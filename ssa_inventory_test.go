@@ -1,6 +1,10 @@
 package gown
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 const gownSSAInventorySource = `package example
 
@@ -107,4 +111,30 @@ func loadSSAInventoryFacts(t *testing.T) []ssaInventoryFact {
 		t.Fatal(err)
 	}
 	return collectSSAInventoryFacts(gp.pkg, gp.ssaPkg)
+}
+
+func ssaInventoryHas(facts []ssaInventoryFact, function, kind string) bool {
+	_, ok := firstSSAInventoryFact(facts, function, kind)
+	return ok
+}
+
+func firstSSAInventoryFact(facts []ssaInventoryFact, function, kind string) (ssaInventoryFact, bool) {
+	for _, fact := range facts {
+		if fact.Function == function && fact.Kind == kind {
+			return fact, true
+		}
+	}
+	return ssaInventoryFact{}, false
+}
+
+func formatSSAInventoryFacts(facts []ssaInventoryFact) string {
+	if len(facts) == 0 {
+		return "<none>"
+	}
+	var b strings.Builder
+	for _, fact := range facts {
+		fmt.Fprintf(&b, "%s %s line=%d col=%d block=%d index=%d %s\n",
+			fact.Function, fact.Kind, fact.Line, fact.Col, fact.Block, fact.Index, fact.Text)
+	}
+	return b.String()
 }

@@ -1,8 +1,15 @@
 package gown
 
 type SSAFunctionState struct {
-	Consumed map[PlaceKey]moveSite
+	Consumed map[PlaceKey]SSAMoveSite
 	Borrows  []SSABorrow
+}
+
+type SSAMoveSite struct {
+	Name string
+	Kind string
+	Line int
+	Col  int
 }
 
 type SSABorrow struct {
@@ -18,11 +25,11 @@ type SSAStateViolation struct {
 
 func NewSSAFunctionState() SSAFunctionState {
 	return SSAFunctionState{
-		Consumed: make(map[PlaceKey]moveSite),
+		Consumed: make(map[PlaceKey]SSAMoveSite),
 	}
 }
 
-func (state *SSAFunctionState) ConsumeRoot(place PlaceKey, site moveSite) (SSAStateViolation, bool) {
+func (state *SSAFunctionState) ConsumeRoot(place PlaceKey, site SSAMoveSite) (SSAStateViolation, bool) {
 	if place.Root == nil {
 		return SSAStateViolation{}, false
 	}
@@ -46,13 +53,13 @@ func (state *SSAFunctionState) ConsumeRoot(place PlaceKey, site moveSite) (SSASt
 	return SSAStateViolation{}, false
 }
 
-func (state *SSAFunctionState) CheckUse(place PlaceKey) (moveSite, bool) {
+func (state *SSAFunctionState) CheckUse(place PlaceKey) (SSAMoveSite, bool) {
 	for consumed, site := range state.Consumed {
 		if consumed.Overlaps(place) {
 			return site, true
 		}
 	}
-	return moveSite{}, false
+	return SSAMoveSite{}, false
 }
 
 func (state *SSAFunctionState) BeginBorrow(place PlaceKey, cap Cap) (SSAStateViolation, bool) {

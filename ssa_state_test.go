@@ -10,7 +10,7 @@ func TestSSAFunctionStateRejectsProjectedMoves(t *testing.T) {
 	x := ssaStateTestRoot("x")
 	state := NewSSAFunctionState()
 
-	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x, Path: ".f"}, moveSite{kind: "send"}); !ok {
+	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x, Path: ".f"}, SSAMoveSite{Kind: "send"}); !ok {
 		t.Fatal("expected projected move violation")
 	} else if violation.Code != GWN011 {
 		t.Fatalf("projected move code = %s, want %s", violation.Code, GWN011)
@@ -26,7 +26,7 @@ func TestSSAFunctionStateRootMoveInvalidatesRootAndFields(t *testing.T) {
 	y := ssaStateTestRoot("y")
 	state := NewSSAFunctionState()
 
-	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, moveSite{kind: "send"}); ok {
+	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, SSAMoveSite{Kind: "send"}); ok {
 		t.Fatalf("unexpected root consume violation: %#v", violation)
 	}
 
@@ -85,14 +85,14 @@ func TestSSAFunctionStateBorrowBlocksRootMoveUntilEnded(t *testing.T) {
 	if violation, ok := state.BeginBorrow(PlaceKey{Root: x, Path: ".f"}, CapMub); ok {
 		t.Fatalf("unexpected field borrow violation: %#v", violation)
 	}
-	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, moveSite{kind: "send"}); !ok {
+	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, SSAMoveSite{Kind: "send"}); !ok {
 		t.Fatal("expected root move to conflict with active field borrow")
 	} else if violation.Code != GWN002 {
 		t.Fatalf("root move conflict code = %s, want %s", violation.Code, GWN002)
 	}
 
 	state.EndBorrow(PlaceKey{Root: x, Path: ".f"}, CapMub)
-	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, moveSite{kind: "send"}); ok {
+	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, SSAMoveSite{Kind: "send"}); ok {
 		t.Fatalf("ended borrow should not block root move: %#v", violation)
 	}
 }
@@ -102,7 +102,7 @@ func TestMergeSSAFunctionStatesTreatsAnyBranchMoveAsConsumed(t *testing.T) {
 	left := NewSSAFunctionState()
 	right := NewSSAFunctionState()
 
-	if violation, ok := left.ConsumeRoot(PlaceKey{Root: x}, moveSite{kind: "send"}); ok {
+	if violation, ok := left.ConsumeRoot(PlaceKey{Root: x}, SSAMoveSite{Kind: "send"}); ok {
 		t.Fatalf("unexpected consume violation: %#v", violation)
 	}
 

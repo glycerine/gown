@@ -1,10 +1,8 @@
 package gown
 
 import (
-	"fmt"
 	"go/token"
 	"sort"
-	"strings"
 
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
@@ -125,30 +123,4 @@ func sourceColumn(pos token.Position) int {
 		return 0
 	}
 	return pos.Column
-}
-
-func ssaInventoryHas(facts []ssaInventoryFact, function, kind string) bool {
-	_, ok := firstSSAInventoryFact(facts, function, kind)
-	return ok
-}
-
-func firstSSAInventoryFact(facts []ssaInventoryFact, function, kind string) (ssaInventoryFact, bool) {
-	for _, fact := range facts {
-		if fact.Function == function && fact.Kind == kind {
-			return fact, true
-		}
-	}
-	return ssaInventoryFact{}, false
-}
-
-func formatSSAInventoryFacts(facts []ssaInventoryFact) string {
-	if len(facts) == 0 {
-		return "<none>"
-	}
-	var b strings.Builder
-	for _, fact := range facts {
-		fmt.Fprintf(&b, "%s %s line=%d col=%d block=%d index=%d %s\n",
-			fact.Function, fact.Kind, fact.Line, fact.Col, fact.Block, fact.Index, fact.Text)
-	}
-	return b.String()
 }
