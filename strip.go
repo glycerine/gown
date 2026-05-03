@@ -3,8 +3,19 @@ package gown
 import "bytes"
 
 type gownFile struct {
-	path        string
-	iso []*isoAnnotation
+	path   string
+	iso    []*isoAnnotation
+	create []*createAnew
+}
+
+type createAnew struct {
+	offset   int     // 0-based byte offset of the creation expression
+	line     int     // 1-based line number
+	col      int     // 1-based column number (bytes, not runes)
+	kind     string  // "new", "make", or "ampersand" (for &T{})
+	typeName string  // the type being created (e.g. "payload")
+	funcName string  // containing function name (filled in after AST parse)
+	scope    *region // innermost enclosing { } block (filled in after AST parse)
 }
 
 type region struct {
