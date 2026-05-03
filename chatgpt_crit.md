@@ -15,8 +15,6 @@ You’re building a compiler pass:
 
 ```text
 gown/
-  main.go
-  checker/
     checker.go
     state.go
     borrow.go
