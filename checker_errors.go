@@ -1,6 +1,9 @@
 package gown
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type CheckerErrorCode string
 
@@ -39,4 +42,11 @@ func (errs CheckerErrors) Error() string {
 	default:
 		return fmt.Sprintf("%s and %d more checker errors", errs[0].Error(), len(errs)-1)
 	}
+}
+
+func gownSourcePath(path string) string {
+	if strings.HasSuffix(path, ".go") {
+		return strings.TrimSuffix(path, ".go") + ".gown"
+	}
+	return path
 }

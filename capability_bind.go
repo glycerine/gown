@@ -102,13 +102,8 @@ func bindFieldListCapabilities(pkg *packages.Package, idx *CapabilityIndex, qual
 			obj := tuple.At(tupleIndex)
 			if fieldCap != CapInvalid {
 				out[tupleIndex] = fieldCap
-				if obj != nil {
-					idx.ObjectCaps[obj] = fieldCap
-				}
 			}
-			if chanElemCap != CapInvalid && obj != nil {
-				idx.ChanElemCaps[obj] = chanElemCap
-			}
+			bindObjectCaps(idx, obj, fieldCap, chanElemCap)
 			tupleIndex++
 		}
 	}
@@ -169,15 +164,9 @@ func bindValueSpecCapabilities(pkg *packages.Package, idx *CapabilityIndex, qual
 		cap := typeCap
 		chanElemCap := typeChanElemCap
 		if spec.Type == nil && i < len(spec.Values) {
-			cap = directCapForValueExpr(pkg, quals, spec.Values[i])
-			chanElemCap = chanElemCapForValueExpr(pkg, quals, spec.Values[i])
+			cap, chanElemCap = capsForValueExpr(pkg, quals, spec.Values[i])
 		}
-		if cap != CapInvalid {
-			idx.ObjectCaps[obj] = cap
-		}
-		if chanElemCap != CapInvalid {
-			idx.ChanElemCaps[obj] = chanElemCap
-		}
+		bindObjectCaps(idx, obj, cap, chanElemCap)
 	}
 }
 
@@ -194,14 +183,20 @@ func bindAssignStmtCapabilities(pkg *packages.Package, idx *CapabilityIndex, qua
 		if obj == nil {
 			continue
 		}
-		cap := directCapForValueExpr(pkg, quals, stmt.Rhs[i])
-		chanElemCap := chanElemCapForValueExpr(pkg, quals, stmt.Rhs[i])
-		if cap != CapInvalid {
-			idx.ObjectCaps[obj] = cap
-		}
-		if chanElemCap != CapInvalid {
-			idx.ChanElemCaps[obj] = chanElemCap
-		}
+		cap, chanElemCap := capsForValueExpr(pkg, quals, stmt.Rhs[i])
+		bindObjectCaps(idx, obj, cap, chanElemCap)
+	}
+}
+
+func bindObjectCaps(idx *CapabilityIndex, obj types.Object, cap, chanElemCap Cap) {
+	if obj == nil {
+		return
+	}
+	if cap != CapInvalid {
+		idx.ObjectCaps[obj] = cap
+	}
+	if chanElemCap != CapInvalid {
+		idx.ChanElemCaps[obj] = chanElemCap
 	}
 }
 
@@ -224,20 +219,16 @@ func chanElemCapForType(pkg *packages.Package, quals map[int]*CapQualifierAnnota
 	return directCapForType(pkg, quals, ch.Value)
 }
 
-func directCapForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) Cap {
-	return directCapForType(pkg, quals, expr)
-}
-
-func chanElemCapForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) Cap {
+func capsForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) (Cap, Cap) {
 	call, ok := expr.(*ast.CallExpr)
 	if !ok {
-		return chanElemCapForType(pkg, quals, expr)
+		return directCapForType(pkg, quals, expr), chanElemCapForType(pkg, quals, expr)
 	}
 	fun, ok := call.Fun.(*ast.Ident)
 	if !ok || fun.Name != "make" || len(call.Args) == 0 {
-		return CapInvalid
+		return CapInvalid, CapInvalid
 	}
-	return chanElemCapForType(pkg, quals, call.Args[0])
+	return CapInvalid, chanElemCapForType(pkg, quals, call.Args[0])
 }
 
 func fillCaps(caps []Cap, cap Cap) {

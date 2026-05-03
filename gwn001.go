@@ -4,21 +4,25 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"strings"
 
 	"golang.org/x/tools/go/packages"
 )
 
-type consumedIso struct {
+type rootPlace struct {
+	ident *ast.Ident
+	obj   types.Object
+}
+
+type moveSite struct {
 	name string
 	line int
 	col  int
 }
 
-type gwn001State struct {
+type gwn001Checker struct {
 	pkg      *packages.Package
 	caps     *CapabilityIndex
-	consumed map[types.Object]consumedIso
+	consumed map[types.Object]moveSite
 	errs     CheckerErrors
 }
 
@@ -26,86 +30,94 @@ func checkGWN001(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}
-	state := &gwn001State{
+	checker := &gwn001Checker{
 		pkg:      pkg,
 		caps:     caps,
-		consumed: make(map[types.Object]consumedIso),
+		consumed: make(map[types.Object]moveSite),
 	}
-	for _, file := range pkg.Syntax {
+	checker.checkPackage()
+	return checker.errs
+}
+
+func (checker *gwn001Checker) checkPackage() {
+	for _, file := range checker.pkg.Syntax {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
-			state.consumed = make(map[types.Object]consumedIso)
-			state.checkBlock(fn.Body)
+			checker.checkFunc(fn)
 		}
 	}
-	return state.errs
 }
 
-func (state *gwn001State) checkBlock(block *ast.BlockStmt) {
+func (checker *gwn001Checker) checkFunc(fn *ast.FuncDecl) {
+	checker.consumed = make(map[types.Object]moveSite)
+	checker.checkBlock(fn.Body)
+}
+
+func (checker *gwn001Checker) checkBlock(block *ast.BlockStmt) {
 	if block == nil {
 		return
 	}
 	for _, stmt := range block.List {
-		state.checkStmt(stmt)
+		checker.checkStmt(stmt)
 	}
 }
 
-func (state *gwn001State) checkStmt(stmt ast.Stmt) {
+func (checker *gwn001Checker) checkStmt(stmt ast.Stmt) {
 	switch stmt := stmt.(type) {
 	case *ast.AssignStmt:
 		for _, rhs := range stmt.Rhs {
-			state.checkExpr(rhs)
+			checker.checkExprUses(rhs)
 		}
 	case *ast.BlockStmt:
-		state.checkBlock(stmt)
+		checker.checkBlock(stmt)
 	case *ast.DeclStmt:
-		state.checkDecl(stmt.Decl)
+		checker.checkDecl(stmt.Decl)
 	case *ast.DeferStmt:
-		state.checkExpr(stmt.Call)
+		checker.checkExprUses(stmt.Call)
 	case *ast.ExprStmt:
-		state.checkExpr(stmt.X)
+		checker.checkExprUses(stmt.X)
 	case *ast.ForStmt:
-		state.checkStmt(stmt.Init)
-		state.checkExpr(stmt.Cond)
-		state.checkBlock(stmt.Body)
-		state.checkStmt(stmt.Post)
+		checker.checkStmt(stmt.Init)
+		checker.checkExprUses(stmt.Cond)
+		checker.checkBlock(stmt.Body)
+		checker.checkStmt(stmt.Post)
 	case *ast.GoStmt:
-		state.checkExpr(stmt.Call)
+		checker.checkExprUses(stmt.Call)
 	case *ast.IfStmt:
-		state.checkStmt(stmt.Init)
-		state.checkExpr(stmt.Cond)
-		state.checkBlock(stmt.Body)
-		state.checkStmt(stmt.Else)
+		checker.checkStmt(stmt.Init)
+		checker.checkExprUses(stmt.Cond)
+		checker.checkBlock(stmt.Body)
+		checker.checkStmt(stmt.Else)
 	case *ast.IncDecStmt:
-		state.checkExpr(stmt.X)
+		checker.checkExprUses(stmt.X)
 	case *ast.RangeStmt:
-		state.checkExpr(stmt.X)
-		state.checkBlock(stmt.Body)
+		checker.checkExprUses(stmt.X)
+		checker.checkBlock(stmt.Body)
 	case *ast.ReturnStmt:
 		for _, result := range stmt.Results {
-			state.checkExpr(result)
+			checker.checkExprUses(result)
 		}
 	case *ast.SelectStmt:
-		state.checkBlock(stmt.Body)
+		checker.checkBlock(stmt.Body)
 	case *ast.SendStmt:
-		state.checkExpr(stmt.Chan)
-		state.checkExpr(stmt.Value)
-		state.recordIsoSend(stmt)
+		checker.checkExprUses(stmt.Chan)
+		checker.checkExprUses(stmt.Value)
+		checker.recordIsoSend(stmt)
 	case *ast.SwitchStmt:
-		state.checkStmt(stmt.Init)
-		state.checkExpr(stmt.Tag)
-		state.checkBlock(stmt.Body)
+		checker.checkStmt(stmt.Init)
+		checker.checkExprUses(stmt.Tag)
+		checker.checkBlock(stmt.Body)
 	case *ast.TypeSwitchStmt:
-		state.checkStmt(stmt.Init)
-		state.checkStmt(stmt.Assign)
-		state.checkBlock(stmt.Body)
+		checker.checkStmt(stmt.Init)
+		checker.checkStmt(stmt.Assign)
+		checker.checkBlock(stmt.Body)
 	}
 }
 
-func (state *gwn001State) checkDecl(decl ast.Decl) {
+func (checker *gwn001Checker) checkDecl(decl ast.Decl) {
 	gen, ok := decl.(*ast.GenDecl)
 	if !ok {
 		return
@@ -116,78 +128,89 @@ func (state *gwn001State) checkDecl(decl ast.Decl) {
 			continue
 		}
 		for _, value := range valueSpec.Values {
-			state.checkExpr(value)
+			checker.checkExprUses(value)
 		}
 	}
 }
 
-func (state *gwn001State) checkExpr(expr ast.Expr) {
+func (checker *gwn001Checker) checkExprUses(expr ast.Expr) {
 	if expr == nil {
 		return
 	}
 	ast.Inspect(expr, func(n ast.Node) bool {
-		id, ok := n.(*ast.Ident)
+		place, ok := checker.rootUse(n)
 		if !ok {
 			return true
 		}
-		obj := state.pkg.TypesInfo.Uses[id]
-		if obj == nil {
-			return true
-		}
-		consumed, ok := state.consumed[obj]
+		consumed, ok := checker.consumed[place.obj]
 		if !ok {
 			return true
 		}
-		pos := state.pkg.Fset.Position(id.Pos())
-		state.errs = append(state.errs, CheckerError{
-			Code:    GWN001,
-			Path:    gownSourcePath(pos.Filename),
-			Offset:  pos.Offset,
-			Line:    pos.Line,
-			Col:     pos.Column,
-			Message: fmt.Sprintf("use of moved \\iso value %q after send at %d:%d", consumed.name, consumed.line, consumed.col),
-		})
+		checker.reportUseAfterMove(place, consumed)
 		return false
 	})
 }
 
-func (state *gwn001State) recordIsoSend(stmt *ast.SendStmt) {
-	chObj := identObject(state.pkg, stmt.Chan)
-	if state.caps.ChanElemCap(chObj) != CapIso {
+func (checker *gwn001Checker) reportUseAfterMove(place rootPlace, consumed moveSite) {
+	pos := checker.pkg.Fset.Position(place.ident.Pos())
+	checker.errs = append(checker.errs, CheckerError{
+		Code:    GWN001,
+		Path:    gownSourcePath(pos.Filename),
+		Offset:  pos.Offset,
+		Line:    pos.Line,
+		Col:     pos.Column,
+		Message: fmt.Sprintf("use of moved \\iso value %q after send at %d:%d", consumed.name, consumed.line, consumed.col),
+	})
+}
+
+func (checker *gwn001Checker) recordIsoSend(stmt *ast.SendStmt) {
+	sent, ok := checker.isoSendRoot(stmt)
+	if !ok {
 		return
 	}
-	valueIdent, valueObj := identAndObject(state.pkg, stmt.Value)
-	if valueObj == nil || state.caps.ObjectCap(valueObj) != CapIso {
-		return
-	}
-	pos := state.pkg.Fset.Position(valueIdent.Pos())
-	state.consumed[valueObj] = consumedIso{
-		name: valueIdent.Name,
+	pos := checker.pkg.Fset.Position(sent.ident.Pos())
+	checker.consumed[sent.obj] = moveSite{
+		name: sent.ident.Name,
 		line: pos.Line,
 		col:  pos.Column,
 	}
 }
 
-func identObject(pkg *packages.Package, expr ast.Expr) types.Object {
-	_, obj := identAndObject(pkg, expr)
-	return obj
+func (checker *gwn001Checker) isoSendRoot(stmt *ast.SendStmt) (rootPlace, bool) {
+	ch, ok := checker.rootPlaceForExpr(stmt.Chan)
+	if !ok || checker.caps.ChanElemCap(ch.obj) != CapIso {
+		return rootPlace{}, false
+	}
+	sent, ok := checker.rootPlaceForExpr(stmt.Value)
+	if !ok || checker.caps.ObjectCap(sent.obj) != CapIso {
+		return rootPlace{}, false
+	}
+	return sent, true
 }
 
-func identAndObject(pkg *packages.Package, expr ast.Expr) (*ast.Ident, types.Object) {
+func (checker *gwn001Checker) rootUse(n ast.Node) (rootPlace, bool) {
+	id, ok := n.(*ast.Ident)
+	if !ok {
+		return rootPlace{}, false
+	}
+	obj := checker.pkg.TypesInfo.Uses[id]
+	if obj == nil {
+		return rootPlace{}, false
+	}
+	return rootPlace{ident: id, obj: obj}, true
+}
+
+func (checker *gwn001Checker) rootPlaceForExpr(expr ast.Expr) (rootPlace, bool) {
 	id, ok := expr.(*ast.Ident)
 	if !ok {
-		return nil, nil
+		return rootPlace{}, false
 	}
-	obj := pkg.TypesInfo.Uses[id]
+	obj := checker.pkg.TypesInfo.Uses[id]
 	if obj == nil {
-		obj = pkg.TypesInfo.Defs[id]
+		obj = checker.pkg.TypesInfo.Defs[id]
 	}
-	return id, obj
-}
-
-func gownSourcePath(path string) string {
-	if strings.HasSuffix(path, ".go") {
-		return strings.TrimSuffix(path, ".go") + ".gown"
+	if obj == nil {
+		return rootPlace{}, false
 	}
-	return path
+	return rootPlace{ident: id, obj: obj}, true
 }
