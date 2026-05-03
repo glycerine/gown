@@ -1,8 +1,9 @@
 # Gown SSA Checker Architecture
 
-This document describes the planned checker architecture for Gown's lifetime
-and borrow analysis. It is a design artifact only: it does not describe code
-that already exists, and it does not change current checker behavior.
+This document describes the checker architecture for Gown's lifetime and borrow
+analysis. It is a living design artifact: some pieces are implemented, some are
+only partially implemented, and the SSA dataflow engine remains the highest
+risk planned work.
 
 The central decision is that Go's AST, type checker, and SSA builder remain
 ordinary Go tooling. They do not learn about `\iso`, `\mub`, `\rob`, or
@@ -19,56 +20,86 @@ of the main path and should not drive the first checker milestones.
 
 ## Current State
 
-The current implementation is a front end, capability binding pass, and program
-inventory pass:
+The current implementation now has a working front end, side-table binding
+layer, SSA construction step, and a suite of AST/place-based checker passes.
+The full SSA dataflow engine described below is not implemented yet.
 
-- `scanAndClassify` recognizes capability qualifiers, records byte
-  offset/line/column, and replaces qualifier bytes with spaces so Go parser
-  positions still line up.
-- `CapabilityIndex` binds qualifier annotations to `types.Object`s, function
-  signatures, and annotated call sites.
+Implemented:
+
+- `scanAndClassify` recognizes capability qualifiers and explicit intrinsic
+  forms, records byte offset/line/column, and produces source views where
+  Go parser positions still line up for qualifiers.
 - `Check` writes stripped `.go` files beside `.gown` files, loads the package
-  with `go/packages`, and retains the resulting AST/types information.
-- `assignRegions` maps `\iso` annotations to containing functions and block
-  regions.
-- `assignBoundary`, `computeReachableTypes`, and `assignCreates` find
-  concurrency/global/import boundaries, reachable pointer-bearing types, and
-  relevant allocation sites.
-- No SSA checker exists yet, and no capability errors are rejected yet.
+  with `go/packages`, retains AST/types information, and builds SSA with
+  `golang.org/x/tools/go/ssa`.
+- `CapabilityIndex` binds qualifier annotations to `types.Object`s, function
+  signatures, channel element types, struct fields, call sites, send sites,
+  and source places.
+- `PlaceIndex` recovers source places from AST/types, including statically
+  typed selector projections such as `x.f.g`; dynamic index expressions
+  collapse to the root region.
+- Checker passes currently reject several capability violations: moved `\iso`
+  use, conflicting inferred call borrows, non-sendable sends, channel/value
+  capability mismatch, goroutine borrow escapes, read-only writes, borrow
+  stores, returned borrows, untracked call boundaries, and interface erasure.
+- Diagnostics report structured `GWN` errors against original `.gown` source
+  and include source-line context.
+- `gownfmt` formats `.gown` source through `go/format` while preserving Gown
+  annotations.
 
-This architecture extends that scaffold rather than replacing it.
+Still missing:
+
+- A real SSA CFG/dataflow engine with instruction-level transfer functions,
+  liveness, and conservative merge behavior.
+- A check-only load path that avoids writing generated `.go` files.
+- Final emit behavior that inserts nil assignments after consumed `\iso`
+  moves.
+- Semantics for freeze/clone/unsafe beyond token recognition and formatting.
+- Broader boundary modeling for reflection, `sync`, atomics, and unsafe code.
+
+This architecture now extends the working AST/place checker rather than just a
+front-end scaffold.
 
 ## End-To-End Pipeline
 
-The future checker should use two generated source views:
+The long-term checker should use two generated source views:
 
 1. **Analysis Go:** valid Go fed to `go/packages` and `go/ssa`.
 2. **Emit Go:** final plain Go written beside `.gown`, with annotations erased
    and move/freeze nil assignments inserted.
 
-The pipeline is:
+The target pipeline is:
 
 1. Scan `.gown` and record every Gown token as an `Annotation`.
-2. Classify each token. The mainline syntax is capability type qualifiers;
-   explicit unsafe or intrinsic-like expression forms are optional/future
-   syntax.
+2. Classify each token. The mainline syntax is capability type qualifiers.
+   Explicit unsafe or intrinsic-like expression forms can be scanned and
+   formatted today, but most checker semantics are future work.
 3. Produce analysis Go:
    - Replace capability type qualifiers with spaces.
    - Leave ordinary Go expressions unchanged.
-   - If future explicit expression forms are enabled, rewrite them to
-     analysis-only placeholders.
+   - Rewrite recognized explicit expression forms to analysis-only
+     placeholders when they are present.
 4. Load analysis Go with `go/packages`.
 5. Bind annotations back to AST nodes, `types.Object`s, function signatures,
    channel element types, struct fields, and call sites.
 6. Build SSA with `golang.org/x/tools/go/ssa`.
 7. Seed checker state from capability side tables.
 8. Infer borrow/move/freeze behavior from typed contexts and run capability
-   dataflow over SSA.
+   checking. Today this is done by AST/place-based passes; the target is a
+   forward SSA dataflow engine.
 9. Report structured GWN errors at original `.gown` positions.
 10. If checking succeeds and `-check` is false, emit final Go.
 
 The analysis Go and emit Go views should be produced from the same annotation
 index so they cannot drift.
+
+Current status:
+
+- Stages 1 through 7 exist for qualifier-oriented programs.
+- Stage 8 exists as AST/place checker passes, not as SSA dataflow.
+- Stage 9 exists.
+- Stage 10 partially exists: stripped Go is written, but check-only mode and
+  nil insertion after consumed `\iso` moves remain open.
 
 ## Analysis Source Strategy
 
@@ -97,11 +128,11 @@ func Use(x \iso *T) {
 The analysis Go for this example is simply ordinary Go with qualifier bytes
 erased; no fake `mub_` or `rob_` call is needed.
 
-Explicit expression forms may still be useful later for operations that cannot
-be inferred safely, such as `\unsafe(x)`, `\clone(x)`, or explicit freeze.
-If/when enabled, these forms should be rewritten to analysis-only placeholders
-and recognized by the checker. They are not required for the first
-inference-based checker milestones.
+Explicit expression forms may still be useful for operations that cannot be
+inferred safely, such as `\unsafe(x)`, `\clone(x)`, or explicit freeze. The
+scanner and formatter already recognize these forms, and `scanAndClassify`
+rewrites them to analysis-only placeholders. Their checker semantics are not
+yet implemented and they should not drive the mainline inference milestones.
 
 ## Capability Side Tables
 
@@ -138,8 +169,8 @@ type Annotation struct {
 - Channel element capabilities for `chan \iso *T` and `chan \imm *T`.
 - Call-site bindings that record the callee's expected parameter/result
   capabilities, enabling inferred temporary borrows and ownership moves.
-- Optional explicit-operation annotations for future expression syntax such as
-  `\unsafe(x)` or `\clone(x)`.
+- Optional explicit-operation annotations for expression syntax such as
+  `\unsafe(x)` or `\clone(x)`, whose semantics are still mostly future work.
 - Source locations for diagnostics in original `.gown` files.
 
 SSA values are not enough to model Gown ownership. The checker must also track
@@ -407,38 +438,121 @@ liveness is required; block-level liveness is not precise enough.
 
 Completed foundation:
 
-- Scan and classify all capability qualifiers.
-- Produce stripped analysis/emit Go for qualifier-only programs.
+- Scan and classify all capability qualifiers and explicit intrinsic tokens.
+- Produce stripped analysis/emit Go for qualifier-oriented programs.
 - Load stripped Go with `go/packages`.
-- Bind qualifiers to objects, function signatures, and call sites in
+- Build SSA and retain the `ssa.Program`/`ssa.Package`.
+- Bind qualifiers to objects, function signatures, channel element types,
+  struct fields, call sites, send sites, and source places in
   `CapabilityIndex`.
+- Recover field-sensitive AST places for statically typed selector paths.
+- Report checker diagnostics against original `.gown` source with context.
 
-The next implementation milestone should be `GWN001` for `\iso`
-use-after-send/move:
+Completed checker slices:
 
-- Build SSA and map relevant sends/uses back to source places.
-- Mark an `\iso` place consumed after a direct send on `chan \iso *T`.
-- Reject subsequent uses of that place with a structured diagnostic.
+- `GWN001`: moved `\iso` use after send, call, goroutine capture, or
+  assignment move.
+- `GWN002`: conflicting inferred call borrows, including field-sensitive
+  sibling-vs-overlap checks.
+- `GWN003` and `GWN010`: non-sendable sends and channel/value capability
+  mismatches.
+- `GWN004`: goroutine borrow escapes through arguments and closure captures.
+- `GWN005`: writes through `\rob`/`\imm`.
+- `GWN006`: storing borrows into escaping locations.
+- `GWN007`: returning borrows.
+- `GWN008`: passing tracked values to untracked user calls.
+- `GWN009`: erasing tracked values into interfaces.
 
-The following slice should add inferred call borrows:
+Important limitation:
 
-- For a call whose callee parameter is `\mub` or `\rob`, create a temporary
-  borrow of the argument place for the duration of the call.
-- Reject calls that would violate borrow exclusivity.
-- Do not require users to write `\mub(x)` or `\rob(x)`.
+The completed checker slices are AST/place-based. They use the same side-table
+model the SSA checker should use, but they do not yet perform forward dataflow
+over SSA basic blocks, instruction-level liveness, or conservative CFG merges.
 
-These slices should not implement explicit expression intrinsics or nil
-insertion yet. They should use the data model above so field sensitivity and
-explicit unsafe/clone/freeze operations can be added without redesign.
+## SSA Dataflow Spike Plan
+
+The next high-risk work should be a spike, not a broad rewrite. The goal is to
+validate that an SSA dataflow engine can reproduce the first useful checker
+behaviors while preserving original `.gown` diagnostics and field-sensitive
+place recovery.
+
+Spike questions:
+
+- Can we map the SSA instructions we care about back to `Place` reliably:
+  `Send`, `Call`, `Go`, `MakeClosure`, `Store`, `FieldAddr`, `UnOp`, `Phi`,
+  `IndexAddr`, `Lookup`, and interface operations?
+- Should place recovery remain primarily AST/types-based with SSA used for
+  control flow and liveness, or should SSA value propagation own more of the
+  place model?
+- What is the smallest `FunctionState` that can model consumed `\iso` places,
+  temporary inferred call borrows, and conservative CFG merges?
+- Can instruction-level liveness end temporary borrows precisely enough without
+  introducing unsoundness around closures, defers, goroutines, and stores?
+- Can field projections survive through `FieldAddr` chains, and when should
+  the engine collapse to root?
+
+Spike non-goals:
+
+- Do not replace every existing checker pass.
+- Do not implement freeze/clone/unsafe semantics.
+- Do not implement nil insertion.
+- Do not solve all loop precision. Conservative rejection at loop joins is
+  acceptable for the spike.
+
+Proposed TDD slices:
+
+1. SSA inventory tests.
+   Add small fixtures that assert how Go lowers direct sends, calls, selector
+   chains, field loads/stores, goroutines, closure captures, and simple branch
+   joins. The output should be stable helper facts, not brittle full SSA text.
+2. Place propagation tests.
+   Given SSA values/instructions plus the existing `PlaceIndex`, prove the
+   spike can recover `x`, `x.f`, `x.f.g`, and root-collapsed `x.slice[i]`.
+3. Minimal state-machine tests.
+   Unit-test consume/use, borrow begin/end, and CFG merge behavior without
+   loading a package.
+4. First integration parity test.
+   Run an opt-in SSA checker path for `GWN001` use-after-send and verify it
+   reports the same original `.gown` diagnostic shape as the current checker.
+5. Field-sensitive integration test.
+   Verify the SSA path can distinguish sibling fields for a call-borrow
+   conflict case, or document exactly why AST/place binding must remain the
+   source of truth for that precision.
+
+Spike deliverables:
+
+- A small package-private SSA dataflow prototype, ideally isolated in
+  `ssa_dataflow.go` and test helpers.
+- A written decision in this document: continue with full SSA dataflow,
+  keep a hybrid AST/place plus SSA-control-flow architecture, or defer SSA
+  dataflow if it does not buy enough precision yet.
+- A short list of existing checker passes that should be migrated first, if
+  the spike succeeds.
+
+Spike exit criteria:
+
+- Existing `go test ./...` remains green.
+- The spike can model `GWN001` over SSA without worse diagnostics.
+- The spike can either recover field-sensitive struct projections through SSA
+  or clearly validates the hybrid approach: AST/types provide places, SSA
+  provides ordering, liveness, and CFG joins.
+- The team has enough evidence to choose the next vertical slice without
+  redesigning the side-table model.
 
 ## Open Implementation Notes
 
 - The `-check` CLI flag currently exists but is not wired through to avoid
   writing `.go` files. The architecture assumes check-only mode will eventually
   load analysis Go without changing committed generated files.
-- Explicit expression syntax, if enabled later, should not pollute final output
-  or collide silently with user declarations.
+- Explicit expression syntax is recognized by the scanner and formatter, but
+  most semantics are not implemented. It should not pollute final output or
+  collide silently with user declarations.
 - Diagnostics should always point to `.gown` positions, never generated
-  analysis Go positions.
-- Field-sensitive precision should be tested with small SSA fixtures before it
-  is used for acceptance decisions.
+  analysis Go positions. The current diagnostics already do this, and the SSA
+  spike must preserve it.
+- Field-sensitive precision already exists for AST/types selector paths. The
+  SSA spike should validate whether SSA propagation can preserve that precision
+  or whether the long-term design should be explicitly hybrid.
+- The existing checker passes provide useful safety coverage, but their
+  AST traversal order is not a substitute for SSA CFG dataflow once named
+  borrows, loops, branches, defers, closures, and precise liveness matter.
