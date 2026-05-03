@@ -466,7 +466,7 @@ Completed foundation:
 Completed checker slices:
 
 - `GWN001`: moved `\iso` use after send, inferred freeze-send, call,
-  goroutine capture, deferred borrow, or assignment move.
+  deferred call, goroutine capture, deferred borrow, or assignment move.
 - `GWN002`: conflicting inferred call borrows, including field-sensitive
   sibling-vs-overlap checks.
 - `GWN003` and `GWN010`: non-sendable sends and channel/value capability
@@ -581,9 +581,10 @@ Spike progress:
   derived named borrow is live. Sending `\iso` on `chan \imm` is modeled as an
   inferred freeze-send transfer that consumes the sender's root and consults
   the same named-borrow liveness guard. Deferred arguments whose parameter
-  types infer `\mub` or `\rob`, deferred named borrow arguments, and deferred
-  closure captures are modeled as borrows that remain active until function
-  exit.
+  types are `\iso` are consumed at the defer statement; deferred arguments
+  whose parameter types infer `\mub` or `\rob`, deferred named borrow
+  arguments, and deferred closure captures are modeled as borrows that remain
+  active until function exit.
 - `GownPackage.Check` now routes the main checker runner through the SSA passes
   when SSA is available, while keeping AST/place checkers as fallbacks.
 - Integration tests cover precision improvements that the root-only AST passes
@@ -657,22 +658,30 @@ what the user wrote; SSA tells us where it is live.
 Defer handling adds a Go-specific lifetime rule that is easy to miss. For a
 plain deferred call, Go evaluates and saves the argument values at the point
 where the defer is registered, not when the deferred call runs at function
-exit. Therefore, a call such as `defer Mut(a)`, where `Mut` takes `\mub *T`,
-creates an inferred mutable borrow of `a` that remains live until function
-exit. Similarly, `defer use(b)` extends the source borrow behind a named
-`\mub` or `\rob` variable `b` until function exit even if the local variable
-`b` is reassigned later. Deferred closures also need analysis because they may
-capture named borrow variables; Gown now uses SSA closure bindings and a
-source-position fallback for deferred function literals to conservatively
-activate those captured borrows until function exit.
+exit. Therefore, a call such as `defer Take(a)`, where `Take` takes
+`\iso *T`, consumes `a` at the defer statement. A call such as
+`defer Mut(a)`, where `Mut` takes `\mub *T`, creates an inferred mutable borrow
+of `a` that remains live until function exit. Similarly, `defer use(b)`
+extends the source borrow behind a named `\mub` or `\rob` variable `b` until
+function exit even if the local variable `b` is reassigned later. Deferred
+closures also need analysis because they may capture named borrow variables;
+Gown now uses SSA closure bindings and a source-position fallback for deferred
+function literals to conservatively activate those captured borrows until
+function exit. The checker also lifts tracked call effects inside deferred
+function literals back to the outer defer registration site: `\iso` calls are
+treated as deferred moves, and inferred `\mub`/`\rob` calls are treated as
+live-to-exit borrows. This is intentionally conservative; a more precise
+future model can reason about function-exit ordering, reassignment, and LIFO
+defer order.
 
 Current SSA checker coverage includes `GWN001` parity for direct sends,
-inferred freeze-sends to `chan \imm`, iso-consuming calls, assignment moves,
-branch merges, goroutine calls, closure captures, named borrow liveness,
-branch-sensitive named borrow liveness, deferred named borrow snapshots,
-deferred inferred borrow arguments, deferred closure borrow captures, and
-projected field-move rejection. It also includes `GWN002` through `GWN010`
-parity for inferred call-borrow
+inferred freeze-sends to `chan \imm`, iso-consuming calls, deferred
+iso-consuming calls, assignment moves, branch merges, goroutine calls, closure
+captures, named borrow liveness, branch-sensitive named borrow liveness,
+deferred named borrow snapshots, deferred inferred borrow arguments, deferred
+closure borrow captures, deferred closure inferred borrow effects, deferred
+closure iso-consuming effects, and projected field-move rejection. It also
+includes `GWN002` through `GWN010` parity for inferred call-borrow
 conflicts, send capability checks, goroutine borrow escapes, read-only writes,
 borrow stores, returned borrows, untracked call boundaries, and interface
 erasure. These SSA checks are now wired into the main checker pipeline, with
@@ -704,6 +713,7 @@ mapping generated `.go` paths back to original `.gown` paths.
   `GWN001` currently performs full CFG dataflow. Named borrow liveness now
   covers straight-line code and branches for sends, inferred freeze-sends,
   calls, goroutine calls, deferred inferred borrow arguments, deferred named
-  borrow arguments, and deferred closure captures. Explicit freeze/clone, loops
-  under heavier mutation, complex closure-contained named borrows, and precise
+  borrow arguments, deferred closure captures, and tracked calls inside
+  deferred function literals. Explicit freeze/clone, loops under heavier
+  mutation, precise deferred closure exit ordering, and precise
   unsafe/synchronization boundaries still need broader treatment.

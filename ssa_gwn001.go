@@ -21,6 +21,7 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 		places:       places,
 		assigns:      collectSSAAssignmentMoves(pkg, caps),
 		namedBorrows: collectSSANamedBorrows(pkg, caps),
+		deferEffects: collectSSADeferredClosureEffects(pkg, caps),
 		bindings:     NewSSABindingIndex(caps),
 		reported:     make(map[string]bool),
 	}
@@ -36,8 +37,10 @@ type ssaGWN001Checker struct {
 	places              *SSAPlaceIndex
 	assigns             map[ast.Expr]ssaAssignmentMove
 	namedBorrows        map[*types.Func]SSANamedBorrowInfo
+	deferEffects        map[*types.Func]SSADeferredClosureEffectInfo
 	bindings            *SSABindingIndex
 	activeNamedBorrows  SSANamedBorrowInfo
+	activeDeferEffects  SSADeferredClosureEffectInfo
 	namedBorrowLiveness *SSANamedBorrowLiveness
 	errs                CheckerErrors
 	reported            map[string]bool
@@ -88,11 +91,13 @@ func (checker *ssaGWN001Checker) checkFunction(fn *ssa.Function) {
 
 func (checker *ssaGWN001Checker) beginFunction(fn *ssa.Function) {
 	checker.activeNamedBorrows = checker.namedBorrowInfoForFunction(fn)
+	checker.activeDeferEffects = checker.deferEffectInfoForFunction(fn)
 	checker.namedBorrowLiveness = buildSSANamedBorrowLiveness(fn, checker.caps, checker.activeNamedBorrows)
 }
 
 func (checker *ssaGWN001Checker) endFunction() {
 	checker.activeNamedBorrows = SSANamedBorrowInfo{}
+	checker.activeDeferEffects = SSADeferredClosureEffectInfo{}
 	checker.namedBorrowLiveness = nil
 }
 
@@ -105,6 +110,17 @@ func (checker *ssaGWN001Checker) namedBorrowInfoForFunction(fn *ssa.Function) SS
 		return SSANamedBorrowInfo{}
 	}
 	return checker.namedBorrows[fnObj]
+}
+
+func (checker *ssaGWN001Checker) deferEffectInfoForFunction(fn *ssa.Function) SSADeferredClosureEffectInfo {
+	if fn == nil {
+		return SSADeferredClosureEffectInfo{}
+	}
+	fnObj, _ := fn.Object().(*types.Func)
+	if fnObj == nil {
+		return SSADeferredClosureEffectInfo{}
+	}
+	return checker.deferEffects[fnObj]
 }
 
 func (checker *ssaGWN001Checker) mergeSuccessorState(existing, incoming SSAFunctionState, block *ssa.BasicBlock) (SSAFunctionState, bool) {
@@ -237,11 +253,13 @@ func (checker *ssaGWN001Checker) applyGoTransfer(instr *ssa.Go, state *SSAFuncti
 
 func (checker *ssaGWN001Checker) applyDeferTransfer(instr *ssa.Defer, state *SSAFunctionState) {
 	if binding, ok := checker.bindings.DeferCall(checker.pkg, instr); ok {
+		checker.applyBoundCallTransfer(binding, state, instr, "defer")
 		checker.applyDeferredInferredBorrowArgs(binding, state, instr)
 		for _, place := range binding.ArgPlaces {
 			checker.activateDeferredNamedBorrow(state, place, instr)
 		}
 	} else {
+		checker.applyCallCommonTransfer(&instr.Call, state, instr, "defer")
 		checker.applyDeferredCallCommonTransfer(&instr.Call, state, instr)
 		for _, arg := range instr.Call.Args {
 			place, ok := checker.places.PlaceForValue(arg)
@@ -253,6 +271,7 @@ func (checker *ssaGWN001Checker) applyDeferTransfer(instr *ssa.Defer, state *SSA
 	}
 	checker.applyDeferClosureCaptureTransfer(instr, state)
 	checker.applySourceDeferClosureCaptureTransfer(instr, state)
+	checker.applySourceDeferClosureEffects(instr, state)
 }
 
 func (checker *ssaGWN001Checker) applyDeferredInferredBorrowArgs(binding CallBinding, state *SSAFunctionState, instr ssa.Instruction) {
@@ -344,6 +363,24 @@ func (checker *ssaGWN001Checker) applySourceDeferClosureCaptureTransfer(instr *s
 			continue
 		}
 		checker.activateDeferredBorrow(state, borrow, instr)
+	}
+}
+
+func (checker *ssaGWN001Checker) applySourceDeferClosureEffects(instr *ssa.Defer, state *SSAFunctionState) {
+	key := sourcePositionKey(checker.pkg.Fset.Position(instr.Pos()))
+	for _, effect := range checker.activeDeferEffects.Effects[key] {
+		switch effect.Cap {
+		case CapIso:
+			checker.consumeRootAtInstruction(state, effect.Place, instr, "defer")
+		case CapMub, CapRob:
+			if borrow, ok := checker.activeNamedBorrows.Borrows[effect.Place.Root]; ok {
+				checker.activateDeferredBorrow(state, borrow, instr)
+				continue
+			}
+			if violation, ok := state.BeginBorrow(effect.Place.Key(), effect.Cap); ok {
+				checker.reportViolation(checker.pkg.Fset.Position(instr.Pos()), violation)
+			}
+		}
 	}
 }
 
