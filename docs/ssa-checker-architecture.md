@@ -589,6 +589,14 @@ state machine can run over real SSA CFGs, preserve original `.gown`
 diagnostics, and reproduce `GWN001` parity before migrating broader checker
 passes.
 
+A further SSA parity finding is that assignment moves are source-level events
+that optimized SSA can erase. A move such as `b := a` may not survive as a
+distinct dynamic SSA instruction even though it is semantically meaningful to
+Gown's ownership model. The checker should therefore model assignment moves as
+hybrid source events anchored to SSA debug/source positions, such as
+`DebugRef`s for the right-hand side expression, so they can run in SSA block
+order without pretending assignment is always a normal SSA instruction.
+
 ## Open Implementation Notes
 
 - The `-check` CLI flag currently exists but is not wired through to avoid

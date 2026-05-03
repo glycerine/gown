@@ -29,6 +29,15 @@ func NewSSAFunctionState() SSAFunctionState {
 	}
 }
 
+func (state SSAFunctionState) Clone() SSAFunctionState {
+	clone := NewSSAFunctionState()
+	for place, site := range state.Consumed {
+		clone.Consumed[place] = site
+	}
+	clone.Borrows = append(clone.Borrows, state.Borrows...)
+	return clone
+}
+
 func (state *SSAFunctionState) ConsumeRoot(place PlaceKey, site SSAMoveSite) (SSAStateViolation, bool) {
 	if place.Root == nil {
 		return SSAStateViolation{}, false
@@ -60,6 +69,13 @@ func (state *SSAFunctionState) CheckUse(place PlaceKey) (SSAMoveSite, bool) {
 		}
 	}
 	return SSAMoveSite{}, false
+}
+
+func (state *SSAFunctionState) UnconsumeRoot(place PlaceKey) {
+	if place.Root == nil {
+		return
+	}
+	delete(state.Consumed, PlaceKey{Root: place.Root})
 }
 
 func (state *SSAFunctionState) BeginBorrow(place PlaceKey, cap Cap) (SSAStateViolation, bool) {
@@ -140,4 +156,30 @@ func (state *SSAFunctionState) addMergedBorrow(next SSABorrow) (SSAStateViolatio
 
 func borrowsConflict(a, b SSABorrow) bool {
 	return a.Place.Overlaps(b.Place) && callBorrowsConflict(a.Cap, b.Cap)
+}
+
+func equalSSAFunctionState(a, b SSAFunctionState) bool {
+	if len(a.Consumed) != len(b.Consumed) || len(a.Borrows) != len(b.Borrows) {
+		return false
+	}
+	for place, site := range a.Consumed {
+		if b.Consumed[place] != site {
+			return false
+		}
+	}
+	for _, borrow := range a.Borrows {
+		if !hasSSABorrow(b.Borrows, borrow) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasSSABorrow(borrows []SSABorrow, want SSABorrow) bool {
+	for _, borrow := range borrows {
+		if borrow == want {
+			return true
+		}
+	}
+	return false
 }

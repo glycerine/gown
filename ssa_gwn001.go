@@ -1,0 +1,311 @@
+package gown
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+	"go/types"
+
+	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/go/ssa"
+)
+
+func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
+	if pkg == nil || ssaPkg == nil || caps == nil {
+		return nil
+	}
+	places := buildSSAPlaceIndex(pkg, ssaPkg, caps)
+	checker := &ssaGWN001Checker{
+		pkg:      pkg,
+		caps:     caps,
+		places:   places,
+		assigns:  collectSSAAssignmentMoves(pkg, caps),
+		reported: make(map[string]bool),
+	}
+	for _, fn := range collectSSAFunctions(ssaPkg) {
+		checker.checkFunction(fn)
+	}
+	return checker.errs
+}
+
+type ssaGWN001Checker struct {
+	pkg      *packages.Package
+	caps     *CapabilityIndex
+	places   *SSAPlaceIndex
+	assigns  map[ast.Expr]ssaAssignmentMove
+	errs     CheckerErrors
+	reported map[string]bool
+}
+
+type ssaAssignmentMove struct {
+	Src Place
+	Dst Place
+}
+
+func (checker *ssaGWN001Checker) checkFunction(fn *ssa.Function) {
+	if fn == nil || len(fn.Blocks) == 0 {
+		return
+	}
+
+	in := make(map[*ssa.BasicBlock]SSAFunctionState)
+	queued := make(map[*ssa.BasicBlock]bool)
+	in[fn.Blocks[0]] = NewSSAFunctionState()
+	worklist := []*ssa.BasicBlock{fn.Blocks[0]}
+	queued[fn.Blocks[0]] = true
+
+	for len(worklist) > 0 {
+		block := worklist[0]
+		worklist = worklist[1:]
+		queued[block] = false
+
+		state := in[block].Clone()
+		for _, instr := range block.Instrs {
+			checker.checkInstructionUses(instr, &state)
+			checker.applyInstructionTransfer(instr, &state)
+		}
+
+		for _, succ := range block.Succs {
+			next, changed := checker.mergeSuccessorState(in[succ], state, succ)
+			if !changed {
+				continue
+			}
+			in[succ] = next
+			if !queued[succ] {
+				worklist = append(worklist, succ)
+				queued[succ] = true
+			}
+		}
+	}
+}
+
+func (checker *ssaGWN001Checker) mergeSuccessorState(existing, incoming SSAFunctionState, block *ssa.BasicBlock) (SSAFunctionState, bool) {
+	if existing.Consumed == nil && len(existing.Borrows) == 0 {
+		return incoming.Clone(), true
+	}
+	merged, violations := MergeSSAFunctionStates(existing, incoming)
+	for _, violation := range violations {
+		checker.reportViolation(blockPosition(checker.pkg, block), violation)
+	}
+	return merged, !equalSSAFunctionState(existing, merged)
+}
+
+func (checker *ssaGWN001Checker) checkInstructionUses(instr ssa.Instruction, state *SSAFunctionState) {
+	if debug, ok := instr.(*ssa.DebugRef); ok {
+		checker.checkDebugRefUse(debug, state)
+		return
+	}
+	for _, operand := range instr.Operands(nil) {
+		if operand == nil || *operand == nil {
+			continue
+		}
+		place, ok := checker.places.PlaceForValue(*operand)
+		if !ok || place.Root == nil {
+			continue
+		}
+		site, moved := state.CheckUse(place.Key())
+		if !moved {
+			continue
+		}
+		checker.reportUseAfterMove(instr, place, site)
+	}
+}
+
+func (checker *ssaGWN001Checker) checkDebugRefUse(debug *ssa.DebugRef, state *SSAFunctionState) {
+	if debug == nil || debug.IsAddr {
+		return
+	}
+	place, ok := checker.caps.PlaceForExpr(debug.Expr)
+	if !ok || place.Root == nil {
+		return
+	}
+	site, moved := state.CheckUse(place.Key())
+	if !moved {
+		return
+	}
+	checker.reportUseAfterMove(debug, place, site)
+}
+
+func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction, state *SSAFunctionState) {
+	switch instr := instr.(type) {
+	case *ssa.Send:
+		checker.applySendTransfer(instr, state)
+	case *ssa.Call:
+		checker.applyCallTransfer(instr, state)
+	case *ssa.DebugRef:
+		checker.applyAssignmentMove(instr, state)
+	}
+}
+
+func (checker *ssaGWN001Checker) applyAssignmentMove(instr *ssa.DebugRef, state *SSAFunctionState) {
+	if instr == nil {
+		return
+	}
+	move, ok := checker.assigns[debugRefExprKey(instr.Expr)]
+	if !ok {
+		return
+	}
+	if move.Dst.Root != nil {
+		state.UnconsumeRoot(move.Dst.Key())
+	}
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	violation, ok := state.ConsumeRoot(move.Src.Key(), SSAMoveSite{
+		Name: move.Src.Root.Name(),
+		Kind: "assignment",
+		Line: sourceLine(pos),
+		Col:  sourceColumn(pos),
+	})
+	if !ok {
+		return
+	}
+	checker.reportViolation(pos, violation)
+}
+
+func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFunctionState) {
+	chPlace, ok := checker.places.PlaceForValue(instr.Chan)
+	if !ok || chPlace.Root == nil || checker.caps.ChanElemCap(chPlace.Root) != CapIso {
+		return
+	}
+	valuePlace, ok := checker.places.PlaceForValue(instr.X)
+	if !ok || valuePlace.Root == nil || checker.capForPlace(valuePlace) != CapIso {
+		return
+	}
+	checker.consumeRootAtInstruction(state, valuePlace, instr, "send")
+}
+
+func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFunctionState) {
+	callee := instr.Call.StaticCallee()
+	if callee == nil {
+		return
+	}
+	fn, _ := callee.Object().(*types.Func)
+	funcCap := checker.caps.FuncCap(fn)
+	if funcCap == nil {
+		return
+	}
+	for i, paramCap := range funcCap.Params {
+		if paramCap != CapIso || i >= len(instr.Call.Args) {
+			continue
+		}
+		argPlace, ok := checker.places.PlaceForValue(instr.Call.Args[i])
+		if !ok || argPlace.Root == nil || checker.capForPlace(argPlace) != CapIso {
+			continue
+		}
+		checker.consumeRootAtInstruction(state, argPlace, instr, "call")
+	}
+}
+
+func (checker *ssaGWN001Checker) consumeRootAtInstruction(state *SSAFunctionState, place Place, instr ssa.Instruction, kind string) {
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	violation, ok := state.ConsumeRoot(place.Key(), SSAMoveSite{
+		Name: place.Root.Name(),
+		Kind: kind,
+		Line: sourceLine(pos),
+		Col:  sourceColumn(pos),
+	})
+	if !ok {
+		return
+	}
+	checker.reportViolation(pos, violation)
+}
+
+func (checker *ssaGWN001Checker) capForPlace(place Place) Cap {
+	return capForSSAPlace(checker.caps, place)
+}
+
+func (checker *ssaGWN001Checker) reportUseAfterMove(instr ssa.Instruction, place Place, site SSAMoveSite) {
+	name := "<unknown>"
+	if place.Root != nil {
+		name = place.Root.Name()
+	}
+	message := fmt.Sprintf("use of moved \\iso value %q after %s at %d:%d",
+		name, site.Kind, site.Line, site.Col)
+	checker.reportCheckerError(newCheckerErrorAtPosition(
+		GWN001,
+		checker.pkg.Fset.Position(instr.Pos()),
+		message,
+	))
+}
+
+func (checker *ssaGWN001Checker) reportViolation(pos token.Position, violation SSAStateViolation) {
+	code := violation.Code
+	message := violation.Message
+	if code == GWN011 {
+		message = "cannot move field projection"
+	}
+	checker.reportCheckerError(newCheckerErrorAtPosition(code, pos, message))
+}
+
+func (checker *ssaGWN001Checker) reportCheckerError(err CheckerError) {
+	key := fmt.Sprintf("%s:%d:%d:%s:%s", err.Path, err.Line, err.Col, err.Code, err.Message)
+	if checker.reported[key] {
+		return
+	}
+	checker.reported[key] = true
+	checker.errs = append(checker.errs, err)
+}
+
+func blockPosition(pkg *packages.Package, block *ssa.BasicBlock) token.Position {
+	if pkg == nil || block == nil {
+		return token.Position{}
+	}
+	for _, instr := range block.Instrs {
+		if instr.Pos().IsValid() {
+			return pkg.Fset.Position(instr.Pos())
+		}
+	}
+	return token.Position{}
+}
+
+func collectSSAAssignmentMoves(pkg *packages.Package, caps *CapabilityIndex) map[ast.Expr]ssaAssignmentMove {
+	moves := make(map[ast.Expr]ssaAssignmentMove)
+	if pkg == nil || caps == nil {
+		return moves
+	}
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			if len(assign.Lhs) != len(assign.Rhs) {
+				return true
+			}
+			for i, rhs := range assign.Rhs {
+				src, ok := caps.PlaceForExpr(rhs)
+				if !ok || src.Root == nil || capForSSAPlace(caps, src) != CapIso {
+					continue
+				}
+				dst, ok := caps.PlaceForExpr(assign.Lhs[i])
+				if !ok || dst.Root == nil || dst.Root == src.Root || capForSSAPlace(caps, dst) != CapIso {
+					continue
+				}
+				moves[debugRefExprKey(rhs)] = ssaAssignmentMove{Src: src, Dst: dst}
+			}
+			return true
+		})
+	}
+	return moves
+}
+
+func capForSSAPlace(caps *CapabilityIndex, place Place) Cap {
+	if caps == nil || place.Root == nil {
+		return CapInvalid
+	}
+	if len(place.Projection) > 0 {
+		field := place.Projection[len(place.Projection)-1].Field
+		if fieldCap := caps.ObjectCap(field); capTracked(fieldCap) {
+			return fieldCap
+		}
+	}
+	return caps.ObjectCap(place.Root)
+}
+
+func debugRefExprKey(expr ast.Expr) ast.Expr {
+	for {
+		paren, ok := expr.(*ast.ParenExpr)
+		if !ok {
+			return expr
+		}
+		expr = paren.X
+	}
+}
