@@ -74,16 +74,26 @@ func computeReachableTypes(boundaries []*boundaryCrossing, isoTypes []types.Type
 	return
 }
 
-// isReachable reports whether a type is in the reachable set.
+// isReachable reports whether a type is in the reachable set,
+// either directly or because it contains reachable element types.
 func isReachable(t types.Type, reachable map[types.Type]bool, poisoned bool) bool {
 	if poisoned {
 		return true
 	}
-	if reachable[t] {
+	if reachable[t] || reachable[t.Underlying()] {
 		return true
 	}
-	if reachable[t.Underlying()] {
-		return true
+	switch u := t.Underlying().(type) {
+	case *types.Pointer:
+		return isReachable(u.Elem(), reachable, false)
+	case *types.Chan:
+		return isReachable(u.Elem(), reachable, false)
+	case *types.Slice:
+		return isReachable(u.Elem(), reachable, false)
+	case *types.Array:
+		return isReachable(u.Elem(), reachable, false)
+	case *types.Map:
+		return isReachable(u.Key(), reachable, false) || isReachable(u.Elem(), reachable, false)
 	}
 	return false
 }

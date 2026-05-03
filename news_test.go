@@ -8,6 +8,8 @@ type payload struct {
 	dirt string
 }
 
+var Shared *payload
+
 func main() {
 	ch := make(chan *payload)
 	a := new(payload)
@@ -61,6 +63,8 @@ type payload struct {
 	dirt string
 }
 
+var Shared *payload
+
 func main() {
 	a := &payload{dirt: "lots"}
 	b := &[]int{1, 2, 3}
@@ -102,6 +106,8 @@ const gownPointerContainerSource = `package main
 type payload struct {
 	dirt string
 }
+
+var Shared *payload
 
 func main() {
 	var p1, p2 *payload
@@ -145,6 +151,8 @@ func TestCreationPointerContainers(t *testing.T) {
 }
 
 const gownPtrToNonStructSource = `package main
+
+var Shared *int
 
 func main() {
 	x := 42
@@ -195,6 +203,8 @@ type node struct {
 	id int
 }
 
+var Shared *node
+
 func main() {
 	var n1, n2 node
 	a := &map[*node]string{&n1: "a", &n2: "b"}
@@ -238,6 +248,8 @@ const gownNamedTypeSource = `package main
 type pointy *int
 
 type trickySlice []*int
+
+var Shared any
 
 func main() {
 	a := make(map[pointy]int)
