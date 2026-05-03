@@ -72,6 +72,7 @@ func (gp *GownPackage) Check() error {
 
 	for _, gf := range gp.files {
 		assignRegions(gp.pkg, gf)
+		assignCreates(gp.pkg, gf)
 	}
 
 	return nil
