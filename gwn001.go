@@ -9,6 +9,7 @@ import (
 
 type moveSite struct {
 	name string
+	kind string
 	line int
 	col  int
 }
@@ -63,46 +64,46 @@ func (checker *gwn001Checker) checkStmt(stmt ast.Stmt) {
 	switch stmt := stmt.(type) {
 	case *ast.AssignStmt:
 		for _, rhs := range stmt.Rhs {
-			checker.checkExprUses(rhs)
+			checker.checkExpr(rhs)
 		}
 	case *ast.BlockStmt:
 		checker.checkBlock(stmt)
 	case *ast.DeclStmt:
 		checker.checkDecl(stmt.Decl)
 	case *ast.DeferStmt:
-		checker.checkExprUses(stmt.Call)
+		checker.checkExpr(stmt.Call)
 	case *ast.ExprStmt:
-		checker.checkExprUses(stmt.X)
+		checker.checkExpr(stmt.X)
 	case *ast.ForStmt:
 		checker.checkStmt(stmt.Init)
-		checker.checkExprUses(stmt.Cond)
+		checker.checkExpr(stmt.Cond)
 		checker.checkBlock(stmt.Body)
 		checker.checkStmt(stmt.Post)
 	case *ast.GoStmt:
-		checker.checkExprUses(stmt.Call)
+		checker.checkExpr(stmt.Call)
 	case *ast.IfStmt:
 		checker.checkStmt(stmt.Init)
-		checker.checkExprUses(stmt.Cond)
+		checker.checkExpr(stmt.Cond)
 		checker.checkBlock(stmt.Body)
 		checker.checkStmt(stmt.Else)
 	case *ast.IncDecStmt:
-		checker.checkExprUses(stmt.X)
+		checker.checkExpr(stmt.X)
 	case *ast.RangeStmt:
-		checker.checkExprUses(stmt.X)
+		checker.checkExpr(stmt.X)
 		checker.checkBlock(stmt.Body)
 	case *ast.ReturnStmt:
 		for _, result := range stmt.Results {
-			checker.checkExprUses(result)
+			checker.checkExpr(result)
 		}
 	case *ast.SelectStmt:
 		checker.checkBlock(stmt.Body)
 	case *ast.SendStmt:
-		checker.checkExprUses(stmt.Chan)
-		checker.checkExprUses(stmt.Value)
+		checker.checkExpr(stmt.Chan)
+		checker.checkExpr(stmt.Value)
 		checker.recordIsoSend(stmt)
 	case *ast.SwitchStmt:
 		checker.checkStmt(stmt.Init)
-		checker.checkExprUses(stmt.Tag)
+		checker.checkExpr(stmt.Tag)
 		checker.checkBlock(stmt.Body)
 	case *ast.TypeSwitchStmt:
 		checker.checkStmt(stmt.Init)
@@ -122,9 +123,14 @@ func (checker *gwn001Checker) checkDecl(decl ast.Decl) {
 			continue
 		}
 		for _, value := range valueSpec.Values {
-			checker.checkExprUses(value)
+			checker.checkExpr(value)
 		}
 	}
+}
+
+func (checker *gwn001Checker) checkExpr(expr ast.Expr) {
+	checker.checkExprUses(expr)
+	checker.recordIsoCallMoves(expr)
 }
 
 func (checker *gwn001Checker) checkExprUses(expr ast.Expr) {
@@ -157,7 +163,7 @@ func (checker *gwn001Checker) reportUseAfterMove(use ast.Expr, consumed moveSite
 		Offset:  pos.Offset,
 		Line:    pos.Line,
 		Col:     pos.Column,
-		Message: fmt.Sprintf("use of moved \\iso value %q after send at %d:%d", consumed.name, consumed.line, consumed.col),
+		Message: fmt.Sprintf("use of moved \\iso value %q after %s at %d:%d", consumed.name, consumed.kind, consumed.line, consumed.col),
 	})
 }
 
@@ -172,7 +178,44 @@ func (checker *gwn001Checker) recordIsoSend(stmt *ast.SendStmt) {
 	}
 	checker.consumed[key] = moveSite{
 		name: key.Root.Name(),
+		kind: "send",
 		line: binding.Line,
 		col:  binding.Col,
+	}
+}
+
+func (checker *gwn001Checker) recordIsoCallMoves(expr ast.Expr) {
+	if expr == nil {
+		return
+	}
+	ast.Inspect(expr, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		checker.recordIsoCallMove(call)
+		return true
+	})
+}
+
+func (checker *gwn001Checker) recordIsoCallMove(call *ast.CallExpr) {
+	binding, ok := checker.caps.CallBinding(call)
+	if !ok {
+		return
+	}
+	for i, paramCap := range binding.ParamCaps {
+		if paramCap != CapIso || i >= len(binding.ArgPlaces) {
+			continue
+		}
+		key := binding.ArgPlaces[i].Key()
+		if key.Root == nil || checker.caps.ObjectCap(key.Root) != CapIso {
+			continue
+		}
+		checker.consumed[key] = moveSite{
+			name: key.Root.Name(),
+			kind: "call",
+			line: binding.Line,
+			col:  binding.Col,
+		}
 	}
 }

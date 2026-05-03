@@ -135,6 +135,28 @@ func main() {
 }
 `
 
+const gownCallSideTableSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Take(x \iso *payload) {}
+
+func Inspect(x \rob *payload) {}
+
+func Plain(x *payload) {}
+
+func main() {
+	var a \iso *payload
+	var b \iso *payload
+	var c *payload
+	Take(a)
+	Inspect(b)
+	Plain(c)
+}
+`
+
 func TestPlaceIndexResolvesRootIdentifier(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"places.gown": gownSideTableSource})
 
@@ -359,6 +381,83 @@ func TestSendBindingRecordsMultipleDirectSends(t *testing.T) {
 	}
 }
 
+func TestCallBindingLookupRecordsAnnotatedCallArgPlace(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"calls.gown": gownCallSideTableSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	call := findFirstCallExprByName(t, gp, "Take")
+	binding, ok := gp.caps.CallBinding(call)
+	if !ok {
+		t.Fatal("missing call binding")
+	}
+	if binding.Call != call {
+		t.Fatal("call binding does not point at original call expression")
+	}
+	if binding.Callee == nil || binding.Callee.Name() != "Take" {
+		t.Fatalf("call binding callee = %v, want Take", binding.Callee)
+	}
+	if len(binding.ParamCaps) != 1 || binding.ParamCaps[0] != CapIso {
+		t.Fatalf("call binding param caps = %v, want [%v]", binding.ParamCaps, CapIso)
+	}
+	if len(binding.ArgPlaces) != 1 {
+		t.Fatalf("call binding arg places len = %d, want 1", len(binding.ArgPlaces))
+	}
+	if binding.ArgPlaces[0].Key().Root != lookupLocalVar(t, gp, "main", "a") {
+		t.Fatalf("call binding arg place = %#v, want root a", binding.ArgPlaces[0])
+	}
+}
+
+func TestCallBindingIgnoresUnannotatedCallee(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"plain_call.gown": gownCallSideTableSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	call := findFirstCallExprByName(t, gp, "Plain")
+	if binding, ok := gp.caps.CallBinding(call); ok {
+		t.Fatalf("plain call unexpectedly has binding %#v", binding)
+	}
+}
+
+func TestCallBindingRecordsMultipleAnnotatedCalls(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"multiple_calls.gown": gownCallSideTableSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]struct {
+		cap  Cap
+		root string
+	}{
+		"Take":    {cap: CapIso, root: "a"},
+		"Inspect": {cap: CapRob, root: "b"},
+	}
+	for name, w := range want {
+		call := findFirstCallExprByName(t, gp, name)
+		binding, ok := gp.caps.CallBinding(call)
+		if !ok {
+			t.Fatalf("%s call missing binding", name)
+		}
+		if binding.Callee == nil || binding.Callee.Name() != name {
+			t.Fatalf("%s call callee = %v, want %s", name, binding.Callee, name)
+		}
+		if len(binding.ParamCaps) != 1 || binding.ParamCaps[0] != w.cap {
+			t.Fatalf("%s call param caps = %v, want [%v]", name, binding.ParamCaps, w.cap)
+		}
+		if len(binding.ArgPlaces) != 1 || binding.ArgPlaces[0].Key().Root != lookupLocalVar(t, gp, "main", w.root) {
+			t.Fatalf("%s call arg places = %#v, want root %s", name, binding.ArgPlaces, w.root)
+		}
+	}
+}
+
 func findFirstSendStmt(t *testing.T, gp *GownPackage) *ast.SendStmt {
 	t.Helper()
 	sends := findSendStmts(t, gp)
@@ -382,6 +481,40 @@ func findSendStmts(t *testing.T, gp *GownPackage) []*ast.SendStmt {
 		})
 	}
 	return sends
+}
+
+func findFirstCallExprByName(t *testing.T, gp *GownPackage, name string) *ast.CallExpr {
+	t.Helper()
+	for _, file := range gp.pkg.Syntax {
+		var found *ast.CallExpr
+		ast.Inspect(file, func(n ast.Node) bool {
+			if found != nil {
+				return false
+			}
+			call, ok := n.(*ast.CallExpr)
+			if !ok || callName(call) != name {
+				return true
+			}
+			found = call
+			return false
+		})
+		if found != nil {
+			return found
+		}
+	}
+	t.Fatalf("could not find call %s", name)
+	return nil
+}
+
+func callName(call *ast.CallExpr) string {
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		return fun.Sel.Name
+	default:
+		return ""
+	}
 }
 
 func findFirstSelectorExpr(t *testing.T, gp *GownPackage) *ast.SelectorExpr {

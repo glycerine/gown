@@ -12,6 +12,7 @@ import (
 
 func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityIndex {
 	idx := newCapabilityIndex()
+	idx.Places = buildPlaceIndex(pkg)
 	qualsByFile := capQualifiersByGeneratedFile(files)
 
 	for _, file := range pkg.Syntax {
@@ -33,7 +34,6 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityInd
 		bindCallCapabilities(pkg, idx, file)
 	}
 
-	idx.Places = buildPlaceIndex(pkg)
 	bindSendBindings(pkg, idx)
 
 	return idx

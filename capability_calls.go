@@ -42,16 +42,39 @@ func bindCallCapability(pkg *packages.Package, idx *CapabilityIndex, funcName st
 		return
 	}
 	pos := pkg.Fset.Position(call.Pos())
-	idx.CallBindings = append(idx.CallBindings, CallBinding{
+	idx.addCallBinding(CallBinding{
 		Offset:     pos.Offset,
 		Line:       pos.Line,
 		Col:        pos.Column,
 		FuncName:   funcName,
+		Call:       call,
 		Callee:     callee,
 		ParamCaps:  append([]Cap(nil), sig.Params...),
 		ResultCaps: append([]Cap(nil), sig.Results...),
 		Args:       append([]ast.Expr(nil), call.Args...),
+		ArgPlaces:  callArgPlaces(idx, call),
 	})
+}
+
+func callArgPlaces(idx *CapabilityIndex, call *ast.CallExpr) []Place {
+	if idx == nil || call == nil {
+		return nil
+	}
+	places := make([]Place, len(call.Args))
+	for i, arg := range call.Args {
+		if place, ok := idx.PlaceForExpr(arg); ok {
+			places[i] = place
+		}
+	}
+	return places
+}
+
+func (idx *CapabilityIndex) addCallBinding(binding CallBinding) {
+	if idx == nil || binding.Call == nil {
+		return
+	}
+	idx.CallBindings = append(idx.CallBindings, binding)
+	idx.callBindingByCall[binding.Call] = len(idx.CallBindings) - 1
 }
 
 func callCallee(pkg *packages.Package, call *ast.CallExpr) *types.Func {
