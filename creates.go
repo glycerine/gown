@@ -12,6 +12,7 @@ import (
 // creation points, recording each as a createAnew on gf.
 func assignCreates(pkg *packages.Package, gf *gownFile) {
 	structs := collectStructNames(pkg)
+	info := pkg.TypesInfo
 
 	for _, file := range pkg.Syntax {
 		for _, decl := range file.Decls {
@@ -52,9 +53,13 @@ func assignCreates(pkg *packages.Package, gf *gownFile) {
 							typeName: baseTypeName(x.Args[0]),
 						}
 					case "make":
+						tv, has := info.Types[x.Args[0]]
+						if !has || !canHoldPointers(tv.Type) {
+							return true
+						}
 						ca = &createAnew{
 							kind:     "make",
-							typeName: baseTypeName(x.Args[0]),
+							typeName: makeArgTypeName(x.Args[0], tv.Type),
 						}
 					}
 					if ca != nil {
@@ -72,7 +77,7 @@ func assignCreates(pkg *packages.Package, gf *gownFile) {
 					if !ok || cl.Type == nil {
 						return true
 					}
-					name, ok := classifyCompositeLit(cl.Type, structs)
+					name, ok := classifyCompositeLit(cl.Type, info, structs)
 					if !ok {
 						return true
 					}
@@ -124,32 +129,68 @@ func collectStructNames(pkg *packages.Package) map[string]bool {
 	return names
 }
 
+// canHoldPointers reports whether a Go type can contain pointer values.
+// It resolves named types through their underlying type.
+func canHoldPointers(t types.Type) bool {
+	switch u := t.Underlying().(type) {
+	case *types.Pointer:
+		return true
+	case *types.Interface:
+		return true
+	case *types.Signature:
+		return true
+	case *types.Struct:
+		return true
+	case *types.Slice:
+		return canHoldPointers(u.Elem())
+	case *types.Array:
+		return canHoldPointers(u.Elem())
+	case *types.Map:
+		return canHoldPointers(u.Key()) || canHoldPointers(u.Elem())
+	case *types.Chan:
+		return canHoldPointers(u.Elem())
+	default:
+		return false
+	}
+}
+
 // classifyCompositeLit decides whether a &T{} composite literal should
-// be tracked. It returns the base type name and true if:
-//   - T is a known struct name, or
-//   - T is a slice/array whose element type is a pointer, or
-//   - T is a map whose key or value type is a pointer.
-//
-// For maps with pointer keys, the key's base type name is returned.
-func classifyCompositeLit(expr ast.Expr, structs map[string]bool) (string, bool) {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		if structs[t.Name] {
-			return t.Name, true
-		}
-	case *ast.ArrayType:
-		if _, isStar := t.Elt.(*ast.StarExpr); isStar {
-			return baseTypeName(t.Elt), true
-		}
-	case *ast.MapType:
-		if _, isStar := t.Key.(*ast.StarExpr); isStar {
-			return baseTypeName(t.Key), true
-		}
-		if _, isStar := t.Value.(*ast.StarExpr); isStar {
-			return baseTypeName(t.Value), true
+// be tracked. Uses the type checker to resolve named and container types.
+func classifyCompositeLit(expr ast.Expr, info *types.Info, structs map[string]bool) (string, bool) {
+	if ident, ok := expr.(*ast.Ident); ok {
+		if structs[ident.Name] {
+			return ident.Name, true
 		}
 	}
-	return "", false
+	tv, ok := info.Types[expr]
+	if !ok {
+		return "", false
+	}
+	if !canHoldPointers(tv.Type) {
+		return "", false
+	}
+	if mt, ok := expr.(*ast.MapType); ok {
+		if u, ok := tv.Type.Underlying().(*types.Map); ok && canHoldPointers(u.Key()) {
+			return baseTypeName(mt.Key), true
+		}
+		return baseTypeName(mt.Value), true
+	}
+	return baseTypeName(expr), true
+}
+
+// makeArgTypeName extracts the type name from a make() call's first argument,
+// using the resolved type to pick the pointer-containing part for maps.
+func makeArgTypeName(expr ast.Expr, t types.Type) string {
+	if ident, ok := expr.(*ast.Ident); ok {
+		return ident.Name
+	}
+	if mt, ok := expr.(*ast.MapType); ok {
+		if u, ok := t.Underlying().(*types.Map); ok && canHoldPointers(u.Key()) {
+			return baseTypeName(mt.Key)
+		}
+		return baseTypeName(mt.Value)
+	}
+	return baseTypeName(expr)
 }
 
 func baseTypeName(expr ast.Expr) string {
