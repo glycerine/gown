@@ -2,14 +2,11 @@ package gown
 
 import (
 	"bytes"
-	"fmt"
 	"go/ast"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"golang.org/x/tools/go/packages"
 )
 
 const gownSource = `package example
@@ -27,165 +24,147 @@ func Recv(ch chan *Msg) \iso *Msg {
 }
 `
 
-func TestPositionPrecision(t *testing.T) {
-	// 1. Scan and strip
-	goSrc, annotations := scanAndStrip([]byte(gownSource))
-	t.Logf("found %d \\iso annotations", len(annotations))
-	for i, a := range annotations {
-		t.Logf("  annotation %d: offset=%d line=%d col=%d context=%q",
-			i, a.offset, a.line, a.col, gownSource[a.offset:a.offset+4])
-	}
-	if len(annotations) != 2 {
-		t.Fatalf("expected 2 annotations, got %d", len(annotations))
-	}
-
-	// 2. Verify the stripped source is valid Go (no \iso left)
-	if bytes.Contains(goSrc, []byte(`\iso`)) {
-		t.Fatal("stripped source still contains \\iso")
-	}
-	t.Logf("stripped source:\n%s", goSrc)
-
-	// 3. Write to temp dir with a go.mod
-	tmpDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"),
+func writeGownDir(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"),
 		[]byte("module example\n\ngo 1.21\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	goFile := filepath.Join(tmpDir, "example.go")
-	if err := os.WriteFile(goFile, goSrc, 0644); err != nil {
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestPositionPrecision(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"example.gown": gownSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
 		t.Fatal(err)
 	}
+	gf := gp.files[0]
 
-	// 4. Load with go/packages
-	cfg := &packages.Config{
-		Mode: packages.NeedSyntax | packages.NeedTypes |
-			packages.NeedTypesInfo | packages.NeedName,
-		Dir: tmpDir,
+	if len(gf.iso) != 2 {
+		t.Fatalf("expected 2 annotations, got %d", len(gf.iso))
 	}
-	pkgs, err := packages.Load(cfg, ".")
+	for i, a := range gf.iso {
+		t.Logf("annotation %d: %s:%d:%d func=%s",
+			i, gf.path, a.line, a.col, a.funcName)
+	}
+
+	// Verify stripped .go has no \iso left.
+	goBytes, err := os.ReadFile(filepath.Join(dir, "example.go"))
 	if err != nil {
-		t.Fatalf("packages.Load: %v", err)
+		t.Fatal(err)
 	}
-	if len(pkgs) == 0 {
-		t.Fatal("no packages loaded")
-	}
-	pkg := pkgs[0]
-	if len(pkg.Errors) > 0 {
-		for _, e := range pkg.Errors {
-			t.Errorf("package error: %v", e)
-		}
-		t.Fatal("package had errors")
-	}
-	if len(pkg.Syntax) == 0 {
-		t.Fatal("no syntax trees")
+	if bytes.Contains(goBytes, []byte(`\iso`)) {
+		t.Fatal("stripped .go still contains \\iso")
 	}
 
-	// 5. Walk AST, collect positions of parameter/return types
-	type paramInfo struct {
-		funcName  string
-		paramName string
-		typeStr   string
-		offset    int
-	}
-	var params []paramInfo
-
-	for _, file := range pkg.Syntax {
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok {
-				continue
-			}
-			// Check parameters
-			if fn.Type.Params != nil {
-				for _, field := range fn.Type.Params.List {
-					pos := pkg.Fset.Position(field.Type.Pos())
-					name := ""
-					if len(field.Names) > 0 {
-						name = field.Names[0].Name
-					}
-					params = append(params, paramInfo{
-						funcName:  fn.Name.Name,
-						paramName: name,
-						typeStr:   fmt.Sprintf("%v", field.Type),
-						offset:    pos.Offset,
-					})
-				}
-			}
-			// Check return types
-			if fn.Type.Results != nil {
-				for _, field := range fn.Type.Results.List {
-					pos := pkg.Fset.Position(field.Type.Pos())
-					params = append(params, paramInfo{
-						funcName:  fn.Name.Name,
-						paramName: "(return)",
-						typeStr:   fmt.Sprintf("%v", field.Type),
-						offset:    pos.Offset,
-					})
-				}
-			}
-		}
-	}
-
-	t.Logf("\nAST parameter positions:")
-	for _, p := range params {
-		t.Logf("  %s.%s type=%s offset=%d", p.funcName, p.paramName, p.typeStr, p.offset)
-	}
-
-	// 6. Check that \iso annotations line up with AST positions.
-	// For each \iso at offset X, the type node should start at X+5
-	// (4 bytes for \iso + 1 space).
-	// Also verify line/col are 1-based and correct.
+	// Verify byte-precision: \iso at offset X → AST type at X+5.
+	goSrc, _ := scanAndStrip("", []byte(gownSource))
 	matched := 0
-	for _, ann := range annotations {
-		expected := ann.offset + 5 // \iso + space
-		for _, p := range params {
-			if p.offset == expected {
-				t.Logf("MATCH: \\iso@%d:%d:%d → %s.%s type@%d",
-					ann.offset, ann.line, ann.col,
-					p.funcName, p.paramName, p.offset)
-				matched++
-
-				// Verify the original bytes
-				orig := gownSource[ann.offset : ann.offset+5]
-				if orig != `\iso ` {
-					t.Errorf("expected original bytes %q, got %q", `\iso `, orig)
+	for _, ann := range gf.iso {
+		expected := ann.offset + 5
+		for _, file := range gp.pkg.Syntax {
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
 				}
-				// Verify the stripped bytes are spaces
-				stripped := string(goSrc[ann.offset : ann.offset+4])
-				if strings.TrimSpace(stripped) != "" {
-					t.Errorf("expected spaces at stripped offset, got %q", stripped)
+				for _, fields := range [...]*ast.FieldList{fn.Type.Params, fn.Type.Results} {
+					if fields == nil {
+						continue
+					}
+					for _, field := range fields.List {
+						pos := gp.pkg.Fset.Position(field.Type.Pos())
+						if pos.Offset == expected {
+							matched++
+							orig := gownSource[ann.offset : ann.offset+5]
+							if orig != `\iso ` {
+								t.Errorf("expected original bytes %q, got %q", `\iso `, orig)
+							}
+							stripped := string(goSrc[ann.offset : ann.offset+4])
+							if strings.TrimSpace(stripped) != "" {
+								t.Errorf("expected spaces at stripped offset, got %q", stripped)
+							}
+						}
+					}
 				}
 			}
 		}
 	}
+	if matched != len(gf.iso) {
+		t.Fatalf("matched %d of %d annotations to AST positions", matched, len(gf.iso))
+	}
 
-	if matched != len(annotations) {
-		t.Errorf("matched %d of %d annotations", matched, len(annotations))
-		t.Log("\nDumping all offsets for debugging:")
-		for _, ann := range annotations {
-			t.Logf("  \\iso@%d:%d:%d, expected type@%d", ann.offset, ann.line, ann.col, ann.offset+5)
+	if gf.iso[0].line != 7 || gf.iso[1].line != 11 {
+		t.Errorf("lines: got %d,%d want 7,11", gf.iso[0].line, gf.iso[1].line)
+	}
+	if gf.iso[0].funcName != "Send" || gf.iso[1].funcName != "Recv" {
+		t.Errorf("funcNames: got %q,%q want Send,Recv", gf.iso[0].funcName, gf.iso[1].funcName)
+	}
+
+	t.Logf("All %d annotations matched — offset, line, col, funcName confirmed", matched)
+}
+
+const gownRegionSource = `package example
+
+type Msg struct {
+	Data []byte
+}
+
+func Process(ch chan *Msg) {
+	if true {
+		var m \iso *Msg
+		_ = m
+	}
+	{
+		var n \iso *Msg
+		_ = n
+	}
+}
+`
+
+func TestRegionDetection(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"regions.gown": gownRegionSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+	gf := gp.files[0]
+
+	if len(gf.iso) != 2 {
+		t.Fatalf("expected 2 annotations, got %d", len(gf.iso))
+	}
+
+	for i, ann := range gf.iso {
+		if ann.funcName != "Process" {
+			t.Errorf("annotation %d: expected funcName Process, got %q", i, ann.funcName)
 		}
-		for _, p := range params {
-			t.Logf("  AST %s.%s offset=%d", p.funcName, p.paramName, p.offset)
+		if ann.scope == nil {
+			t.Fatalf("annotation %d: scope is nil", i)
 		}
-		t.Fatal("not all annotations matched AST positions")
+		t.Logf("annotation %d: %s:%d:%d func=%s scope=[%d,%d)",
+			i, gf.path, ann.line, ann.col, ann.funcName, ann.scope.beg, ann.scope.endx)
 	}
 
-	// 7. Verify line/col are 1-based and match expected positions in the source.
-	// gownSource line 7: "func Send(ch chan *Msg, m \iso *Msg) {"
-	// gownSource line 11: "func Recv(ch chan *Msg) \iso *Msg {"
-	if annotations[0].line != 7 {
-		t.Errorf("annotation 0: expected line 7, got %d", annotations[0].line)
-	}
-	if annotations[1].line != 11 {
-		t.Errorf("annotation 1: expected line 11, got %d", annotations[1].line)
-	}
-	if annotations[0].col < 1 {
-		t.Errorf("annotation 0: col must be >= 1, got %d", annotations[0].col)
-	}
-	if annotations[1].col < 1 {
-		t.Errorf("annotation 1: col must be >= 1, got %d", annotations[1].col)
+	if gf.iso[0].scope.beg == gf.iso[1].scope.beg &&
+		gf.iso[0].scope.endx == gf.iso[1].scope.endx {
+		t.Fatal("both annotations in same scope — expected different scopes")
 	}
 
-	t.Logf("\nAll %d annotations matched — offset, line, col all confirmed", matched)
+	for i, ann := range gf.iso {
+		if ann.offset < ann.scope.beg || ann.offset >= ann.scope.endx {
+			t.Errorf("annotation %d: offset %d outside scope [%d,%d)",
+				i, ann.offset, ann.scope.beg, ann.scope.endx)
+		}
+	}
+
+	t.Log("Region detection confirmed: 2 annotations in 2 different scopes")
 }

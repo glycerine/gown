@@ -2,21 +2,33 @@ package gown
 
 import "bytes"
 
+type gownFile struct {
+	path        string
+	iso []*isoAnnotation
+}
+
+type region struct {
+	beg  int // byte offset of '{' (inclusive)
+	endx int // byte offset just past '}' (exclusive)
+}
+
 type isoAnnotation struct {
-	offset int // 0-based byte offset of the '\' in \iso
-	line   int // 1-based line number
-	col    int // 1-based column number (bytes, not runes)
+	offset   int     // 0-based byte offset of the '\' in \iso
+	line     int     // 1-based line number
+	col      int     // 1-based column number (bytes, not runes)
+	funcName string  // containing function name (filled in after AST parse)
+	scope    *region // innermost enclosing { } block (filled in after AST parse)
 }
 
 // scanAndStrip finds all \iso occurrences, records their positions,
 // and replaces each \iso with spaces (preserving byte positions).
-func scanAndStrip(gownSrc []byte) (goSrc []byte, annotations []isoAnnotation) {
+func scanAndStrip(path string, gownSrc []byte) (goSrc []byte, gf *gownFile) {
 	tag := []byte(`\iso`)
 	out := make([]byte, len(gownSrc))
 	copy(out, gownSrc)
+	gf = &gownFile{path: path}
 
 	// Build a line-start offset table for fast line/col lookup.
-	// lineStarts[i] is the byte offset where line i+1 begins.
 	lineStarts := []int{0}
 	for i, b := range gownSrc {
 		if b == '\n' {
@@ -33,7 +45,6 @@ func scanAndStrip(gownSrc []byte) (goSrc []byte, annotations []isoAnnotation) {
 		}
 		absOffset := base + idx
 
-		// Binary search for the line containing absOffset.
 		lo, hi := 0, len(lineStarts)-1
 		for lo < hi {
 			mid := (lo + hi + 1) / 2
@@ -43,10 +54,10 @@ func scanAndStrip(gownSrc []byte) (goSrc []byte, annotations []isoAnnotation) {
 				hi = mid - 1
 			}
 		}
-		line := lo + 1                       // 1-based
+		line := lo + 1                        // 1-based
 		col := absOffset - lineStarts[lo] + 1 // 1-based
 
-		annotations = append(annotations, isoAnnotation{
+		gf.iso = append(gf.iso, &isoAnnotation{
 			offset: absOffset,
 			line:   line,
 			col:    col,
@@ -57,5 +68,5 @@ func scanAndStrip(gownSrc []byte) (goSrc []byte, annotations []isoAnnotation) {
 		base = absOffset + len(tag)
 		search = gownSrc[base:]
 	}
-	return out, annotations
+	return out, gf
 }
