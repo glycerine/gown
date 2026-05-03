@@ -1,11 +1,26 @@
 package gown
 
-import "bytes"
+import (
+	"bytes"
+	"go/types"
+)
 
 type gownFile struct {
-	path   string
-	iso    []*isoAnnotation
-	create []*createAnew
+	path     string
+	iso      []*isoAnnotation
+	create   []*createAnew
+	boundary []*boundaryCrossing
+}
+
+type boundaryCrossing struct {
+	offset   int        // 0-based byte offset
+	line     int        // 1-based line number
+	col      int        // 1-based column number
+	kind     string     // "chan-send", "chan-recv", "go-arg", "go-capture", "pkg-var", "import-sig"
+	typeName string     // human-readable type name
+	goType   types.Type // resolved type from type checker
+	funcName string     // containing function (empty for pkg-var)
+	scope    *region    // innermost enclosing block
 }
 
 type createAnew struct {

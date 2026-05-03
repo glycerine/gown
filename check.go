@@ -2,6 +2,8 @@ package gown
 
 import (
 	"fmt"
+	"go/ast"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +74,66 @@ func (gp *GownPackage) Check() error {
 
 	for _, gf := range gp.files {
 		assignRegions(gp.pkg, gf)
-		assignCreates(gp.pkg, gf)
+		assignBoundary(gp.pkg, gf)
+	}
+
+	// Collect all boundary crossings across files.
+	var allBoundary []*boundaryCrossing
+	for _, gf := range gp.files {
+		allBoundary = append(allBoundary, gf.boundary...)
+	}
+
+	// Collect \iso annotation types for fallback when no boundaries exist.
+	var isoTypes []types.Type
+	for _, gf := range gp.files {
+		for _, ann := range gf.iso {
+			// Find the AST type near this annotation offset.
+			for _, file := range gp.pkg.Syntax {
+				for _, decl := range file.Decls {
+					fn, ok := decl.(*ast.FuncDecl)
+					if !ok {
+						continue
+					}
+					// Check params and results for types near the annotation.
+					for _, fields := range []*ast.FieldList{fn.Type.Params, fn.Type.Results} {
+						if fields == nil {
+							continue
+						}
+						for _, field := range fields.List {
+							pos := gp.pkg.Fset.Position(field.Type.Pos())
+							// The type starts right after the \iso + space (4 bytes stripped).
+							if pos.Offset == ann.offset+5 || pos.Offset == ann.offset+4 {
+								if tv, ok := gp.pkg.TypesInfo.Types[field.Type]; ok {
+									isoTypes = append(isoTypes, tv.Type)
+								}
+							}
+						}
+					}
+				}
+			}
+			// Also check local variable declarations near the annotation.
+			for _, file := range gp.pkg.Syntax {
+				ast.Inspect(file, func(n ast.Node) bool {
+					vs, ok := n.(*ast.ValueSpec)
+					if !ok || vs.Type == nil {
+						return true
+					}
+					pos := gp.pkg.Fset.Position(vs.Type.Pos())
+					if pos.Offset == ann.offset+5 || pos.Offset == ann.offset+4 {
+						if tv, ok := gp.pkg.TypesInfo.Types[vs.Type]; ok {
+							isoTypes = append(isoTypes, tv.Type)
+						}
+					}
+					return true
+				})
+			}
+		}
+	}
+
+	reachable, poisoned := computeReachableTypes(allBoundary, isoTypes)
+
+	for _, gf := range gp.files {
+		assignCreates(gp.pkg, gf, reachable, poisoned)
 	}
 
 	return nil

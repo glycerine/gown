@@ -10,7 +10,8 @@ import (
 
 // assignCreates walks the AST to find new(T), make(...), and &T{}
 // creation points, recording each as a createAnew on gf.
-func assignCreates(pkg *packages.Package, gf *gownFile) {
+// Only types in the reachable set (or all types if poisoned) are tracked.
+func assignCreates(pkg *packages.Package, gf *gownFile, reachable map[types.Type]bool, poisoned bool) {
 	structs := collectStructNames(pkg)
 	info := pkg.TypesInfo
 
@@ -48,6 +49,10 @@ func assignCreates(pkg *packages.Package, gf *gownFile) {
 					}
 					switch ident.Name {
 					case "new":
+						tv, has := info.Types[x.Args[0]]
+						if has && !isReachable(tv.Type, reachable, poisoned) {
+							return true
+						}
 						ca = &createAnew{
 							kind:     "new",
 							typeName: baseTypeName(x.Args[0]),
@@ -55,6 +60,9 @@ func assignCreates(pkg *packages.Package, gf *gownFile) {
 					case "make":
 						tv, has := info.Types[x.Args[0]]
 						if !has || !canHoldPointers(tv.Type) {
+							return true
+						}
+						if !isReachable(tv.Type, reachable, poisoned) {
 							return true
 						}
 						ca = &createAnew{
@@ -80,6 +88,11 @@ func assignCreates(pkg *packages.Package, gf *gownFile) {
 					name, ok := classifyCompositeLit(cl.Type, info, structs)
 					if !ok {
 						return true
+					}
+					if tv, has := info.Types[cl.Type]; has {
+						if !isReachable(tv.Type, reachable, poisoned) {
+							return true
+						}
 					}
 					pos := pkg.Fset.Position(x.Pos())
 					ca = &createAnew{
