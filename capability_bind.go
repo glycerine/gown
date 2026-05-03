@@ -2,6 +2,7 @@ package gown
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 	"path/filepath"
 	"strings"
@@ -143,29 +144,58 @@ func bindFuncBodyCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals
 		return
 	}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		vs, ok := n.(*ast.ValueSpec)
-		if !ok {
-			return true
+		switch stmt := n.(type) {
+		case *ast.ValueSpec:
+			bindValueSpecCapabilities(pkg, idx, quals, stmt)
+		case *ast.AssignStmt:
+			bindAssignStmtCapabilities(pkg, idx, quals, stmt)
 		}
-		bindValueSpecCapabilities(pkg, idx, quals, vs)
 		return true
 	})
 }
 
 func bindValueSpecCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, spec *ast.ValueSpec) {
-	if spec.Type == nil {
-		return
+	var typeCap Cap = CapInvalid
+	var typeChanElemCap Cap = CapInvalid
+	if spec.Type != nil {
+		typeCap = directCapForType(pkg, quals, spec.Type)
+		typeChanElemCap = chanElemCapForType(pkg, quals, spec.Type)
 	}
-	cap := directCapForType(pkg, quals, spec.Type)
-	chanElemCap := chanElemCapForType(pkg, quals, spec.Type)
-	if cap == CapInvalid && chanElemCap == CapInvalid {
-		return
-	}
-	for _, name := range spec.Names {
+	for i, name := range spec.Names {
 		obj := pkg.TypesInfo.Defs[name]
 		if obj == nil {
 			continue
 		}
+		cap := typeCap
+		chanElemCap := typeChanElemCap
+		if spec.Type == nil && i < len(spec.Values) {
+			cap = directCapForValueExpr(pkg, quals, spec.Values[i])
+			chanElemCap = chanElemCapForValueExpr(pkg, quals, spec.Values[i])
+		}
+		if cap != CapInvalid {
+			idx.ObjectCaps[obj] = cap
+		}
+		if chanElemCap != CapInvalid {
+			idx.ChanElemCaps[obj] = chanElemCap
+		}
+	}
+}
+
+func bindAssignStmtCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, stmt *ast.AssignStmt) {
+	if stmt.Tok != token.DEFINE || len(stmt.Lhs) != len(stmt.Rhs) {
+		return
+	}
+	for i, lhs := range stmt.Lhs {
+		name, ok := lhs.(*ast.Ident)
+		if !ok {
+			continue
+		}
+		obj := pkg.TypesInfo.Defs[name]
+		if obj == nil {
+			continue
+		}
+		cap := directCapForValueExpr(pkg, quals, stmt.Rhs[i])
+		chanElemCap := chanElemCapForValueExpr(pkg, quals, stmt.Rhs[i])
 		if cap != CapInvalid {
 			idx.ObjectCaps[obj] = cap
 		}
@@ -192,6 +222,22 @@ func chanElemCapForType(pkg *packages.Package, quals map[int]*CapQualifierAnnota
 		return CapInvalid
 	}
 	return directCapForType(pkg, quals, ch.Value)
+}
+
+func directCapForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) Cap {
+	return directCapForType(pkg, quals, expr)
+}
+
+func chanElemCapForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) Cap {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return chanElemCapForType(pkg, quals, expr)
+	}
+	fun, ok := call.Fun.(*ast.Ident)
+	if !ok || fun.Name != "make" || len(call.Args) == 0 {
+		return CapInvalid
+	}
+	return chanElemCapForType(pkg, quals, call.Args[0])
 }
 
 func fillCaps(caps []Cap, cap Cap) {

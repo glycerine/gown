@@ -9,13 +9,16 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/go/ssa"
 )
 
 type GownPackage struct {
-	path  string // directory containing the package
-	pkg   *packages.Package
-	files []*gownFile
-	caps  *CapabilityIndex
+	path    string // directory containing the package
+	pkg     *packages.Package
+	files   []*gownFile
+	caps    *CapabilityIndex
+	ssaProg *ssa.Program
+	ssaPkg  *ssa.Package
 }
 
 func NewGownPackage(path string) *GownPackage {
@@ -61,7 +64,8 @@ func (gp *GownPackage) Check() error {
 
 	cfg := &packages.Config{
 		Mode: packages.NeedSyntax | packages.NeedTypes |
-			packages.NeedTypesInfo | packages.NeedName,
+			packages.NeedTypesInfo | packages.NeedName |
+			packages.NeedImports | packages.NeedTypesSizes,
 		Dir: gp.path,
 	}
 	pkgs, err := packages.Load(cfg, ".")
@@ -76,6 +80,9 @@ func (gp *GownPackage) Check() error {
 		return fmt.Errorf("package error: %v", gp.pkg.Errors[0])
 	}
 	gp.caps = assignCapabilities(gp.pkg, gp.files)
+	if err := gp.buildSSA(); err != nil {
+		return err
+	}
 
 	for _, gf := range gp.files {
 		assignRegions(gp.pkg, gf)
@@ -139,6 +146,10 @@ func (gp *GownPackage) Check() error {
 
 	for _, gf := range gp.files {
 		assignCreates(gp.pkg, gf, reachable, poisoned)
+	}
+
+	if errs := checkGWN001(gp.pkg, gp.caps); len(errs) > 0 {
+		return errs
 	}
 
 	return nil

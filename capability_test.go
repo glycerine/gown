@@ -47,8 +47,10 @@ func Channels(work chan \iso *Msg, broadcast chan \imm *Msg) {}
 func Locals() {
 	var x \iso *Msg
 	var y \mub *Msg
+	ch := make(chan \iso *Msg)
 	_ = x
 	_ = y
+	_ = ch
 }
 `
 
@@ -141,6 +143,11 @@ func TestCapabilityIndexBindsChannelElementCaps(t *testing.T) {
 	}
 	if got := gp.caps.ChanElemCap(broadcast); got != CapImm {
 		t.Fatalf("broadcast channel elem cap = %v, want %v", got, CapImm)
+	}
+
+	local := lookupLocalVar(t, gp, "Locals", "ch")
+	if got := gp.caps.ChanElemCap(local); got != CapIso {
+		t.Fatalf("local make channel elem cap = %v, want %v", got, CapIso)
 	}
 }
 
