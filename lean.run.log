@@ -1,0 +1,62 @@
+Gown.lean:157:26: error: Application type mismatch: The argument
+  h₂.left
+has type
+  g₂ = g₁
+but is expected to have type
+  g₁ = g₂
+in the application
+  h12 h₂.left
+Gown.lean:158:47: error: omega could not prove the goal:
+No usable constraints found. You may need to unfold definitions so `omega` can see linear arithmetic facts about `Nat` and `Int`, which may also involve multiplication, division, and modular remainder by constants.
+Gown.lean:161:73: error: omega could not prove the goal:
+No usable constraints found. You may need to unfold definitions so `omega` can see linear arithmetic facts about `Nat` and `Int`, which may also involve multiplication, division, and modular remainder by constants.
+Gown.lean:173:75: error: Application type mismatch: The argument
+  ho
+has type
+  o g_src ℓ' imm
+but is expected to have type
+  { owns := o, nextLoc := n }.owns g₂ ℓ' imm
+in the application
+  Exists.intro imm ho
+Gown.lean:193:28: error: Application type mismatch: The argument
+  h₂.left
+has type
+  g₂ = g₁
+but is expected to have type
+  g₁ = g₂
+in the application
+  h12 h₂.left
+Gown.lean:196:35: error(lean.unknownIdentifier): Unknown identifier `ℓ`
+Gown.lean:196:58: error: Application type mismatch: The argument
+  Eq.symm e
+has type
+  gs = g₂
+but is expected to have type
+  g₂ = gs
+in the application
+  h₂.left (Eq.symm e)
+Gown.lean:199:46: error(lean.unknownIdentifier): Unknown identifier `ℓ`
+Gown.lean:199:69: error: Application type mismatch: The argument
+  Eq.symm e
+has type
+  gs = g₁
+but is expected to have type
+  g₁ = gs
+in the application
+  h₁.left (Eq.symm e)
+Gown.lean:227:32: error(lean.unknownIdentifier): Unknown identifier `g`
+Gown.lean:227:34: error(lean.unknownIdentifier): Unknown identifier `ℓ`
+Gown.lean:237:28: error: Application type mismatch: The argument
+  h₂.left
+has type
+  g₂ = g₁
+but is expected to have type
+  g₁ = g₂
+in the application
+  h12 h₂.left
+Gown.lean:238:42: error(lean.unknownIdentifier): Unknown identifier `g`
+Gown.lean:238:44: error(lean.unknownIdentifier): Unknown identifier `ℓ`
+Gown.lean:243:32: error(lean.unknownIdentifier): Unknown identifier `g`
+Gown.lean:243:34: error(lean.unknownIdentifier): Unknown identifier `ℓ`
+Gown.lean:254:32: error(lean.unknownIdentifier): Unknown identifier `g`
+Gown.lean:254:34: error(lean.unknownIdentifier): Unknown identifier `ℓ`
