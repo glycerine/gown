@@ -1,5 +1,5 @@
 /-
-  Gown: Mechanized Race Freedom Proof
+  Gown: Mechanized Proof of Race Freedom
   ====================================
   Lean 4 formalization. No Mathlib. No sorry. No custom axioms.
   To check: `lean Gown.lean`
