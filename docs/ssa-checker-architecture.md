@@ -560,6 +560,35 @@ Spike progress:
   projections (`x.f`) instead of inserting hidden nil assignments or silently
   consuming sibling state.
 
+## Spike Learnings
+
+The main architectural learning is that the hybrid approach is not just a
+fallback; it is the right shape for Gown. AST/types should remain the source of
+truth for source places because they preserve user intent, selector syntax, and
+original `.gown` diagnostics. SSA should provide instruction ordering, control
+flow, liveness, closure/call/send/store forms, and CFG joins.
+
+SSA can still carry field-sensitive information far enough to be useful. With
+`ssa.GlobalDebug`, `ssa.Function.ValueForExpr` can seed SSA values from the
+existing AST place index. From there, a small prototype can propagate places
+through `FieldAddr`, `UnOp`, and `Store`, preserving paths like
+`h.Inner.Item`. Dynamic or erased operations such as `IndexAddr`, `Lookup`, and
+`MakeInterface` can collapse back to the root, matching the soundness rule in
+the field-sensitivity design.
+
+The spike also clarified the ownership move rule. Ownership moves are root-only:
+moving `x` can consume `x`, but moving `x.f` would leave `x` still holding the
+same field value unless Gown silently rewrote the user's field. Gown should not
+write hidden nil assignments into user fields. Therefore, field projections are
+valid for borrow precision, but they are rejected as ownership move sources
+with `GWN011`.
+
+The remaining high-risk question is not whether SSA has the right instruction
+shapes or whether field-sensitive places can be represented. It is whether the
+state machine can run over real SSA CFGs, preserve original `.gown`
+diagnostics, and reproduce `GWN001` parity before migrating broader checker
+passes.
+
 ## Open Implementation Notes
 
 - The `-check` CLI flag currently exists but is not wired through to avoid
