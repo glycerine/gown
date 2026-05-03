@@ -1,0 +1,18 @@
+pacakge main
+
+type payload struct {
+     dirt string
+}
+
+func main() {
+
+     ch := make(chan \iso *payload)
+     go func() {
+        <-ch
+     }
+     a := &payload{dirt:"lots"}
+     ch <- a
+
+     // having consumed a, this should be illegal:
+     println(a)
+}
