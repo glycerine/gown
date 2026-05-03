@@ -4,8 +4,8 @@ This document describes the checker architecture for Gown's lifetime and borrow
 analysis. It is a living design artifact: some pieces are implemented, some are
 only partially implemented, and the SSA checker is now the main execution path
 for the completed diagnostic slices. The remaining highest-risk work is explicit
-freeze/clone/unsafe semantics, deeper lifetime/liveness around loops and
-complex closures, and final emit semantics.
+freeze/clone/unsafe semantics, closure flow through heap/container/interface
+boundaries, precise unsafe/synchronization boundaries, and final emit semantics.
 
 The central decision is that Go's AST, type checker, and SSA builder remain
 ordinary Go tooling. They do not learn about `\iso`, `\mub`, `\rob`, or
@@ -58,10 +58,10 @@ Implemented:
 
 Still missing:
 
-- Broader SSA dataflow beyond the current `GWN001` consumed-place and named
-  borrow-liveness engine, especially loops, closure aliasing through heap,
-  container, interface, and interprocedural flows, and explicit
-  freeze/clone/unsafe.
+- Broader SSA dataflow beyond the current `GWN001` consumed-place, named
+  borrow-liveness, loop fixpoint, and deferred-effect engine, especially
+  closure aliasing through heap, container, interface, and interprocedural
+  flows, and explicit freeze/clone/unsafe.
 - Final emit behavior that inserts nil assignments after consumed `\iso`
   moves.
 - Semantics for explicit freeze/clone/unsafe beyond token recognition and
@@ -587,6 +587,12 @@ Spike progress:
   whose parameter types infer `\mub` or `\rob`, deferred named borrow
   arguments, and deferred closure captures are modeled as borrows that remain
   active until function exit.
+- The same `GWN001` dataflow now exercises loop fixpoints directly: loop-body
+  sends are visible after the loop, loop-local named borrows can die before a
+  later transfer, named borrows assigned inside a loop remain live after the
+  loop when SSA liveness says they may be used, and repeated deferred closure
+  `\iso` moves are rejected because each defer registration creates another
+  function-exit move.
 - `GownPackage.Check` now routes the main checker runner through the SSA passes
   when SSA is available, while keeping AST/place checkers as fallbacks.
 - Integration tests cover precision improvements that the root-only AST passes
@@ -669,12 +675,25 @@ function exit even if the local variable `b` is reassigned later. Deferred
 closures also need analysis because they may capture named borrow variables;
 Gown now uses SSA closure bindings and a source-position fallback for deferred
 function literals to conservatively activate those captured borrows until
-function exit. The checker also lifts tracked call effects inside deferred
-function literals back to the outer defer registration site: `\iso` calls are
-treated as deferred moves, and inferred `\mub`/`\rob` calls are treated as
-live-to-exit borrows. This is intentionally conservative; a more precise
-future model can reason about function-exit ordering, reassignment, and LIFO
-defer order.
+function exit. Tracked call effects inside deferred function literals are now
+recorded as pending deferred effects rather than applied at the defer
+registration site. At each SSA return, pending deferred closure effects are
+checked in LIFO order: `\iso` calls move at function exit, inferred
+`\mub`/`\rob` calls borrow temporarily while that deferred closure runs, and
+returning the same place a deferred closure will later use is rejected. This
+keeps ordinary use before function exit precise while preserving Go's defer
+ordering.
+
+Loops validated the state-merge rule that had been implicit in the SSA
+prototype. At a loop join, consumed roots and live named borrows are interpreted
+as may-have-happened facts: if one iteration or one branch can move `a`, a use
+after the loop is rejected; if a borrow is scoped entirely inside the loop body
+and is not live at the back edge or after the loop, a later move remains
+allowed. Deferred closure effects need an extra multiplicity bit. A single
+defer statement in a loop may register the same closure more than once, so a
+deferred closure that eventually performs a root `\iso` move is rejected as a
+possible repeated move, while repeated deferred read-only effects are allowed.
+This is conservative but matches Go's runtime defer stack semantics.
 
 Escaping closures add a second closure rule. Go function values are ordinary
 copyable values, so a returned, stored, or untracked-call-passed closure cannot
@@ -692,10 +711,12 @@ Current SSA checker coverage includes `GWN001` parity for direct sends,
 inferred freeze-sends to `chan \imm`, iso-consuming calls, deferred
 iso-consuming calls, assignment moves, branch merges, goroutine calls, closure
 captures, named borrow liveness, branch-sensitive named borrow liveness,
-deferred named borrow snapshots, deferred inferred borrow arguments, deferred
-closure borrow captures, deferred closure inferred borrow effects, deferred
-closure iso-consuming effects, and projected field-move rejection. It also
-includes `GWN002` through `GWN010` parity for inferred call-borrow
+loop fixpoint state, loop-local named borrow death, loop-carried named borrow
+liveness, deferred named borrow snapshots, deferred inferred borrow arguments,
+deferred closure borrow captures, deferred closure inferred borrow effects,
+deferred closure iso-consuming effects with LIFO exit ordering, repeated
+deferred closure `\iso` move rejection, and projected field-move rejection. It
+also includes `GWN002` through `GWN010` parity for inferred call-borrow
 conflicts, send capability checks, goroutine borrow escapes, escaping closures
 that capture non-shareable tracked values, read-only writes, borrow stores,
 returned borrows, untracked call boundaries, and interface erasure. These SSA
@@ -731,7 +752,9 @@ mapping generated `.go` paths back to original `.gown` paths.
   borrow arguments, deferred closure captures, and tracked calls inside
   deferred function literals. Closure escape checks now cover direct function
   literals and flow-sensitive local closure aliases returned, stored into
-  escaping locations, or passed to untracked calls. Explicit freeze/clone,
-  loops under heavier mutation, precise deferred closure exit ordering,
-  interprocedural and heap/container/interface closure flow, and precise
-  unsafe/synchronization boundaries still need broader treatment.
+  escaping locations, or passed to untracked calls. Loop coverage now exercises
+  root moves, named borrow liveness, deferred closure effects, and local closure
+  aliases across back edges. Explicit freeze/clone, deferred closure bodies with
+  richer internal control flow, interprocedural and heap/container/interface
+  closure flow, and precise unsafe/synchronization boundaries still need broader
+  treatment.

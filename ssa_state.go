@@ -3,6 +3,7 @@ package gown
 type SSAFunctionState struct {
 	Consumed map[PlaceKey]SSAMoveSite
 	Borrows  []SSABorrow
+	Deferred []SSADeferredGroup
 }
 
 type SSAMoveSite struct {
@@ -35,6 +36,7 @@ func (state SSAFunctionState) Clone() SSAFunctionState {
 		clone.Consumed[place] = site
 	}
 	clone.Borrows = append(clone.Borrows, state.Borrows...)
+	clone.Deferred = append(clone.Deferred, state.Deferred...)
 	return clone
 }
 
@@ -121,6 +123,19 @@ func (state *SSAFunctionState) HasBorrow(place PlaceKey, cap Cap) bool {
 	return false
 }
 
+func (state *SSAFunctionState) AddDeferred(group SSADeferredGroup) {
+	if len(group.Effects) == 0 {
+		return
+	}
+	for i := range state.Deferred {
+		if state.Deferred[i].Key == group.Key {
+			state.Deferred[i].Repeat = true
+			return
+		}
+	}
+	state.Deferred = append(state.Deferred, group)
+}
+
 func MergeSSAFunctionStates(left, right SSAFunctionState) (SSAFunctionState, []SSAStateViolation) {
 	merged := NewSSAFunctionState()
 	for place, site := range left.Consumed {
@@ -143,6 +158,12 @@ func MergeSSAFunctionStates(left, right SSAFunctionState) (SSAFunctionState, []S
 			violations = append(violations, violation)
 		}
 	}
+	for _, group := range left.Deferred {
+		merged.addMergedDeferred(group)
+	}
+	for _, group := range right.Deferred {
+		merged.addMergedDeferred(group)
+	}
 	return merged, violations
 }
 
@@ -163,12 +184,22 @@ func (state *SSAFunctionState) addMergedBorrow(next SSABorrow) (SSAStateViolatio
 	return SSAStateViolation{}, false
 }
 
+func (state *SSAFunctionState) addMergedDeferred(next SSADeferredGroup) {
+	for i := range state.Deferred {
+		if state.Deferred[i].Key == next.Key {
+			state.Deferred[i].Repeat = state.Deferred[i].Repeat || next.Repeat
+			return
+		}
+	}
+	state.Deferred = append(state.Deferred, next)
+}
+
 func borrowsConflict(a, b SSABorrow) bool {
 	return a.Place.Overlaps(b.Place) && callBorrowsConflict(a.Cap, b.Cap)
 }
 
 func equalSSAFunctionState(a, b SSAFunctionState) bool {
-	if len(a.Consumed) != len(b.Consumed) || len(a.Borrows) != len(b.Borrows) {
+	if len(a.Consumed) != len(b.Consumed) || len(a.Borrows) != len(b.Borrows) || len(a.Deferred) != len(b.Deferred) {
 		return false
 	}
 	for place, site := range a.Consumed {
@@ -181,12 +212,26 @@ func equalSSAFunctionState(a, b SSAFunctionState) bool {
 			return false
 		}
 	}
+	for _, group := range a.Deferred {
+		if !hasSSADeferredGroup(b.Deferred, group) {
+			return false
+		}
+	}
 	return true
 }
 
 func hasSSABorrow(borrows []SSABorrow, want SSABorrow) bool {
 	for _, borrow := range borrows {
 		if borrow == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSSADeferredGroup(groups []SSADeferredGroup, want SSADeferredGroup) bool {
+	for _, group := range groups {
+		if group.Key == want.Key && group.Repeat == want.Repeat {
 			return true
 		}
 	}

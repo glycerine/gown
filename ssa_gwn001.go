@@ -22,6 +22,7 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 		assigns:      collectSSAAssignmentMoves(pkg, caps),
 		namedBorrows: collectSSANamedBorrows(pkg, caps),
 		deferEffects: collectSSADeferredClosureEffects(pkg, caps),
+		returns:      collectSSAReturnPlaces(pkg, caps),
 		bindings:     NewSSABindingIndex(caps),
 		reported:     make(map[string]bool),
 	}
@@ -38,6 +39,7 @@ type ssaGWN001Checker struct {
 	assigns             map[ast.Expr]ssaAssignmentMove
 	namedBorrows        map[*types.Func]SSANamedBorrowInfo
 	deferEffects        map[*types.Func]SSADeferredClosureEffectInfo
+	returns             map[sourcePosKey][]Place
 	bindings            *SSABindingIndex
 	activeNamedBorrows  SSANamedBorrowInfo
 	activeDeferEffects  SSADeferredClosureEffectInfo
@@ -167,6 +169,8 @@ func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction,
 		checker.applyAssignmentMove(instr, state)
 	case *ssa.Go:
 		checker.applyGoTransfer(instr, state)
+	case *ssa.Return:
+		checker.applyReturnTransfer(instr, state)
 	}
 }
 
@@ -271,7 +275,7 @@ func (checker *ssaGWN001Checker) applyDeferTransfer(instr *ssa.Defer, state *SSA
 	}
 	checker.applyDeferClosureCaptureTransfer(instr, state)
 	checker.applySourceDeferClosureCaptureTransfer(instr, state)
-	checker.applySourceDeferClosureEffects(instr, state)
+	checker.recordSourceDeferClosureEffects(instr, state)
 }
 
 func (checker *ssaGWN001Checker) applyDeferredInferredBorrowArgs(binding CallBinding, state *SSAFunctionState, instr ssa.Instruction) {
@@ -366,21 +370,117 @@ func (checker *ssaGWN001Checker) applySourceDeferClosureCaptureTransfer(instr *s
 	}
 }
 
-func (checker *ssaGWN001Checker) applySourceDeferClosureEffects(instr *ssa.Defer, state *SSAFunctionState) {
+func (checker *ssaGWN001Checker) recordSourceDeferClosureEffects(instr *ssa.Defer, state *SSAFunctionState) {
 	key := sourcePositionKey(checker.pkg.Fset.Position(instr.Pos()))
+	effects := checker.activeDeferEffects.Effects[key]
+	if len(effects) == 0 {
+		return
+	}
+	group := SSADeferredGroup{
+		Key: key,
+		Pos: checker.pkg.Fset.Position(instr.Pos()),
+	}
 	for _, effect := range checker.activeDeferEffects.Effects[key] {
-		switch effect.Cap {
-		case CapIso:
-			checker.consumeRootAtInstruction(state, effect.Place, instr, "defer")
-		case CapMub, CapRob:
-			if borrow, ok := checker.activeNamedBorrows.Borrows[effect.Place.Root]; ok {
-				checker.activateDeferredBorrow(state, borrow, instr)
-				continue
-			}
-			if violation, ok := state.BeginBorrow(effect.Place.Key(), effect.Cap); ok {
-				checker.reportViolation(checker.pkg.Fset.Position(instr.Pos()), violation)
+		group.Effects = append(group.Effects, SSADeferredEffect{
+			Place: effect.Place,
+			Cap:   effect.Cap,
+			Pos:   effect.Pos,
+		})
+	}
+	state.AddDeferred(group)
+}
+
+func (checker *ssaGWN001Checker) applyReturnTransfer(instr *ssa.Return, state *SSAFunctionState) {
+	if instr == nil || len(state.Deferred) == 0 {
+		return
+	}
+	checker.checkReturnDeferredConflicts(instr, state)
+	exitState := state.Clone()
+	for i := len(exitState.Deferred) - 1; i >= 0; i-- {
+		checker.applyDeferredGroupAtExit(exitState.Deferred[i], &exitState)
+	}
+}
+
+func (checker *ssaGWN001Checker) checkReturnDeferredConflicts(instr *ssa.Return, state *SSAFunctionState) {
+	places := checker.returns[sourcePositionKey(checker.pkg.Fset.Position(instr.Pos()))]
+	for _, result := range instr.Results {
+		returned, ok := checker.places.PlaceForValue(result)
+		if ok && returned.Root != nil {
+			places = append(places, returned)
+		}
+	}
+	for _, returned := range places {
+		if returned.Root == nil {
+			continue
+		}
+		returnedKey := returned.Key()
+		for _, group := range state.Deferred {
+			for _, effect := range group.Effects {
+				if !returnedKey.Overlaps(effect.Place.Key()) {
+					continue
+				}
+				checker.reportCheckerError(newCheckerErrorAtPosition(
+					GWN001,
+					checker.pkg.Fset.Position(instr.Pos()),
+					fmt.Sprintf("cannot return %q while deferred closure uses it", returned.Root.Name()),
+				))
+				return
 			}
 		}
+	}
+}
+
+func (checker *ssaGWN001Checker) applyDeferredGroupAtExit(group SSADeferredGroup, state *SSAFunctionState) {
+	if checker.reportRepeatedDeferredMoves(group) {
+		return
+	}
+	for _, effect := range group.Effects {
+		checker.applyDeferredEffectAtExit(effect, state)
+	}
+}
+
+func (checker *ssaGWN001Checker) reportRepeatedDeferredMoves(group SSADeferredGroup) bool {
+	if !group.Repeat {
+		return false
+	}
+	for _, effect := range group.Effects {
+		if effect.Cap != CapIso || effect.Place.Root == nil || effect.Place.Key().Path != "" {
+			continue
+		}
+		checker.reportCheckerError(newCheckerErrorAtPosition(
+			GWN001,
+			effect.Pos,
+			fmt.Sprintf("deferred closure may move \\iso value %q more than once", effect.Place.Root.Name()),
+		))
+		return true
+	}
+	return false
+}
+
+func (checker *ssaGWN001Checker) applyDeferredEffectAtExit(effect SSADeferredEffect, state *SSAFunctionState) {
+	key := effect.Place.Key()
+	switch effect.Cap {
+	case CapIso:
+		if site, moved := state.CheckUse(key); moved {
+			checker.reportUseAfterMoveAtPosition(effect.Pos, effect.Place, site)
+			return
+		}
+		violation, ok := state.ConsumeRoot(key, SSAMoveSite{
+			Name: effect.Place.Root.Name(),
+			Kind: "deferred closure",
+			Line: sourceLine(effect.Pos),
+			Col:  sourceColumn(effect.Pos),
+		})
+		if ok {
+			checker.reportViolation(effect.Pos, violation)
+		}
+	case CapMub, CapRob:
+		violation, ok := state.BeginBorrow(key, effect.Cap)
+		if ok {
+			checker.reportViolation(effect.Pos, violation)
+			return
+		}
+		state.EndBorrow(key, effect.Cap)
 	}
 }
 
@@ -464,6 +564,10 @@ func (checker *ssaGWN001Checker) capForPlace(place Place) Cap {
 }
 
 func (checker *ssaGWN001Checker) reportUseAfterMove(instr ssa.Instruction, place Place, site SSAMoveSite) {
+	checker.reportUseAfterMoveAtPosition(checker.pkg.Fset.Position(instr.Pos()), place, site)
+}
+
+func (checker *ssaGWN001Checker) reportUseAfterMoveAtPosition(pos token.Position, place Place, site SSAMoveSite) {
 	name := "<unknown>"
 	if place.Root != nil {
 		name = place.Root.Name()
@@ -472,7 +576,7 @@ func (checker *ssaGWN001Checker) reportUseAfterMove(instr ssa.Instruction, place
 		name, site.Kind, site.Line, site.Col)
 	checker.reportCheckerError(newCheckerErrorAtPosition(
 		GWN001,
-		checker.pkg.Fset.Position(instr.Pos()),
+		pos,
 		message,
 	))
 }
@@ -531,6 +635,31 @@ func collectSSAAssignmentMoves(pkg *packages.Package, caps *CapabilityIndex) map
 		})
 	}
 	return moves
+}
+
+func collectSSAReturnPlaces(pkg *packages.Package, caps *CapabilityIndex) map[sourcePosKey][]Place {
+	returns := make(map[sourcePosKey][]Place)
+	if pkg == nil || caps == nil {
+		return returns
+	}
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			ret, ok := n.(*ast.ReturnStmt)
+			if !ok {
+				return true
+			}
+			key := sourcePositionKey(pkg.Fset.Position(ret.Return))
+			for _, result := range ret.Results {
+				place, ok := caps.PlaceForExpr(result)
+				if !ok || place.Root == nil {
+					continue
+				}
+				returns[key] = append(returns[key], place)
+			}
+			return true
+		})
+	}
+	return returns
 }
 
 func capForSSAPlace(caps *CapabilityIndex, place Place) Cap {

@@ -2,6 +2,7 @@ package gown
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/packages"
@@ -10,10 +11,24 @@ import (
 type SSADeferredClosureEffect struct {
 	Place Place
 	Cap   Cap
+	Pos   token.Position
 }
 
 type SSADeferredClosureEffectInfo struct {
 	Effects map[sourcePosKey][]SSADeferredClosureEffect
+}
+
+type SSADeferredEffect struct {
+	Place Place
+	Cap   Cap
+	Pos   token.Position
+}
+
+type SSADeferredGroup struct {
+	Key     sourcePosKey
+	Pos     token.Position
+	Repeat  bool
+	Effects []SSADeferredEffect
 }
 
 func collectSSADeferredClosureEffects(pkg *packages.Package, caps *CapabilityIndex) map[*types.Func]SSADeferredClosureEffectInfo {
@@ -63,13 +78,13 @@ func collectDeferredClosureEffects(pkg *packages.Package, caps *CapabilityIndex,
 		case *ast.FuncLit:
 			return false
 		case *ast.CallExpr:
-			collectDeferredClosureCallEffects(caps, info, key, n)
+			collectDeferredClosureCallEffects(pkg, caps, info, key, n)
 		}
 		return true
 	})
 }
 
-func collectDeferredClosureCallEffects(caps *CapabilityIndex, info *SSADeferredClosureEffectInfo, key sourcePosKey, call *ast.CallExpr) {
+func collectDeferredClosureCallEffects(pkg *packages.Package, caps *CapabilityIndex, info *SSADeferredClosureEffectInfo, key sourcePosKey, call *ast.CallExpr) {
 	binding, ok := caps.CallBinding(call)
 	if !ok {
 		return
@@ -94,6 +109,7 @@ func collectDeferredClosureCallEffects(caps *CapabilityIndex, info *SSADeferredC
 		info.Effects[key] = append(info.Effects[key], SSADeferredClosureEffect{
 			Place: place,
 			Cap:   paramCap,
+			Pos:   pkg.Fset.Position(call.Pos()),
 		})
 	}
 }
