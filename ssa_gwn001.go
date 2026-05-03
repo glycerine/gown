@@ -145,6 +145,8 @@ func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction,
 		checker.applySendTransfer(instr, state)
 	case *ssa.Call:
 		checker.applyCallTransfer(instr, state)
+	case *ssa.Defer:
+		checker.applyDeferTransfer(instr, state)
 	case *ssa.DebugRef:
 		checker.applyAssignmentMove(instr, state)
 	case *ssa.Go:
@@ -233,6 +235,24 @@ func (checker *ssaGWN001Checker) applyGoTransfer(instr *ssa.Go, state *SSAFuncti
 	checker.applyGoClosureCaptureTransfer(instr, state)
 }
 
+func (checker *ssaGWN001Checker) applyDeferTransfer(instr *ssa.Defer, state *SSAFunctionState) {
+	if binding, ok := checker.bindings.DeferCall(checker.pkg, instr); ok {
+		for _, place := range binding.ArgPlaces {
+			checker.activateDeferredNamedBorrow(state, place, instr)
+		}
+	} else {
+		for _, arg := range instr.Call.Args {
+			place, ok := checker.places.PlaceForValue(arg)
+			if !ok {
+				continue
+			}
+			checker.activateDeferredNamedBorrow(state, place, instr)
+		}
+	}
+	checker.applyDeferClosureCaptureTransfer(instr, state)
+	checker.applySourceDeferClosureCaptureTransfer(instr, state)
+}
+
 func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, state *SSAFunctionState, instr ssa.Instruction, kind string) {
 	callee := call.StaticCallee()
 	if callee == nil {
@@ -253,6 +273,50 @@ func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, s
 		}
 		checker.consumeRootAtInstruction(state, argPlace, instr, kind)
 	}
+}
+
+func (checker *ssaGWN001Checker) applyDeferClosureCaptureTransfer(instr *ssa.Defer, state *SSAFunctionState) {
+	closure, _ := instr.Call.Value.(*ssa.MakeClosure)
+	if closure == nil {
+		return
+	}
+	for _, binding := range closure.Bindings {
+		place, ok := checker.places.PlaceForValue(binding)
+		if !ok {
+			continue
+		}
+		checker.activateDeferredNamedBorrow(state, place, instr)
+	}
+}
+
+func (checker *ssaGWN001Checker) applySourceDeferClosureCaptureTransfer(instr *ssa.Defer, state *SSAFunctionState) {
+	key := sourcePositionKey(checker.pkg.Fset.Position(instr.Pos()))
+	for _, obj := range checker.activeNamedBorrows.DeferredCaptures[key] {
+		borrow, ok := checker.activeNamedBorrows.Borrows[obj]
+		if !ok {
+			continue
+		}
+		checker.activateDeferredBorrow(state, borrow, instr)
+	}
+}
+
+func (checker *ssaGWN001Checker) activateDeferredNamedBorrow(state *SSAFunctionState, place Place, instr ssa.Instruction) {
+	borrow, ok := checker.activeNamedBorrows.Borrows[place.Root]
+	if !ok {
+		return
+	}
+	checker.activateDeferredBorrow(state, borrow, instr)
+}
+
+func (checker *ssaGWN001Checker) activateDeferredBorrow(state *SSAFunctionState, borrow SSANamedBorrow, instr ssa.Instruction) {
+	if state.HasBorrow(borrow.Source.Key(), borrow.Cap) {
+		return
+	}
+	violation, violated := state.BeginBorrow(borrow.Source.Key(), borrow.Cap)
+	if !violated {
+		return
+	}
+	checker.reportViolation(checker.pkg.Fset.Position(instr.Pos()), violation)
 }
 
 func (checker *ssaGWN001Checker) applyGoClosureCaptureTransfer(instr *ssa.Go, state *SSAFunctionState) {

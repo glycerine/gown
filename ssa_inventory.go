@@ -84,6 +84,8 @@ func ssaInventoryKind(instr ssa.Instruction) string {
 	switch instr.(type) {
 	case *ssa.Call:
 		return "Call"
+	case *ssa.Defer:
+		return "Defer"
 	case *ssa.Field:
 		return "Field"
 	case *ssa.FieldAddr:

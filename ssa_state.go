@@ -112,6 +112,15 @@ func (state *SSAFunctionState) EndBorrow(place PlaceKey, cap Cap) {
 	}
 }
 
+func (state *SSAFunctionState) HasBorrow(place PlaceKey, cap Cap) bool {
+	for _, borrow := range state.Borrows {
+		if borrow.Place == place && borrow.Cap == cap {
+			return true
+		}
+	}
+	return false
+}
+
 func MergeSSAFunctionStates(left, right SSAFunctionState) (SSAFunctionState, []SSAStateViolation) {
 	merged := NewSSAFunctionState()
 	for place, site := range left.Consumed {

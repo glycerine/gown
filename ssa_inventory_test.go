@@ -103,6 +103,28 @@ func TestSSAInventoryFactsCarrySourceLines(t *testing.T) {
 	}
 }
 
+const gownSSADeferInventorySource = `package example
+
+func Later(x string) {}
+
+func main() {
+	x := "later"
+	defer Later(x)
+}
+`
+
+func TestSSAInventoryRecordsDeferInstruction(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"defer.gown": gownSSADeferInventorySource})
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+	facts := collectSSAInventoryFacts(gp.pkg, gp.ssaPkg)
+	if !ssaInventoryHas(facts, "main", "Defer") {
+		t.Fatalf("SSA inventory missing Defer in main; facts:\n%s", formatSSAInventoryFacts(facts))
+	}
+}
+
 func loadSSAInventoryFacts(t *testing.T) []ssaInventoryFact {
 	t.Helper()
 	dir := writeGownDir(t, map[string]string{"inventory.gown": gownSSAInventorySource})

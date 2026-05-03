@@ -4,8 +4,8 @@ This document describes the checker architecture for Gown's lifetime and borrow
 analysis. It is a living design artifact: some pieces are implemented, some are
 only partially implemented, and the SSA checker is now the main execution path
 for the completed diagnostic slices. The remaining highest-risk work is explicit
-freeze/clone/unsafe semantics, deeper lifetime/liveness around defers and
-closures, and final emit semantics.
+freeze/clone/unsafe semantics, deeper lifetime/liveness around loops and
+complex closures, and final emit semantics.
 
 The central decision is that Go's AST, type checker, and SSA builder remain
 ordinary Go tooling. They do not learn about `\iso`, `\mub`, `\rob`, or
@@ -58,7 +58,7 @@ Implemented:
 Still missing:
 
 - Broader SSA dataflow beyond the current `GWN001` consumed-place and named
-  borrow-liveness engine, especially defers, closure-contained borrows, loops,
+  borrow-liveness engine, especially loops, complex closure-contained borrows,
   and explicit freeze/clone/unsafe.
 - Final emit behavior that inserts nil assignments after consumed `\iso`
   moves.
@@ -96,7 +96,7 @@ The target pipeline is:
 8. Infer borrow/move/freeze behavior from typed contexts and run capability
    checking. Today the completed diagnostics use SSA-backed passes over the
    side tables, with full forward CFG dataflow currently concentrated in
-   `GWN001`.
+   `GWN001`, including named borrow liveness and deferred borrow snapshots.
 9. Report structured GWN errors at original `.gown` positions.
 10. If checking succeeds and `-check` is false, emit final Go.
 
@@ -107,7 +107,8 @@ Current status:
 
 - Stages 1 through 7 exist for qualifier-oriented programs.
 - Stage 8 exists as SSA-backed checker passes over capability side tables, with
-  full CFG dataflow currently concentrated in `GWN001`.
+  full CFG dataflow currently concentrated in `GWN001`, including named borrow
+  liveness and deferred borrow snapshots.
 - Stage 9 exists.
 - Stage 10 partially exists: stripped Go is written in normal mode and avoided
   in CLI `-check` mode through a `go/packages` overlay. Nil insertion after
@@ -465,7 +466,7 @@ Completed foundation:
 Completed checker slices:
 
 - `GWN001`: moved `\iso` use after send, inferred freeze-send, call,
-  goroutine capture, or assignment move.
+  goroutine capture, deferred borrow, or assignment move.
 - `GWN002`: conflicting inferred call borrows, including field-sensitive
   sibling-vs-overlap checks.
 - `GWN003` and `GWN010`: non-sendable sends and channel/value capability
@@ -505,7 +506,7 @@ Spike questions:
 - What is the smallest `FunctionState` that can model consumed `\iso` places,
   temporary inferred call borrows, and conservative CFG merges?
 - Can instruction-level liveness end temporary borrows precisely enough without
-  introducing unsoundness around closures, defers, goroutines, and stores?
+  introducing unsoundness around closures, goroutines, defers, and stores?
 - Can field projections survive through `FieldAddr` chains, and when should
   the engine collapse to root?
 
@@ -560,7 +561,7 @@ Spike progress:
 
 - SSA inventory tests now confirm that the package exposes the instruction
   categories needed by the checker: calls, sends, goroutines, closure creation,
-  field addresses, loads, stores, dynamic indexes, map lookups, interface
+  defers, field addresses, loads, stores, dynamic indexes, map lookups, interface
   boxing, and branch phis.
 - SSA is built with `ssa.GlobalDebug` so `ssa.Function.ValueForExpr` can seed
   SSA values from AST/source places.
@@ -579,7 +580,9 @@ Spike progress:
   liveness for named `\mub`/`\rob` borrows and rejects root transfers while a
   derived named borrow is live. Sending `\iso` on `chan \imm` is modeled as an
   inferred freeze-send transfer that consumes the sender's root and consults
-  the same named-borrow liveness guard.
+  the same named-borrow liveness guard. Deferred named borrow arguments and
+  deferred closure captures are modeled as borrows that remain active until
+  function exit.
 - `GownPackage.Check` now routes the main checker runner through the SSA passes
   when SSA is available, while keeping AST/place checkers as fallbacks.
 - Integration tests cover precision improvements that the root-only AST passes
@@ -618,9 +621,10 @@ shapes, field-sensitive places can be represented, the state machine can run
 over real SSA CFGs, and `GWN001` can preserve original `.gown` diagnostics
 while using SSA ordering and CFG merges. The next lifetime slice extended that
 machinery to named `\mub` and `\rob` borrows created through annotated local
-variables. The remaining risk is generalizing it further to freeze/clone
-semantics, defers, loops, closures, and unknown synchronization/unsafe
-boundaries. The first freeze inference slice is now implemented for sends:
+variables. The remaining risk is generalizing it further to explicit
+freeze/clone semantics, loops, complex closures, and unknown
+synchronization/unsafe boundaries. The first freeze inference slice is now
+implemented for sends:
 `ch <- x` where `ch` has element capability `\imm` and `x` is `\iso` is
 accepted, consumes `x`, rejects live named borrows of `x`, and rejects field
 projection transfers.
@@ -649,11 +653,22 @@ SSA liveness set whether any named borrow derived from that place is live after
 the transfer instruction. This is the durable rule: source bindings identify
 what the user wrote; SSA tells us where it is live.
 
+Defer handling adds a Go-specific lifetime rule that is easy to miss. For a
+plain deferred call such as `defer use(b)`, Go evaluates and saves the argument
+values at the point where the defer is registered, not when the deferred call
+runs at function exit. Therefore, if `b` is a named `\mub` or `\rob` borrow,
+that borrow must be treated as live until function exit even if the local
+variable `b` is reassigned later. Deferred closures also need analysis because
+they may capture named borrow variables; Gown now uses SSA closure bindings and
+a source-position fallback for deferred function literals to conservatively
+activate those captured borrows until function exit.
+
 Current SSA checker coverage includes `GWN001` parity for direct sends,
 inferred freeze-sends to `chan \imm`, iso-consuming calls, assignment moves,
 branch merges, goroutine calls, closure captures, named borrow liveness,
-branch-sensitive named borrow liveness, and projected field-move rejection. It
-also includes `GWN002` through `GWN010` parity for inferred call-borrow
+branch-sensitive named borrow liveness, deferred named borrow snapshots,
+deferred closure borrow captures, and projected field-move rejection. It also
+includes `GWN002` through `GWN010` parity for inferred call-borrow
 conflicts, send capability checks, goroutine borrow escapes, read-only writes,
 borrow stores, returned borrows, untracked call boundaries, and interface
 erasure. These SSA checks are now wired into the main checker pipeline, with
@@ -684,6 +699,7 @@ mapping generated `.go` paths back to original `.gown` paths.
 - The existing SSA checker passes provide useful safety coverage, but only
   `GWN001` currently performs full CFG dataflow. Named borrow liveness now
   covers straight-line code and branches for sends, inferred freeze-sends,
-  calls, and goroutine calls. Defers, closure-contained named borrows, explicit
-  freeze/clone, loops under heavier mutation, and precise unsafe/synchronization
-  boundaries still need broader treatment.
+  calls, goroutine calls, plain defer arguments, and deferred closure captures.
+  Explicit freeze/clone, loops under heavier mutation, complex closure-contained
+  named borrows, and precise unsafe/synchronization boundaries still need
+  broader treatment.

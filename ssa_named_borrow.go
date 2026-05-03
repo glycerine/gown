@@ -15,8 +15,9 @@ type SSANamedBorrow struct {
 }
 
 type SSANamedBorrowInfo struct {
-	Borrows map[types.Object]SSANamedBorrow
-	Defs    map[ast.Expr][]types.Object
+	Borrows          map[types.Object]SSANamedBorrow
+	Defs             map[ast.Expr][]types.Object
+	DeferredCaptures map[sourcePosKey][]types.Object
 }
 
 type SSANamedBorrowLiveness struct {
@@ -49,6 +50,8 @@ func collectSSANamedBorrows(pkg *packages.Package, caps *CapabilityIndex) map[*t
 					collectNamedBorrowValueSpec(pkg, caps, &info, n)
 				case *ast.AssignStmt:
 					collectNamedBorrowAssign(pkg, caps, &info, n)
+				case *ast.DeferStmt:
+					collectNamedBorrowDeferCaptures(pkg, &info, n)
 				}
 				return true
 			})
@@ -109,6 +112,40 @@ func recordNamedBorrow(info *SSANamedBorrowInfo, caps *CapabilityIndex, obj *typ
 	}
 	key := debugRefExprKey(sourceExpr)
 	info.Defs[key] = append(info.Defs[key], obj)
+}
+
+func collectNamedBorrowDeferCaptures(pkg *packages.Package, info *SSANamedBorrowInfo, stmt *ast.DeferStmt) {
+	if pkg == nil || info == nil || stmt == nil || stmt.Call == nil || len(info.Borrows) == 0 {
+		return
+	}
+	lit, ok := stmt.Call.Fun.(*ast.FuncLit)
+	if !ok || lit.Body == nil {
+		return
+	}
+	var captured []types.Object
+	seen := make(map[types.Object]bool)
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		obj := objectForIdent(pkg, id)
+		if obj == nil || seen[obj] {
+			return true
+		}
+		if _, ok := info.Borrows[obj]; ok {
+			captured = append(captured, obj)
+			seen[obj] = true
+		}
+		return true
+	})
+	if len(captured) == 0 {
+		return
+	}
+	if info.DeferredCaptures == nil {
+		info.DeferredCaptures = make(map[sourcePosKey][]types.Object)
+	}
+	info.DeferredCaptures[sourcePositionKey(pkg.Fset.Position(stmt.Defer))] = captured
 }
 
 func namedBorrowSourceAllowed(caps *CapabilityIndex, borrowCap Cap, source Place) bool {

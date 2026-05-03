@@ -86,8 +86,18 @@ func (idx *SSABindingIndex) GoCall(pkg *packages.Package, goInstr *ssa.Go) (Call
 	if idx == nil || pkg == nil || goInstr == nil {
 		return CallBinding{}, false
 	}
-	pos := sourcePositionKey(pkg.Fset.Position(goInstr.Pos()))
-	callee := goInstr.Call.StaticCallee()
+	return idx.callOnLine(pkg, pkg.Fset.Position(goInstr.Pos()), goInstr.Call.StaticCallee())
+}
+
+func (idx *SSABindingIndex) DeferCall(pkg *packages.Package, deferInstr *ssa.Defer) (CallBinding, bool) {
+	if idx == nil || pkg == nil || deferInstr == nil {
+		return CallBinding{}, false
+	}
+	return idx.callOnLine(pkg, pkg.Fset.Position(deferInstr.Pos()), deferInstr.Call.StaticCallee())
+}
+
+func (idx *SSABindingIndex) callOnLine(pkg *packages.Package, callPos token.Position, callee *ssa.Function) (CallBinding, bool) {
+	pos := sourcePositionKey(callPos)
 	for _, binding := range idx.Calls {
 		if binding.Path != pos.Path || binding.Line != pos.Line || binding.Call == nil {
 			continue
