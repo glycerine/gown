@@ -3,15 +3,9 @@ package gown
 import (
 	"fmt"
 	"go/ast"
-	"go/types"
 
 	"golang.org/x/tools/go/packages"
 )
-
-type rootPlace struct {
-	ident *ast.Ident
-	obj   types.Object
-}
 
 type moveSite struct {
 	name string
@@ -22,7 +16,7 @@ type moveSite struct {
 type gwn001Checker struct {
 	pkg      *packages.Package
 	caps     *CapabilityIndex
-	consumed map[types.Object]moveSite
+	consumed map[PlaceKey]moveSite
 	errs     CheckerErrors
 }
 
@@ -33,7 +27,7 @@ func checkGWN001(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
 	checker := &gwn001Checker{
 		pkg:      pkg,
 		caps:     caps,
-		consumed: make(map[types.Object]moveSite),
+		consumed: make(map[PlaceKey]moveSite),
 	}
 	checker.checkPackage()
 	return checker.errs
@@ -52,7 +46,7 @@ func (checker *gwn001Checker) checkPackage() {
 }
 
 func (checker *gwn001Checker) checkFunc(fn *ast.FuncDecl) {
-	checker.consumed = make(map[types.Object]moveSite)
+	checker.consumed = make(map[PlaceKey]moveSite)
 	checker.checkBlock(fn.Body)
 }
 
@@ -138,21 +132,25 @@ func (checker *gwn001Checker) checkExprUses(expr ast.Expr) {
 		return
 	}
 	ast.Inspect(expr, func(n ast.Node) bool {
-		place, ok := checker.rootUse(n)
+		use, ok := n.(ast.Expr)
 		if !ok {
 			return true
 		}
-		consumed, ok := checker.consumed[place.obj]
+		place, ok := checker.caps.PlaceForExpr(use)
 		if !ok {
 			return true
 		}
-		checker.reportUseAfterMove(place, consumed)
+		consumed, ok := checker.consumed[place.Key()]
+		if !ok {
+			return true
+		}
+		checker.reportUseAfterMove(use, consumed)
 		return false
 	})
 }
 
-func (checker *gwn001Checker) reportUseAfterMove(place rootPlace, consumed moveSite) {
-	pos := checker.pkg.Fset.Position(place.ident.Pos())
+func (checker *gwn001Checker) reportUseAfterMove(use ast.Expr, consumed moveSite) {
+	pos := checker.pkg.Fset.Position(use.Pos())
 	checker.errs = append(checker.errs, CheckerError{
 		Code:    GWN001,
 		Path:    gownSourcePath(pos.Filename),
@@ -164,53 +162,17 @@ func (checker *gwn001Checker) reportUseAfterMove(place rootPlace, consumed moveS
 }
 
 func (checker *gwn001Checker) recordIsoSend(stmt *ast.SendStmt) {
-	sent, ok := checker.isoSendRoot(stmt)
-	if !ok {
+	binding, ok := checker.caps.SendBinding(stmt)
+	if !ok || binding.ChanElemCap != CapIso || binding.ValueCap != CapIso {
 		return
 	}
-	pos := checker.pkg.Fset.Position(sent.ident.Pos())
-	checker.consumed[sent.obj] = moveSite{
-		name: sent.ident.Name,
-		line: pos.Line,
-		col:  pos.Column,
+	key := binding.Value.Key()
+	if key.Root == nil {
+		return
 	}
-}
-
-func (checker *gwn001Checker) isoSendRoot(stmt *ast.SendStmt) (rootPlace, bool) {
-	ch, ok := checker.rootPlaceForExpr(stmt.Chan)
-	if !ok || checker.caps.ChanElemCap(ch.obj) != CapIso {
-		return rootPlace{}, false
+	checker.consumed[key] = moveSite{
+		name: key.Root.Name(),
+		line: binding.Line,
+		col:  binding.Col,
 	}
-	sent, ok := checker.rootPlaceForExpr(stmt.Value)
-	if !ok || checker.caps.ObjectCap(sent.obj) != CapIso {
-		return rootPlace{}, false
-	}
-	return sent, true
-}
-
-func (checker *gwn001Checker) rootUse(n ast.Node) (rootPlace, bool) {
-	id, ok := n.(*ast.Ident)
-	if !ok {
-		return rootPlace{}, false
-	}
-	obj := checker.pkg.TypesInfo.Uses[id]
-	if obj == nil {
-		return rootPlace{}, false
-	}
-	return rootPlace{ident: id, obj: obj}, true
-}
-
-func (checker *gwn001Checker) rootPlaceForExpr(expr ast.Expr) (rootPlace, bool) {
-	id, ok := expr.(*ast.Ident)
-	if !ok {
-		return rootPlace{}, false
-	}
-	obj := checker.pkg.TypesInfo.Uses[id]
-	if obj == nil {
-		obj = checker.pkg.TypesInfo.Defs[id]
-	}
-	if obj == nil {
-		return rootPlace{}, false
-	}
-	return rootPlace{ident: id, obj: obj}, true
 }

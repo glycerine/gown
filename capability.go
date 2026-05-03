@@ -6,10 +6,13 @@ import (
 )
 
 type CapabilityIndex struct {
-	ObjectCaps   map[types.Object]Cap
-	ChanElemCaps map[types.Object]Cap
-	Funcs        map[*types.Func]*FuncCapability
-	CallBindings []CallBinding
+	ObjectCaps        map[types.Object]Cap
+	ChanElemCaps      map[types.Object]Cap
+	Funcs             map[*types.Func]*FuncCapability
+	CallBindings      []CallBinding
+	Places            *PlaceIndex
+	SendBindings      []SendBinding
+	sendBindingByStmt map[*ast.SendStmt]int
 }
 
 type FuncCapability struct {
@@ -30,9 +33,10 @@ type CallBinding struct {
 
 func newCapabilityIndex() *CapabilityIndex {
 	return &CapabilityIndex{
-		ObjectCaps:   make(map[types.Object]Cap),
-		ChanElemCaps: make(map[types.Object]Cap),
-		Funcs:        make(map[*types.Func]*FuncCapability),
+		ObjectCaps:        make(map[types.Object]Cap),
+		ChanElemCaps:      make(map[types.Object]Cap),
+		Funcs:             make(map[*types.Func]*FuncCapability),
+		sendBindingByStmt: make(map[*ast.SendStmt]int),
 	}
 }
 
@@ -61,4 +65,22 @@ func (idx *CapabilityIndex) FuncCap(fn *types.Func) *FuncCapability {
 		return nil
 	}
 	return idx.Funcs[fn]
+}
+
+func (idx *CapabilityIndex) PlaceForExpr(expr ast.Expr) (Place, bool) {
+	if idx == nil || idx.Places == nil {
+		return Place{}, false
+	}
+	return idx.Places.PlaceForExpr(expr)
+}
+
+func (idx *CapabilityIndex) SendBinding(stmt *ast.SendStmt) (*SendBinding, bool) {
+	if idx == nil || stmt == nil {
+		return nil, false
+	}
+	i, ok := idx.sendBindingByStmt[stmt]
+	if !ok || i < 0 || i >= len(idx.SendBindings) {
+		return nil, false
+	}
+	return &idx.SendBindings[i], true
 }
