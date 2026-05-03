@@ -7,16 +7,26 @@ that already exists, and it does not change current checker behavior.
 The central decision is that Go's AST, type checker, and SSA builder remain
 ordinary Go tooling. They do not learn about `\iso`, `\mub`, `\rob`, or
 `\imm`. Gown carries capability information in side tables keyed by source
-offsets, AST nodes, `types.Object`s, SSA values/instructions, and source
-places.
+offsets, AST nodes, `types.Object`s, function signatures, call sites, SSA
+values/instructions, and source places.
+
+The user-facing direction is inference-first. Gown should require the minimum
+annotations needed to state ownership boundaries: function signatures, channel
+element types, and struct fields. Ordinary borrows should be inferred from
+typed context, such as calling a function whose parameter is declared
+`\mub *T` or `\rob *T`. Explicit expression forms like `\mub(x)` are not part
+of the main path and should not drive the first checker milestones.
 
 ## Current State
 
-The current implementation is a front end and program inventory pass:
+The current implementation is a front end, capability binding pass, and program
+inventory pass:
 
-- `scanAndStrip` recognizes literal `\iso`, records byte offset/line/column,
-  and replaces the annotation bytes with spaces so Go parser positions still
-  line up.
+- `scanAndClassify` recognizes capability qualifiers, records byte
+  offset/line/column, and replaces qualifier bytes with spaces so Go parser
+  positions still line up.
+- `CapabilityIndex` binds qualifier annotations to `types.Object`s, function
+  signatures, and annotated call sites.
 - `Check` writes stripped `.go` files beside `.gown` files, loads the package
   with `go/packages`, and retains the resulting AST/types information.
 - `assignRegions` maps `\iso` annotations to containing functions and block
@@ -39,17 +49,21 @@ The future checker should use two generated source views:
 The pipeline is:
 
 1. Scan `.gown` and record every Gown token as an `Annotation`.
-2. Classify each token as a type qualifier, expression intrinsic, or unsafe
-   boundary marker.
+2. Classify each token. The mainline syntax is capability type qualifiers;
+   explicit unsafe or intrinsic-like expression forms are optional/future
+   syntax.
 3. Produce analysis Go:
-   - Replace type qualifiers with spaces.
-   - Rewrite expression intrinsics to fake Go identifiers.
+   - Replace capability type qualifiers with spaces.
+   - Leave ordinary Go expressions unchanged.
+   - If future explicit expression forms are enabled, rewrite them to
+     analysis-only placeholders.
 4. Load analysis Go with `go/packages`.
 5. Bind annotations back to AST nodes, `types.Object`s, function signatures,
-   channel element types, and intrinsic call sites.
+   channel element types, struct fields, and call sites.
 6. Build SSA with `golang.org/x/tools/go/ssa`.
 7. Seed checker state from capability side tables.
-8. Run capability dataflow and borrow/lifetime analysis over SSA.
+8. Infer borrow/move/freeze behavior from typed contexts and run capability
+   dataflow over SSA.
 9. Report structured GWN errors at original `.gown` positions.
 10. If checking succeeds and `-check` is false, emit final Go.
 
@@ -67,38 +81,27 @@ Type qualifiers remain position-preserving whitespace replacements:
 | `\rob` | four spaces |
 | `\imm` | four spaces |
 
-Expression intrinsics should be length-preserving fake identifiers in analysis
-Go:
-
-| Gown expression | Analysis Go |
-| --- | --- |
-| `\mub(x)` | `mub_(x)` |
-| `\rob(x)` | `rob_(x)` |
-| `\new(T{...})` | `new_(T{...})` |
-| `\clone(x)` | `clone_(x)` |
-| `\freeze(x)` | `freeze_(x)` |
-| `\unsafe(x)` | `unsafe_(x)` |
-
-The checker recognizes these calls as Gown intrinsics, not ordinary calls.
-They need analysis-only stubs so Go type checking and SSA construction can
-succeed. The fake names are reserved by Gown inside `.gown` packages; user code
-declaring `mub_`, `rob_`, `new_`, `clone_`, `freeze_`, or `unsafe_` should be
-rejected or isolated from the generated analysis prelude before this feature is
-enabled.
-
-Suggested analysis-only generic stubs:
+Most user code should not need expression-level Gown syntax. Borrow creation is
+usually inferred from callee parameter capabilities:
 
 ```go
-func mub_[T any](x T) T      { return x }
-func rob_[T any](x T) T      { return x }
-func clone_[T any](x T) T    { return x }
-func freeze_[T any](x T) T   { return x }
-func unsafe_[T any](x T) T   { return x }
-func new_[T any](x T) *T     { return &x }
+func Mutate(x \mub *T) {}
+func Inspect(x \rob *T) {}
+
+func Use(x \iso *T) {
+    Mutate(x)  // inferred temporary mutable borrow for the call
+    Inspect(x) // inferred temporary read borrow for the call
+}
 ```
 
-These stubs are never emitted in final Go. They exist only to preserve enough
-typed structure for SSA.
+The analysis Go for this example is simply ordinary Go with qualifier bytes
+erased; no fake `mub_` or `rob_` call is needed.
+
+Explicit expression forms may still be useful later for operations that cannot
+be inferred safely, such as `\unsafe(x)`, `\clone(x)`, or explicit freeze.
+If/when enabled, these forms should be rewritten to analysis-only placeholders
+and recognized by the checker. They are not required for the first
+inference-based checker milestones.
 
 ## Capability Side Tables
 
@@ -133,8 +136,10 @@ type Annotation struct {
   fields.
 - Function signature capabilities for parameters and results.
 - Channel element capabilities for `chan \iso *T` and `chan \imm *T`.
-- Intrinsic call annotations for `mub_`, `rob_`, `freeze_`, `clone_`, `new_`,
-  and `unsafe_`.
+- Call-site bindings that record the callee's expected parameter/result
+  capabilities, enabling inferred temporary borrows and ownership moves.
+- Optional explicit-operation annotations for future expression syntax such as
+  `\unsafe(x)` or `\clone(x)`.
 - Source locations for diagnostics in original `.gown` files.
 
 SSA values are not enough to model Gown ownership. The checker must also track
@@ -190,14 +195,17 @@ The validation probe against `x/tools/go/ssa` showed these useful patterns:
 The checker should recover places primarily from AST/types and then propagate
 them through SSA:
 
-- At intrinsic and call boundaries, bind argument expressions like
-  `\mub(x.f)` directly from the AST selector chain and `types.Selection`.
+- At annotated call boundaries, bind argument expressions like `Mutate(x.f)`
+  directly from the AST selector chain and `types.Selection`; the callee
+  signature supplies whether the argument is treated as `\mub`, `\rob`,
+  `\iso`, or `\imm`.
 - In SSA transfer, propagate places through `FieldAddr` when the base value has
   a known place and the field index is a statically typed struct field.
 - Propagate loads of pointer-typed fields as the place of the loaded pointer
   value when the field itself is capability-tracked.
 - Treat `IndexAddr`, `Lookup`, `MakeInterface`, `TypeAssert`, reflection,
-  unknown calls, and `unsafe_` as root-collapse or poison points.
+  unknown calls, and explicit unsafe boundaries as root-collapse or poison
+  points.
 
 Decision rule:
 
@@ -274,8 +282,9 @@ The checker should run a forward dataflow over each `ssa.Function`:
 
 Required transfer handlers:
 
-- `Call`: recognize Gown intrinsics; apply implicit borrow coercions from
-  callee signature metadata; require `\unsafe` for untracked boundaries.
+- `Call`: apply inferred borrow/move/share behavior from callee signature
+  metadata; require an explicit unsafe boundary for untracked code that
+  receives capability-tracked values.
 - `Send`: validate channel element capability; consume `\iso` sends; reject
   non-sendable `\mub` and `\rob`.
 - `Go`: validate arguments and closure bindings; consume captured `\iso`;
@@ -331,8 +340,23 @@ the send. This is the recommended first vertical slice.
 ### Direct Borrow Blocks Transfer
 
 ```go
+func Mutate(x \mub *T) {}
+
 func f(ch chan \iso *T, x \iso *T) {
-    b := \mub(x)
+    Mutate(x) // temporary inferred borrow, dead after call
+    ch <- x   // ok if no other borrow remains live
+}
+```
+
+Temporary call borrows live for the synchronous call duration only. They do not
+block a later send once the call returns.
+
+Named or escaping borrows are a future feature. If explicit `\mub(x)` syntax is
+enabled later, then this form blocks transfer until the borrow is dead:
+
+```go
+func f(ch chan \iso *T, x \iso *T) {
+    b := \mub(x) // future explicit syntax
     ch <- x // error: active borrow in region x
     _ = b
 }
@@ -344,60 +368,75 @@ only the root owner, so the send is rejected.
 ### Field Borrow Blocks Root Transfer
 
 ```go
+func MutatePart(x \mub *Part) {}
+
 func f(ch chan \iso *Outer, x \iso *Outer) {
-    b := \mub(x.f)
-    ch <- x // error: active descendant borrow x.f
-    _ = b
+    MutatePart(x.f) // inferred field borrow for call duration
+    ch <- x         // ok after the call returns
 }
 ```
 
-Field-sensitive tracking records place `x.f`, but root transfer of `x` still
-requires no live descendant borrows. A root-only implementation reaches the
-same rejection by collapsing `x.f` to `x`.
+Field-sensitive tracking records place `x.f` during the call. Root transfer of
+`x` requires no live descendant borrows, so this is safe once the call borrow
+has ended. If a future explicit/named borrow of `x.f` remains live, root
+transfer is rejected. A root-only implementation may conservatively collapse
+`x.f` to `x`.
 
 ### Freeze Requires Exclusivity
 
 ```go
-func bad(x \iso *T) \imm *T {
-    b := \rob(x)
-    y := \freeze(x) // error: active read borrow
-    _ = b
-    return y
-}
+func Inspect(x \rob *T) {}
 
 func good(x \iso *T) \imm *T {
-    b := \rob(x)
-    _ = b           // borrow dead after last use
-    return \freeze(x)
+    Inspect(x) // inferred read borrow ends when call returns
+    return x   // if result context requires \imm, checker may freeze/move here
+}
+
+func bad(x \iso *T) \imm *T {
+    leakBorrowSomehow(x) // untracked/escaping borrow requires unsafe or reject
+    return x
 }
 ```
 
-This requires instruction-level liveness. Block-level liveness is not precise
-enough to end borrows at the correct statement.
+Freeze, whether explicit or inferred from return/send context, requires no
+live mutable or read borrows in the region being frozen. For inferred call
+borrows, the lifetime is the call. For future named borrows, instruction-level
+liveness is required; block-level liveness is not precise enough.
 
-## First Vertical Slice After This Doc
+## Current And Next Implementation Slices
 
-The first implementation milestone should be `GWN001` for `\iso`
+Completed foundation:
+
+- Scan and classify all capability qualifiers.
+- Produce stripped analysis/emit Go for qualifier-only programs.
+- Load stripped Go with `go/packages`.
+- Bind qualifiers to objects, function signatures, and call sites in
+  `CapabilityIndex`.
+
+The next implementation milestone should be `GWN001` for `\iso`
 use-after-send/move:
 
-- Extend scanning to index all capability qualifiers needed for signatures and
-  channel element types used in the test.
-- Build enough annotation side tables to know that a function parameter or
-  local variable is `\iso`.
 - Build SSA and map relevant sends/uses back to source places.
 - Mark an `\iso` place consumed after a direct send on `chan \iso *T`.
 - Reject subsequent uses of that place with a structured diagnostic.
 
-This slice should not implement `\mub`, `\rob`, `\imm`, `\freeze`, field
-sensitivity, or nil insertion yet. It should use the data model above so those
-features can be added without redesign.
+The following slice should add inferred call borrows:
+
+- For a call whose callee parameter is `\mub` or `\rob`, create a temporary
+  borrow of the argument place for the duration of the call.
+- Reject calls that would violate borrow exclusivity.
+- Do not require users to write `\mub(x)` or `\rob(x)`.
+
+These slices should not implement explicit expression intrinsics or nil
+insertion yet. They should use the data model above so field sensitivity and
+explicit unsafe/clone/freeze operations can be added without redesign.
 
 ## Open Implementation Notes
 
 - The `-check` CLI flag currently exists but is not wired through to avoid
   writing `.go` files. The architecture assumes check-only mode will eventually
   load analysis Go without changing committed generated files.
-- Analysis stubs should be injected in a way that does not pollute final output
+- Explicit expression syntax, if enabled later, should not pollute final output
   or collide silently with user declarations.
 - Diagnostics should always point to `.gown` positions, never generated
   analysis Go positions.

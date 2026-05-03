@@ -1,6 +1,7 @@
 package gown
 
 import (
+	"go/ast"
 	"go/types"
 	"testing"
 )
@@ -25,6 +26,29 @@ func Use(x \iso *Msg) {
 	Mutate(x)
 	Inspect(x)
 	Take(x)
+}
+`
+
+const gownCapabilityObjectSource = `package example
+
+type Msg struct {
+	Data string
+}
+
+type Holder struct {
+	Owned  \iso *Msg
+	Frozen \imm *Msg
+	Local  \mub *Msg
+	Read   \rob *Msg
+}
+
+func Channels(work chan \iso *Msg, broadcast chan \imm *Msg) {}
+
+func Locals() {
+	var x \iso *Msg
+	var y \mub *Msg
+	_ = x
+	_ = y
 }
 `
 
@@ -83,9 +107,80 @@ func TestCapabilityIndexBindsAnnotatedCallSites(t *testing.T) {
 			t.Fatalf("call %d %s: got param caps %v, want [%v]",
 				i, w.name, got[i].ParamCaps, w.cap)
 		}
+		if len(got[i].Args) != 1 {
+			t.Fatalf("call %d %s: got %d args, want 1", i, w.name, len(got[i].Args))
+		}
+		arg, ok := got[i].Args[0].(*ast.Ident)
+		if !ok || arg.Name != "x" {
+			t.Fatalf("call %d %s: got arg %#v, want ident x", i, w.name, got[i].Args[0])
+		}
 		if got[i].Line == 0 || got[i].Col == 0 {
 			t.Fatalf("call %d %s: missing source position", i, w.name)
 		}
+	}
+}
+
+func TestCapabilityIndexBindsChannelElementCaps(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"objects.gown": gownCapabilityObjectSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	channels := lookupFunc(t, gp, "Channels")
+	params := channels.Type().(*types.Signature).Params()
+	work := params.At(0)
+	broadcast := params.At(1)
+
+	if got := gp.caps.ObjectCap(work); got != CapUntracked {
+		t.Fatalf("work object cap = %v, want untracked channel value", got)
+	}
+	if got := gp.caps.ChanElemCap(work); got != CapIso {
+		t.Fatalf("work channel elem cap = %v, want %v", got, CapIso)
+	}
+	if got := gp.caps.ChanElemCap(broadcast); got != CapImm {
+		t.Fatalf("broadcast channel elem cap = %v, want %v", got, CapImm)
+	}
+}
+
+func TestCapabilityIndexBindsStructFields(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"objects.gown": gownCapabilityObjectSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	holder := lookupNamedType(t, gp, "Holder")
+	st := holder.Type().Underlying().(*types.Struct)
+	want := map[string]Cap{
+		"Owned":  CapIso,
+		"Frozen": CapImm,
+		"Local":  CapMub,
+		"Read":   CapRob,
+	}
+	for i := 0; i < st.NumFields(); i++ {
+		field := st.Field(i)
+		if got := gp.caps.ObjectCap(field); got != want[field.Name()] {
+			t.Fatalf("field %s cap = %v, want %v", field.Name(), got, want[field.Name()])
+		}
+	}
+}
+
+func TestCapabilityIndexBindsLocalVars(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"objects.gown": gownCapabilityObjectSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Locals", "x")); got != CapIso {
+		t.Fatalf("local x cap = %v, want %v", got, CapIso)
+	}
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Locals", "y")); got != CapMub {
+		t.Fatalf("local y cap = %v, want %v", got, CapMub)
 	}
 }
 
@@ -134,4 +229,46 @@ func lookupFunc(t *testing.T, gp *GownPackage, name string) *types.Func {
 		t.Fatalf("could not find function %s", name)
 	}
 	return fn
+}
+
+func lookupNamedType(t *testing.T, gp *GownPackage, name string) *types.TypeName {
+	t.Helper()
+	obj := gp.pkg.Types.Scope().Lookup(name)
+	tn, ok := obj.(*types.TypeName)
+	if !ok {
+		t.Fatalf("could not find named type %s", name)
+	}
+	return tn
+}
+
+func lookupLocalVar(t *testing.T, gp *GownPackage, funcName, varName string) *types.Var {
+	t.Helper()
+	for _, file := range gp.pkg.Syntax {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != funcName || fn.Body == nil {
+				continue
+			}
+			var found *types.Var
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if found != nil {
+					return false
+				}
+				id, ok := n.(*ast.Ident)
+				if !ok || id.Name != varName {
+					return true
+				}
+				if obj, ok := gp.pkg.TypesInfo.Defs[id].(*types.Var); ok {
+					found = obj
+					return false
+				}
+				return true
+			})
+			if found != nil {
+				return found
+			}
+		}
+	}
+	t.Fatalf("could not find local var %s in %s", varName, funcName)
+	return nil
 }
