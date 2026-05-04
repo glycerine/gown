@@ -470,6 +470,17 @@ func (graph *annotationGraph) collectSourceEdges() {
 			sig, _ := fnObj.Type().(*types.Signature)
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				switch n := n.(type) {
+				case *ast.CallExpr:
+					callee := callCallee(pkg, n)
+					if callee != nil {
+						if sig, _ := callee.Type().(*types.Signature); sig != nil {
+							for i, arg := range n.Args {
+								if i < sig.Params().Len() {
+									graph.addEdge(objectSiteKey(sig.Params().At(i)), graph.exprSiteKey(arg), "call argument")
+								}
+							}
+						}
+					}
 				case *ast.ReturnStmt:
 					if sig != nil {
 						for i, expr := range n.Results {

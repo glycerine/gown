@@ -84,8 +84,6 @@ Each persisted transaction should record:
 
 ## Progress So Far
 
-The laptop started getting hot during implementation, so heavy work paused here.
-
 Implemented in the working tree:
 
 - `check.go`
@@ -108,8 +106,36 @@ Implemented in the working tree:
   - It follows mechanical edges through direct calls, sends, assignments,
     value specs, returns, channel element sites, and struct fields.
   - It emits planned text edits plus reason edges and source hashes.
-  - Delete propagation currently reports that persistent provenance is needed;
-    the `.gownpls/transactions.jsonl` implementation is still pending.
+  - Delete propagation currently reports that applied transaction provenance is
+    needed; semantic undo/redo over `.gownpls/transactions.jsonl` is still
+    pending.
+- `.gitignore`
+  - Added `.gownpls/`.
+- `cmd/gownpls`
+  - Added `gownpls` public binary entry point.
+  - Added a small stdio JSON-RPC/LSP transport using the standard library.
+  - Added LSP data types, URI/path conversion, document state, and UTF-16
+    line/column mapping.
+  - Added workspace/package state with debounced diagnostics and a one-at-a-time
+    analysis semaphore.
+  - Added `.gown` overlay analysis using `AnalyzeWithOptions`.
+  - Added `.go` package analysis fallback for packages without `.gown` files.
+  - Added diagnostics publication for Gown checker errors and package loader
+    errors.
+  - Added formatting:
+    - `.gown` via `FormatGown`
+    - `.go` via `go/format`
+  - Added document symbols for package-level funcs, methods, types, vars, and
+    consts.
+  - Added basic go-to-definition using `types.Info`.
+  - Added code action generation for previewable annotation propagation.
+  - Added `workspace/executeCommand` support for recording applied annotation
+    transactions to `.gownpls/transactions.jsonl`.
+- Tests
+  - Added focused `cmd/gownpls` tests for JSON-RPC header parsing/writing,
+    UTF-16 position conversion, formatting, annotation code actions, and
+    transaction recording.
+  - Added focused core transaction test for direct call propagation.
 
 Validation already run before pausing:
 
@@ -122,41 +148,35 @@ ok  	github.com/glycerine/gown/cmd/gown	0.685s
 ?   	github.com/glycerine/gown/vectors/iso1	[no test files]
 ```
 
-No `cmd/gownpls` files have been added yet.
+Latest focused validation:
+
+```text
+go test ./cmd/gownpls
+ok  	github.com/glycerine/gown/cmd/gownpls	0.202s
+
+go test -run 'TestPlanAnnotationTransactionPropagatesDirectCall|TestScanAndClassifyCapabilityQualifiers' ./
+ok  	github.com/glycerine/gown	0.165s
+```
 
 ## Next Implementation Steps
 
-1. Add `.gownpls/` to `.gitignore`.
-2. Add `cmd/gownpls`.
-3. Implement a small stdio JSON-RPC/LSP transport:
-   - header parser
-   - response writer
-   - request/notification dispatcher
-   - cancellation tracking
-4. Add workspace/document state:
-   - URI/path conversion
-   - open document snapshots
-   - previous settled snapshots for annotation delta detection
-   - line maps and UTF-16 position conversion
-5. Wire diagnostics:
-   - on open/change/save, schedule bounded analysis for the package directory
-   - call `AnalyzeWithOptions` using open `.gown` overlays
-   - publish diagnostics mapped to `.gown` paths
-6. Wire formatting:
-   - `.gown` uses `FormatGown`
-   - `.go` uses `go/format`
-7. Wire symbols and definition from `go/ast`, `go/types`, and `types.Info`.
-8. Wire code actions:
-   - detect a single root annotation delta
-   - call `PlanAnnotationTransaction`
-   - return a workspace edit preview
-   - append applied transaction records to `.gownpls/transactions.jsonl`
-9. Add targeted tests rather than running broad tests repeatedly:
-   - LSP header parsing
-   - UTF-16 position mapping
-   - overlay analysis does not write `.go`
-   - annotation delta detection
-   - golden transaction edits
+1. Add explicit semantic undo/redo commands backed by
+   `.gownpls/transactions.jsonl`.
+2. Expand annotation transaction tests:
+   - return/result propagation
+   - channel send/channel element propagation
+   - struct field propagation
+   - explicit local value specs
+   - convert `\iso` to `\rob`/`\mub`
+   - overlapping transaction ownership/refcount behavior
+3. Add LSP integration tests that exercise full initialize/open/change/code
+   action/execute command message flow over the JSON-RPC transport.
+4. Improve package error diagnostics for `.gown` packages so `packages.Load`
+   syntax/type errors are mapped to precise LSP ranges instead of one package
+   error message.
+5. Add explicit cancellation contexts to Gown analysis once the checker API can
+   accept a context.
+6. Add a tiny editor setup note for running `gownpls`.
 
 ## Heat-Safe Work Notes
 
