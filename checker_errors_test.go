@@ -56,6 +56,36 @@ func TestFormatErrorFormatsMultipleCheckerErrors(t *testing.T) {
 	}
 }
 
+func TestFormatErrorIncludesRelatedNotes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.gown")
+	src := "package example\n\nfunc main() {\n\tPlain(a)\n\tch <- a\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := FormatError(CheckerErrors{{
+		Code:    GWN012,
+		Path:    path,
+		Line:    5,
+		Col:     5,
+		Message: `cannot use "a" as send after proof ended`,
+		Notes: []CheckerNote{{
+			Path:    path,
+			Line:    4,
+			Col:     2,
+			Message: "proof ended here (untracked call)",
+		}},
+	}})
+
+	if !strings.Contains(out, "note: proof ended here (untracked call)") {
+		t.Fatalf("formatted error %q does not contain related note", out)
+	}
+	if !strings.Contains(out, "\tPlain(a)") {
+		t.Fatalf("formatted error %q does not contain note source context", out)
+	}
+}
+
 func TestFormatErrorFallsBackForNonCheckerError(t *testing.T) {
 	out := FormatError(errors.New("plain failure"))
 	if out != "plain failure" {

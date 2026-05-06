@@ -51,6 +51,9 @@ func bindingPosition(binding SendBinding) token.Position {
 }
 
 func checkSendCapabilityMatch(binding SendBinding) (CheckerError, bool) {
+	if binding.ValueIso && (binding.ChanElemCap == CapIso || binding.ChanElemCap == CapImm) {
+		return CheckerError{}, false
+	}
 	if sendCapabilityAllowed(binding.ChanElemCap, binding.ValueCap) {
 		return CheckerError{}, false
 	}

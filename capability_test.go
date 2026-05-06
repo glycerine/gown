@@ -3,6 +3,7 @@ package gown
 import (
 	"go/ast"
 	"go/types"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,40 @@ func Locals() {
 	_ = x
 	_ = y
 	_ = ch
+}
+`
+
+const gownReceiveCapabilitySource = `package example
+
+type Msg struct{}
+
+func Iso(ch chan \iso *Msg) {
+	x := <-ch
+	_ = x
+}
+
+func Imm(ch chan \imm *Msg) {
+	x := <-ch
+	_ = x
+}
+`
+
+const gownFunctionResultCapabilitySource = `package example
+
+type Msg struct{}
+
+func MakeIso() \iso *Msg {
+	return nil
+}
+
+func MakeImm() \imm *Msg {
+	return nil
+}
+
+func Use() {
+	x := MakeIso()
+	y := MakeImm()
+	_, _ = x, y
 }
 `
 
@@ -191,6 +226,144 @@ func TestCapabilityIndexBindsLocalVars(t *testing.T) {
 	}
 }
 
+func TestCapabilityIndexBindsIntrinsicCalls(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"intrinsics.gown": gownIntrinsicSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.CheckWithOptions(CheckOptions{CheckOnly: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []struct {
+		kind   IntrinsicKind
+		result string
+		arg    string
+	}{
+		{IntrinsicMub, "b", "x"},
+		{IntrinsicRob, "r", "x"},
+		{IntrinsicFreeze, "y", "x"},
+		{IntrinsicClone, "z", "x"},
+		{IntrinsicUnsafe, "u", "x"},
+		{IntrinsicNew, "p", ""},
+	}
+	if len(gp.caps.IntrinsicBindings) != len(want) {
+		t.Fatalf("intrinsic bindings = %#v, want %d", gp.caps.IntrinsicBindings, len(want))
+	}
+	for i, w := range want {
+		got := gp.caps.IntrinsicBindings[i]
+		if got.Kind != w.kind {
+			t.Fatalf("binding %d kind = %v, want %v", i, got.Kind, w.kind)
+		}
+		if intrinsicResultName(got) != w.result {
+			t.Fatalf("binding %d result = %q, want %q", i, intrinsicResultName(got), w.result)
+		}
+		if w.arg == "" {
+			if got.ArgPlace.Root != nil {
+				t.Fatalf("binding %d arg place = %#v, want none", i, got.ArgPlace)
+			}
+		} else if got.ArgPlace.Root == nil || got.ArgPlace.Root.Name() != w.arg {
+			t.Fatalf("binding %d arg place = %#v, want root %s", i, got.ArgPlace, w.arg)
+		}
+		if got.Path == "" || !strings.HasSuffix(got.Path, ".gown") {
+			t.Fatalf("binding %d path = %q, want original .gown path", i, got.Path)
+		}
+		if got.Line == 0 || got.Col == 0 {
+			t.Fatalf("binding %d missing source position: %#v", i, got)
+		}
+		if _, ok := gp.caps.IntrinsicBinding(got.Call); !ok {
+			t.Fatalf("binding %d not found by call lookup", i)
+		}
+	}
+}
+
+func TestCapabilityIndexInfersNewIntrinsicAsIso(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"intrinsics.gown": gownIntrinsicSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.CheckWithOptions(CheckOptions{CheckOnly: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "UseNew", "p")); got != CapIso {
+		t.Fatalf("new intrinsic local cap = %v, want %v", got, CapIso)
+	}
+}
+
+func TestCapabilityIndexInfersCloneIntrinsicAsIso(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"intrinsics.gown": gownIntrinsicSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.CheckWithOptions(CheckOptions{CheckOnly: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "UseClone", "z")); got != CapIso {
+		t.Fatalf("clone intrinsic local cap = %v, want %v", got, CapIso)
+	}
+	if got := gp.caps.ObjectCap(lookupParamVar(t, gp, "UseClone", "x")); got != CapImm {
+		t.Fatalf("clone source cap = %v, want original %v", got, CapImm)
+	}
+}
+
+func TestCapabilityIndexInfersIsoReceiveLocal(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"receive.gown": gownReceiveCapabilitySource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Iso", "x")); got != CapIso {
+		t.Fatalf("iso receive local cap = %v, want %v", got, CapIso)
+	}
+}
+
+func TestCapabilityIndexInfersImmReceiveLocal(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"receive.gown": gownReceiveCapabilitySource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Imm", "x")); got != CapImm {
+		t.Fatalf("imm receive local cap = %v, want %v", got, CapImm)
+	}
+}
+
+func TestCapabilityIndexInfersLocalFromFunctionIsoResult(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"results.gown": gownFunctionResultCapabilitySource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Use", "x")); got != CapIso {
+		t.Fatalf("iso result local cap = %v, want %v", got, CapIso)
+	}
+}
+
+func TestCapabilityIndexInfersLocalFromFunctionImmResult(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"results.gown": gownFunctionResultCapabilitySource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Use", "y")); got != CapImm {
+		t.Fatalf("imm result local cap = %v, want %v", got, CapImm)
+	}
+}
+
+func intrinsicResultName(binding IntrinsicBinding) string {
+	if binding.Result == nil {
+		return ""
+	}
+	return binding.Result.Name()
+}
+
 func wantParamCap(t *testing.T, gp *GownPackage, funcName string, index int, want Cap) {
 	t.Helper()
 	fn := lookupFunc(t, gp, funcName)
@@ -277,5 +450,22 @@ func lookupLocalVar(t *testing.T, gp *GownPackage, funcName, varName string) *ty
 		}
 	}
 	t.Fatalf("could not find local var %s in %s", varName, funcName)
+	return nil
+}
+
+func lookupParamVar(t *testing.T, gp *GownPackage, funcName, varName string) *types.Var {
+	t.Helper()
+	fn := lookupFunc(t, gp, funcName)
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Params() == nil {
+		t.Fatalf("could not inspect params for %s", funcName)
+	}
+	for i := 0; i < sig.Params().Len(); i++ {
+		param := sig.Params().At(i)
+		if param.Name() == varName {
+			return param
+		}
+	}
+	t.Fatalf("could not find param %s in %s", varName, funcName)
 	return nil
 }

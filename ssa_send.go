@@ -87,6 +87,9 @@ func (checker *ssaSendChecker) checkSend(send *ssa.Send) {
 
 func (checker *ssaSendChecker) checkBoundSend(binding SendBinding, send *ssa.Send) {
 	pos := checker.pkg.Fset.Position(send.Pos())
+	if binding.ValueIso && (binding.ChanElemCap == CapIso || binding.ChanElemCap == CapImm) {
+		return
+	}
 	if !sendCapabilityAllowed(binding.ChanElemCap, binding.ValueCap) {
 		name := "<unknown>"
 		if binding.Value.Root != nil {

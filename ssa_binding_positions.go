@@ -16,14 +16,16 @@ type sourcePosKey struct {
 }
 
 type SSABindingIndex struct {
-	Sends map[sourcePosKey]SendBinding
-	Calls map[sourcePosKey]CallBinding
+	Sends      map[sourcePosKey]SendBinding
+	Calls      map[sourcePosKey]CallBinding
+	Intrinsics map[sourcePosKey]IntrinsicBinding
 }
 
 func NewSSABindingIndex(caps *CapabilityIndex) *SSABindingIndex {
 	return &SSABindingIndex{
-		Sends: sendBindingsByPosition(caps),
-		Calls: callBindingsByPosition(caps),
+		Sends:      sendBindingsByPosition(caps),
+		Calls:      callBindingsByPosition(caps),
+		Intrinsics: intrinsicBindingsByPosition(caps),
 	}
 }
 
@@ -44,6 +46,22 @@ func callBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]CallBinding 
 		return byPos
 	}
 	for _, binding := range caps.CallBindings {
+		byPos[sourcePosKey{
+			Path:   binding.Path,
+			Offset: binding.Offset,
+			Line:   binding.Line,
+			Col:    binding.Col,
+		}] = binding
+	}
+	return byPos
+}
+
+func intrinsicBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]IntrinsicBinding {
+	byPos := make(map[sourcePosKey]IntrinsicBinding)
+	if caps == nil {
+		return byPos
+	}
+	for _, binding := range caps.IntrinsicBindings {
 		byPos[sourcePosKey{
 			Path:   binding.Path,
 			Offset: binding.Offset,
@@ -80,6 +98,26 @@ func (idx *SSABindingIndex) Call(pkg *packages.Package, call *ssa.Call) (CallBin
 		}
 	}
 	return CallBinding{}, false
+}
+
+func (idx *SSABindingIndex) Intrinsic(pkg *packages.Package, call *ssa.Call) (IntrinsicBinding, bool) {
+	if idx == nil || pkg == nil || call == nil {
+		return IntrinsicBinding{}, false
+	}
+	pos := sourcePositionKey(pkg.Fset.Position(call.Pos()))
+	if binding, ok := idx.Intrinsics[pos]; ok {
+		return binding, true
+	}
+	for _, binding := range idx.Intrinsics {
+		if binding.Path != pos.Path || binding.Call == nil {
+			continue
+		}
+		end := sourcePositionKey(pkg.Fset.Position(binding.Call.End()))
+		if pos.Offset >= binding.Offset && pos.Offset <= end.Offset {
+			return binding, true
+		}
+	}
+	return IntrinsicBinding{}, false
 }
 
 func (idx *SSABindingIndex) GoCall(pkg *packages.Package, goInstr *ssa.Go) (CallBinding, bool) {

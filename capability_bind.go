@@ -14,6 +14,7 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityInd
 	idx := newCapabilityIndex()
 	idx.Places = buildPlaceIndex(pkg)
 	qualsByFile := capQualifiersByGeneratedFile(files)
+	intrinsicsByFile := intrinsicsByGeneratedFile(files)
 
 	for _, file := range pkg.Syntax {
 		fileKey := filepath.Base(pkg.Fset.Position(file.Pos()).Filename)
@@ -31,7 +32,12 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityInd
 				bindGenDeclCapabilities(pkg, idx, quals, d)
 			}
 		}
+	}
+
+	for _, file := range pkg.Syntax {
+		fileKey := filepath.Base(pkg.Fset.Position(file.Pos()).Filename)
 		bindCallCapabilities(pkg, idx, file)
+		bindIntrinsicCapabilities(pkg, idx, intrinsicsByFile[fileKey], file)
 	}
 
 	bindSendBindings(pkg, idx)
@@ -51,6 +57,20 @@ func capQualifiersByGeneratedFile(files []*gownFile) map[string]map[int]*CapQual
 				continue
 			}
 			byFile[fileName][ann.TargetOffset] = ann
+		}
+	}
+	return byFile
+}
+
+func intrinsicsByGeneratedFile(files []*gownFile) map[string]map[int]*IntrinsicAnnotation {
+	byFile := make(map[string]map[int]*IntrinsicAnnotation)
+	for _, gf := range files {
+		fileName := generatedGoName(gf.path)
+		if byFile[fileName] == nil {
+			byFile[fileName] = make(map[int]*IntrinsicAnnotation)
+		}
+		for _, ann := range gf.intrinsics {
+			byFile[fileName][ann.Span.Offset] = ann
 		}
 	}
 	return byFile
@@ -171,6 +191,12 @@ func bindValueSpecCapabilities(pkg *packages.Package, idx *CapabilityIndex, qual
 			if cap == CapInvalid {
 				cap = isoMoveCapForValueExpr(pkg, idx, spec.Values[i])
 			}
+			if cap == CapInvalid {
+				cap = receiveCapForValueExpr(idx, spec.Values[i])
+			}
+			if cap == CapInvalid {
+				cap = resultCapForValueExpr(pkg, idx, spec.Values[i])
+			}
 		}
 		bindObjectCaps(idx, obj, cap, chanElemCap)
 	}
@@ -178,6 +204,9 @@ func bindValueSpecCapabilities(pkg *packages.Package, idx *CapabilityIndex, qual
 
 func bindAssignStmtCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, stmt *ast.AssignStmt) {
 	if stmt.Tok != token.DEFINE && stmt.Tok != token.ASSIGN {
+		return
+	}
+	if stmt.Tok == token.ASSIGN {
 		return
 	}
 	if len(stmt.Lhs) != len(stmt.Rhs) {
@@ -188,12 +217,15 @@ func bindAssignStmtCapabilities(pkg *packages.Package, idx *CapabilityIndex, qua
 		if obj == nil {
 			continue
 		}
-		if stmt.Tok == token.ASSIGN && capTracked(idx.ObjectCap(obj)) {
-			continue
-		}
 		cap, chanElemCap := capsForValueExpr(pkg, quals, stmt.Rhs[i])
 		if cap == CapInvalid {
 			cap = isoMoveCapForValueExpr(pkg, idx, stmt.Rhs[i])
+		}
+		if cap == CapInvalid {
+			cap = receiveCapForValueExpr(idx, stmt.Rhs[i])
+		}
+		if cap == CapInvalid {
+			cap = resultCapForValueExpr(pkg, idx, stmt.Rhs[i])
 		}
 		bindObjectCaps(idx, obj, cap, chanElemCap)
 	}
@@ -262,6 +294,34 @@ func isoMoveCapForValueExpr(pkg *packages.Package, idx *CapabilityIndex, expr as
 		return CapInvalid
 	}
 	return CapIso
+}
+
+func receiveCapForValueExpr(idx *CapabilityIndex, expr ast.Expr) Cap {
+	if idx == nil || expr == nil {
+		return CapInvalid
+	}
+	expr = unparenExpr(expr)
+	recv, ok := expr.(*ast.UnaryExpr)
+	if !ok || recv.Op != token.ARROW {
+		return CapInvalid
+	}
+	place, ok := idx.PlaceForExpr(recv.X)
+	if !ok || place.Root == nil {
+		return CapInvalid
+	}
+	cap := idx.ChanElemCap(place.Root)
+	if !capTracked(cap) {
+		return CapInvalid
+	}
+	return cap
+}
+
+func resultCapForValueExpr(pkg *packages.Package, idx *CapabilityIndex, expr ast.Expr) Cap {
+	value, ok := valueCapabilityForExpr(pkg, idx, expr)
+	if !ok || !capTracked(value.Cap) {
+		return CapInvalid
+	}
+	return value.Cap
 }
 
 func isFreshOwnedValueExpr(expr ast.Expr) bool {

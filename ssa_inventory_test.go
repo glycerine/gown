@@ -113,6 +113,16 @@ func main() {
 }
 `
 
+const gownSSASelectInventorySource = `package example
+
+func main(ch chan string, x string) {
+	select {
+	case ch <- x:
+	default:
+	}
+}
+`
+
 func TestSSAInventoryRecordsDeferInstruction(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"defer.gown": gownSSADeferInventorySource})
 	gp := NewGownPackage(dir)
@@ -122,6 +132,18 @@ func TestSSAInventoryRecordsDeferInstruction(t *testing.T) {
 	facts := collectSSAInventoryFacts(gp.pkg, gp.ssaPkg)
 	if !ssaInventoryHas(facts, "main", "Defer") {
 		t.Fatalf("SSA inventory missing Defer in main; facts:\n%s", formatSSAInventoryFacts(facts))
+	}
+}
+
+func TestSSAInventoryRecordsSelectInstruction(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"select.gown": gownSSASelectInventorySource})
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+	facts := collectSSAInventoryFacts(gp.pkg, gp.ssaPkg)
+	if !ssaInventoryHas(facts, "main", "Select") {
+		t.Fatalf("SSA inventory missing Select in main; facts:\n%s", formatSSAInventoryFacts(facts))
 	}
 }
 

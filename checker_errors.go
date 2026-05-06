@@ -36,6 +36,15 @@ type CheckerError struct {
 	Line    int
 	Col     int
 	Message string
+	Notes   []CheckerNote
+}
+
+type CheckerNote struct {
+	Path    string
+	Offset  int
+	Line    int
+	Col     int
+	Message string
 }
 
 func (err CheckerError) Error() string {
@@ -114,12 +123,31 @@ func FormatError(err error) string {
 func formatCheckerError(err CheckerError) []string {
 	lines := []string{err.Error()}
 	sourceLine, ok := readSourceLine(err.Path, err.Line)
+	if ok {
+		lines = append(lines, sourceLine)
+		if err.Col > 0 {
+			lines = append(lines, caretLine(sourceLine, err.Col))
+		}
+	}
+	for _, note := range err.Notes {
+		lines = append(lines, formatCheckerNote(note)...)
+	}
+	return lines
+}
+
+func formatCheckerNote(note CheckerNote) []string {
+	loc := note.Path
+	if note.Line != 0 || note.Col != 0 {
+		loc = fmt.Sprintf("%s:%d:%d", note.Path, note.Line, note.Col)
+	}
+	lines := []string{fmt.Sprintf("%s: note: %s", loc, note.Message)}
+	sourceLine, ok := readSourceLine(note.Path, note.Line)
 	if !ok {
 		return lines
 	}
 	lines = append(lines, sourceLine)
-	if err.Col > 0 {
-		lines = append(lines, caretLine(sourceLine, err.Col))
+	if note.Col > 0 {
+		lines = append(lines, caretLine(sourceLine, note.Col))
 	}
 	return lines
 }

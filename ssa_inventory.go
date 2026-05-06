@@ -100,10 +100,14 @@ func ssaInventoryKind(instr ssa.Instruction) string {
 		return "MakeClosure"
 	case *ssa.MakeInterface:
 		return "MakeInterface"
+	case *ssa.MapUpdate:
+		return "MapUpdate"
 	case *ssa.Phi:
 		return "Phi"
 	case *ssa.Send:
 		return "Send"
+	case *ssa.Select:
+		return "Select"
 	case *ssa.Store:
 		return "Store"
 	case *ssa.UnOp:

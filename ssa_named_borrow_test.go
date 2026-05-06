@@ -52,6 +52,79 @@ func main() {
 }
 `
 
+const gownExplicitMutableBorrowLiveAtSendSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	b := \mub(a)
+	ch := make(chan \iso *payload)
+	ch <- a
+	println(b)
+}
+`
+
+const gownExplicitReadBorrowLiveAtSendSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	r := \rob(a)
+	ch := make(chan \iso *payload)
+	ch <- a
+	println(r)
+}
+`
+
+const gownExplicitMutableBorrowDeadBeforeSendSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \iso *payload
+	b := \mub(a)
+	println(b)
+	ch := make(chan \iso *payload)
+	ch <- a
+}
+`
+
+const gownExplicitReadBorrowFromImmSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Inspect(x \rob *payload) {}
+
+func main() {
+	var a \imm *payload
+	r := \rob(a)
+	Inspect(r)
+}
+`
+
+const gownExplicitMutableBorrowFromImmSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var a \imm *payload
+	b := \mub(a)
+	_ = b
+}
+`
+
 const gownNamedFieldBorrowLiveAtRootSendSource = `package example
 
 type payload struct {
@@ -204,6 +277,45 @@ func TestSSAGWN002RejectsIsoSendWhileNamedReadBorrowLive(t *testing.T) {
 func TestGWN002RejectsIsoSendWhileNamedBorrowLive(t *testing.T) {
 	err := checkGownSource(t, "named_borrow_live.gown", gownNamedMutableBorrowLiveAtSendSource)
 	requireCheckerCode(t, err, GWN002)
+}
+
+func TestSSAExplicitMubBorrowBlocksIsoSend(t *testing.T) {
+	gp := loadGownForSSACheck(t, "explicit_mub_live.gown", gownExplicitMutableBorrowLiveAtSendSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN002)
+}
+
+func TestSSAExplicitRobBorrowBlocksIsoSend(t *testing.T) {
+	gp := loadGownForSSACheck(t, "explicit_rob_live.gown", gownExplicitReadBorrowLiveAtSendSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN002)
+}
+
+func TestSSAExplicitBorrowDiesBeforeSend(t *testing.T) {
+	gp := loadGownForSSACheck(t, "explicit_mub_dead.gown", gownExplicitMutableBorrowDeadBeforeSendSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA GWN001 unexpectedly rejected send after dead explicit borrow: %#v", errs)
+	}
+}
+
+func TestSSAExplicitRobFromImmAllowed(t *testing.T) {
+	gp := loadGownForSSACheck(t, "explicit_rob_imm.gown", gownExplicitReadBorrowFromImmSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	if len(errs) != 0 {
+		t.Fatalf("SSA GWN001 unexpectedly rejected explicit rob from imm: %#v", errs)
+	}
+}
+
+func TestSSAExplicitMubFromImmRejected(t *testing.T) {
+	gp := loadGownForSSACheck(t, "explicit_mub_imm.gown", gownExplicitMutableBorrowFromImmSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN010)
 }
 
 func TestSSAGWN002AllowsIsoSendAfterNamedBorrowDead(t *testing.T) {

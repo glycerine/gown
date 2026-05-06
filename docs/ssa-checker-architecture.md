@@ -3,9 +3,10 @@
 This document describes the checker architecture for Gown's lifetime and borrow
 analysis. It is a living design artifact: some pieces are implemented, some are
 only partially implemented, and the SSA checker is now the main execution path
-for the completed diagnostic slices. The remaining highest-risk work is explicit
-freeze/clone/unsafe semantics, closure flow through heap/container/interface
-boundaries, precise unsafe/synchronization boundaries, and final emit semantics.
+for the completed diagnostic slices. The remaining highest-risk work is now
+polishing clone emit policy, broader standard-library/synchronization boundary
+modeling, and deciding how much interprocedural precision is needed beyond the
+current signature and frontier rules.
 
 The central decision is that Go's AST, type checker, and SSA builder remain
 ordinary Go tooling. They do not learn about `\iso`, `\mub`, `\rob`, or
@@ -17,8 +18,9 @@ The user-facing direction is inference-first. Gown should require the minimum
 annotations needed to state ownership boundaries: function signatures, channel
 element types, and struct fields. Ordinary borrows should be inferred from
 typed context, such as calling a function whose parameter is declared
-`\mub *T` or `\rob *T`. Explicit expression forms like `\mub(x)` are not part
-of the main path and should not drive the first checker milestones.
+`\mub *T` or `\rob *T`. Explicit expression forms like `\mub(x)` and
+`\freeze(x)` are now supported as leverage points when the programmer wants to
+state a longer-lived borrow or freeze directly.
 
 ## Current State
 
@@ -34,9 +36,9 @@ Implemented:
 - `scanAndClassify` recognizes capability qualifiers and explicit intrinsic
   forms, records byte offset/line/column, and produces source views where
   Go parser positions still line up for qualifiers.
-- `Check` writes stripped `.go` files beside `.gown` files, loads the package
-  with `go/packages`, retains AST/types information, and builds SSA with
-  `golang.org/x/tools/go/ssa`.
+- `Check` analyzes generated Go through a `go/packages` overlay, retains
+  AST/types information, builds SSA with `golang.org/x/tools/go/ssa`, and only
+  writes final emitted `.go` after all checker passes succeed.
 - `CapabilityIndex` binds qualifier annotations to `types.Object`s, function
   signatures, channel element types, struct fields, call sites, send sites,
   and source places.
@@ -49,33 +51,42 @@ Implemented:
   goroutine borrow escapes, escaping closures that capture non-shareable
   tracked values, read-only writes, borrow stores, and returned borrows. They
   also track proof frontiers when capability-tracked values reach untracked
-  calls, untracked parameters, or interface erasure, then reject later
-  operations that require the old proof.
+  calls, untracked parameters, explicit `\unsafe`, stores, map updates, or
+  interface erasure, then reject later operations that require the old proof.
+- Expression-level `\mub`, `\rob`, `\freeze`, `\new`, `\clone`, and
+  `\unsafe` are bound into side tables. Borrow/freeze/unsafe intrinsics have
+  checker transfer semantics; `\new` and `\clone` produce source-less `\iso`
+  values for the current function.
+- Channel receives, select sends, return/result ownership transfers, and the
+  full viewpoint adaptation matrix are covered by focused SSA tests.
 - Diagnostics report structured `GWN` errors against original `.gown` source
-  and include source-line context.
+  and include source-line context. `GWN012` frontier diagnostics carry related
+  notes that point back to the earlier proof-ending operation.
 - CLI `-check` mode validates with a `go/packages` overlay and does not write
   generated `.go` files into the package directory.
+- Normal mode emits semantic Go for the current straightforward cases:
+  capability qualifiers are erased, borrow/unsafe/freeze intrinsics lower to
+  their argument, `\new(T{...})` lowers to `&T{...}`, and direct consumed
+  `\iso` sends/calls/assignments/defers/freezes insert `x = nil`. Normal emit
+  rejects `\clone` until a real clone implementation is configured or
+  generated.
 - `gownfmt` formats `.gown` source through `go/format` while preserving Gown
   annotations.
 
-Still missing:
+Still missing or deliberately conservative:
 
-- Explicit intrinsic semantics for `\freeze`, `\clone`, `\new`, `\unsafe`, and
-  expression-level `\mub`/`\rob` beyond token recognition and formatting.
-- Complete receive/select semantics for capability-typed channels.
-- Complete viewpoint adaptation for every outer/field capability combination,
-  especially read-only or immutable roots reaching fields with less restrictive
-  declared capabilities.
-- Full return/result ownership semantics, including returning `\iso` while a
-  derived borrow may still be live and inferred freeze on `\imm` results.
-- Heap, container, interface, and interprocedural alias flow beyond the current
-  conservative frontier/collapse rules.
-- Final emit behavior that inserts nil assignments after consumed `\iso`
-  moves and implements clone/freeze output.
+- `\clone(x)` currently type-checks as a fresh source-less `\iso` for local
+  analysis, but normal emit rejects it. Production emit needs a configured
+  clone hook or generated clone implementation; it must not silently shallow
+  copy pointer graphs.
+- Heap, container, interface, and interprocedural alias flow are conservative:
+  `\iso` stores to escaping locations become proof frontiers, borrows stored
+  into escaping locations remain hard errors, and function summaries are still
+  mostly represented by signatures plus existing closure/store checks.
 - Broader boundary modeling for reflection, `sync`, atomics, and unsafe code.
-- Spec/code cleanup: the language spec's error-code table and older hard
-  `\unsafe` boundary language no longer match the current frontier-based
-  implementation.
+- Emit insertion is source-local and handles straightforward statement moves;
+  branch-sensitive or complex insertion sites should reject rather than emit
+  unsound Go until an explicit emit plan records safe insertion points.
 
 This architecture now treats the hybrid AST/types/place plus SSA model as the
 main checker shape rather than just a front-end scaffold.
@@ -125,42 +136,25 @@ What is solid:
 
 What remains to finish the SSA borrow checker:
 
-- Replace the current intrinsic placeholders with real semantics. The scanner
-  rewrites `\mub(x)`, `\rob(x)`, `\new(...)`, `\clone(x)`, `\freeze(x)`, and
-  `\unsafe(x)` to analysis identifiers, but the checker and emitter do not yet
-  give those operations their specified capability or output behavior.
-- Implement channel receive and select semantics. Sends are well covered,
-  including inferred freeze-send to `chan \imm`, but receives do not yet bind
-  result capabilities from channel element types, and select-specific branch
-  rules need explicit tests and transfer handling.
-- Finish viewpoint adaptation. Today `capForSSAPlace` can choose a tracked field
-  capability or the root capability, but it does not yet compute the full meet
-  matrix from the spec. In particular, access through `\rob` or `\imm` must
-  force reachable fields to read-only or immutable even if the field declaration
-  is less restrictive.
-- Strengthen return/result transfer checking. Returning borrows is rejected,
-  and frontiered tracked returns are rejected, but `\iso` result moves and
-  inferred freeze for `\imm` results still need the same live-borrow and
-  exclusivity checks as sends/calls.
-- Decide and implement the interprocedural story. Current checking is mostly
-  intraprocedural plus signature/call-site side tables. That is enough for many
-  source examples, but heap/container/interface flows and closure values that
-  cross function boundaries need either summaries or deliberately conservative
-  frontier rules.
-- Model escaping heap and container aliases more completely. Dynamic indexes,
-  maps, interfaces, and unknown stores currently collapse or frontier; this is
-  sound as a first approximation but imprecise and incomplete for real Go.
-- Surface frontier information better. `GWN012` reports the later invalid
-  capability operation, but users will need clearer notes about the earlier
-  frontier that ended the proof.
-- Emit correct Go, not only stripped Go. Normal mode currently writes
-  annotation-erased Go. It still needs nil insertion after `\iso` send/call/
-  assignment/freeze moves and generated or user-directed clone support.
-- Reconcile the written spec with the implementation. The spec still describes
-  hard `\unsafe` boundaries and an older error-code table; the code now uses
-  `GWN003`/`GWN010` for send errors, `GWN008`/`GWN009` as historical frontier
-  test names, `GWN011` for field-projection moves, and `GWN012` for proof
-  frontiers.
+- Decide the final clone story. The checker can treat `\clone(x)` as producing
+  a fresh local `\iso`, but final emit must not silently shallow-copy object
+  graphs. The next design decision is whether clone comes from generated code,
+  a user-supplied hook, or an explicit interface.
+- Refine heap/container/interface precision. The current model is sound and
+  conservative: escaping `\iso` stores become frontiers, borrow stores hard
+  error, map stores frontier, and interface erasure frontiers. More precision
+  needs a boundary policy that understands owned fields, containers, and
+  interface round trips.
+- Decide whether package-local function summaries are worth implementing
+  beyond current signature/call-site behavior. Current tests cover the key
+  summary-shaped cases, but true summaries would improve diagnostics and avoid
+  over-frontiering once heap/container policies become richer.
+- Expand emit planning from local edits to recorded transfer sites. Current
+  emit handles straightforward statement-level moves and intrinsic lowering;
+  complex CFG-sensitive insertion should use an explicit `EmitPlan` populated
+  by checker transfer records.
+- Broaden unknown-boundary modeling for reflection, `sync`, atomics, cgo, and
+  explicit unsafe code.
 
 ## End-To-End Pipeline
 
@@ -495,13 +489,12 @@ Temporary call borrows live for the synchronous call duration only. They do not
 block a later send once the call returns.
 
 Named local borrows exist today when a local variable is explicitly annotated
-and initialized from an allowed source. Expression-level `\mub(x)` syntax is
-recognized by the scanner but does not yet have checker/emitter semantics. The
-implemented equivalent shape is:
+and initialized from an allowed source, and also when a local is initialized
+from expression-level `\mub(x)` or `\rob(x)`. The explicit intrinsic form:
 
 ```go
 func f(ch chan \iso *T, x \iso *T) {
-    var b \mub *T = x
+    b := \mub(x)
     ch <- x // error: active borrow in region x
     _ = b
 }
@@ -618,12 +611,12 @@ Spike questions:
 - Can field projections survive through `FieldAddr` chains, and when should
   the engine collapse to root?
 
-Spike non-goals:
+Original spike non-goals:
 
 - Do not remove the existing AST/place checker code until the SSA path has
   enough soak time.
-- Do not implement freeze/clone/unsafe semantics.
-- Do not implement nil insertion.
+- Freeze/new/unsafe semantics and first-pass nil insertion are now implemented;
+  clone still needs a production emit policy.
 - Do not solve all loop precision. Conservative rejection at loop joins is
   acceptable for the spike.
 

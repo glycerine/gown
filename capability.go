@@ -10,9 +10,11 @@ type CapabilityIndex struct {
 	ChanElemCaps      map[types.Object]Cap
 	Funcs             map[*types.Func]*FuncCapability
 	CallBindings      []CallBinding
+	IntrinsicBindings []IntrinsicBinding
 	Places            *PlaceIndex
 	SendBindings      []SendBinding
 	callBindingByCall map[*ast.CallExpr]int
+	intrinsicByCall   map[*ast.CallExpr]int
 	sendBindingByStmt map[*ast.SendStmt]int
 }
 
@@ -35,12 +37,25 @@ type CallBinding struct {
 	ArgPlaces  []Place
 }
 
+type IntrinsicBinding struct {
+	Kind     IntrinsicKind
+	Offset   int
+	Line     int
+	Col      int
+	Path     string
+	Call     *ast.CallExpr
+	Arg      ast.Expr
+	ArgPlace Place
+	Result   types.Object
+}
+
 func newCapabilityIndex() *CapabilityIndex {
 	return &CapabilityIndex{
 		ObjectCaps:        make(map[types.Object]Cap),
 		ChanElemCaps:      make(map[types.Object]Cap),
 		Funcs:             make(map[*types.Func]*FuncCapability),
 		callBindingByCall: make(map[*ast.CallExpr]int),
+		intrinsicByCall:   make(map[*ast.CallExpr]int),
 		sendBindingByStmt: make(map[*ast.SendStmt]int),
 	}
 }
@@ -88,6 +103,17 @@ func (idx *CapabilityIndex) CallBinding(call *ast.CallExpr) (CallBinding, bool) 
 		return CallBinding{}, false
 	}
 	return idx.CallBindings[i], true
+}
+
+func (idx *CapabilityIndex) IntrinsicBinding(call *ast.CallExpr) (IntrinsicBinding, bool) {
+	if idx == nil || call == nil {
+		return IntrinsicBinding{}, false
+	}
+	i, ok := idx.intrinsicByCall[call]
+	if !ok || i < 0 || i >= len(idx.IntrinsicBindings) {
+		return IntrinsicBinding{}, false
+	}
+	return idx.IntrinsicBindings[i], true
 }
 
 func (idx *CapabilityIndex) SendBinding(stmt *ast.SendStmt) (SendBinding, bool) {

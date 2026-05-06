@@ -600,9 +600,13 @@ json.Marshal(\unsafe(cfg))   // cfg : \iso *Config
                              // programmer asserts callee does not alias
 ```
 
-`\unsafe` erases to nothing in the transpiled output. Its presence is auditable
-via grep. It carries the same social contract as Go's `unsafe`: you are
-asserting a property the checker cannot verify.
+`\unsafe` erases to its argument in the transpiled output. In the current
+checker it is conservative: the boundary itself is allowed, but it ends the
+local capability proof for the argument. Later operations that require the old
+proof, such as sending the same `\iso` or returning it as a tracked result,
+are rejected with `GWN012` and a note pointing back to the `\unsafe` site. Its
+presence is auditable via grep. It carries the same social contract as Go's
+`unsafe`: you are asserting a property the checker cannot verify.
 
 The race freedom guarantee holds for all code that does not use `\unsafe`.
 
@@ -727,18 +731,18 @@ and where possible a suggested fix.
 
 | Code    | Meaning                                                                  |
 |---------|--------------------------------------------------------------------------|
-| GWN001  | Use of consumed `\iso` after send or move                                |
-| GWN002  | Send of untracked value on capability channel                            |
-| GWN003  | Write through `\imm` pointer                                             |
-| GWN004  | Write through `\rob` pointer                                             |
-| GWN005  | `\mub` or `\rob` escapes its borrow scope                                |
-| GWN006  | `\iso` or `\imm` passed to untracked function without `\unsafe`          |
-| GWN007  | Goroutine captures `\mub` or untracked variable by reference             |
-| GWN008  | `\iso` or `\mub` field accessed through untracked pointer                |
-| GWN009  | `\imm` argument passed where `\mub` (mutable) parameter expected         |
-| GWN010  | `chan \mub *T` or `chan \rob *T` declared — borrow capability in channel  |
-| GWN011  | `\imm` sent on `chan \iso *T` — cannot produce `\iso` from `\imm`        |
-| GWN012  | `\iso` used after `select` where it appeared in a send case              |
+| GWN001  | Use of consumed `\iso` after an ownership move, send, call, return, freeze, defer, or assignment |
+| GWN002  | Conflicting borrow or live named borrow blocks a move/freeze             |
+| GWN003  | Non-sendable `\mub` or `\rob` value sent across a channel                |
+| GWN004  | Borrow escape through goroutine argument or capture                      |
+| GWN005  | Write through a read-only or immutable viewpoint                         |
+| GWN006  | `\mub`/`\rob` borrow or borrowing closure stored into an escaping location |
+| GWN007  | Returned borrow or returned closure capturing a non-shareable tracked value |
+| GWN008  | Historical hard-boundary closure diagnostic; ordinary value boundaries now use `GWN012` frontiers |
+| GWN009  | Historical interface-erasure hard boundary; ordinary value boundaries now use `GWN012` frontiers |
+| GWN010  | Channel/value capability mismatch or invalid capability coercion         |
+| GWN011  | Attempted ownership move from a field projection                         |
+| GWN012  | Capability proof frontier violation, with a note at the earlier frontier |
 
 ---
 

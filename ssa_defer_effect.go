@@ -102,7 +102,7 @@ func collectDeferredClosureCallEffects(pkg *packages.Package, caps *CapabilityIn
 		if place.Root == nil {
 			continue
 		}
-		if paramCap == CapIso && capForSSAPlace(caps, place) != CapIso {
+		if paramCap == CapIso && !placeCanTransferAsIso(caps, place) {
 			continue
 		}
 		if info.Effects == nil {

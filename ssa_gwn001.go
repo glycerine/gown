@@ -23,6 +23,7 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 		namedBorrows: collectSSANamedBorrows(pkg, caps),
 		deferEffects: collectSSADeferredClosureEffects(pkg, caps),
 		returns:      collectSSAReturnPlaces(pkg, caps),
+		returnValues: collectSSAReturnValues(pkg, caps),
 		bindings:     NewSSABindingIndex(caps),
 		reported:     make(map[string]bool),
 	}
@@ -40,6 +41,7 @@ type ssaGWN001Checker struct {
 	namedBorrows        map[*types.Func]SSANamedBorrowInfo
 	deferEffects        map[*types.Func]SSADeferredClosureEffectInfo
 	returns             map[sourcePosKey][]Place
+	returnValues        map[sourcePosKey][]ValueCapability
 	bindings            *SSABindingIndex
 	activeNamedBorrows  SSANamedBorrowInfo
 	activeDeferEffects  SSADeferredClosureEffectInfo
@@ -196,6 +198,72 @@ func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction,
 		checker.applyInterfaceFrontier(instr, state)
 	case *ssa.Return:
 		checker.applyReturnTransfer(instr, state)
+	case *ssa.Select:
+		checker.applySelectTransfer(instr, state)
+	case *ssa.Store:
+		checker.applyStoreFrontierTransfer(instr, state)
+	case *ssa.MapUpdate:
+		checker.applyMapUpdateFrontierTransfer(instr, state)
+	}
+}
+
+func (checker *ssaGWN001Checker) applyStoreFrontierTransfer(instr *ssa.Store, state *SSAFunctionState) {
+	if instr == nil {
+		return
+	}
+	value, ok := checker.places.PlaceForValue(instr.Val)
+	if !ok || value.Root == nil || !placeCanTransferAsIso(checker.caps, value) {
+		return
+	}
+	target, ok := checker.places.PlaceForValue(instr.Addr)
+	if !ok || target.Root == nil || !ssaStoreTargetEscapes(checker.pkg, target) {
+		return
+	}
+	checker.enterFrontierAtInstruction(state, value, instr, "store")
+}
+
+func (checker *ssaGWN001Checker) applyMapUpdateFrontierTransfer(instr *ssa.MapUpdate, state *SSAFunctionState) {
+	if instr == nil {
+		return
+	}
+	value, ok := checker.places.PlaceForValue(instr.Value)
+	if !ok || value.Root == nil || !placeCanTransferAsIso(checker.caps, value) {
+		return
+	}
+	checker.enterFrontierAtInstruction(state, value, instr, "map store")
+}
+
+func (checker *ssaGWN001Checker) applySelectTransfer(instr *ssa.Select, state *SSAFunctionState) {
+	if instr == nil {
+		return
+	}
+	seen := make(map[PlaceKey]bool)
+	for _, selectState := range instr.States {
+		if selectState == nil || selectState.Dir != types.SendOnly {
+			continue
+		}
+		chPlace, ok := checker.places.PlaceForValue(selectState.Chan)
+		if !ok || chPlace.Root == nil {
+			continue
+		}
+		chCap := checker.caps.ChanElemCap(chPlace.Root)
+		if chCap != CapIso && chCap != CapImm {
+			continue
+		}
+		valuePlace, ok := checker.places.PlaceForValue(selectState.Send)
+		if !ok || valuePlace.Root == nil || !placeCanTransferAsIso(checker.caps, valuePlace) {
+			continue
+		}
+		key := valuePlace.Key()
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		kind := "select send"
+		if chCap == CapImm {
+			kind = "select freeze send"
+		}
+		checker.consumeRootAtInstruction(state, valuePlace, instr, kind)
 	}
 }
 
@@ -226,7 +294,11 @@ func (checker *ssaGWN001Checker) applyAssignmentMove(instr *ssa.DebugRef, state 
 
 func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFunctionState) {
 	if binding, ok := checker.bindings.Send(checker.pkg, instr); ok {
-		if !binding.IsIsoConsumingTransfer() {
+		if binding.Value.Root == nil {
+			return
+		}
+		if !binding.IsIsoConsumingTransfer() &&
+			!(binding.ValueIso && (binding.ChanElemCap == CapIso || binding.ChanElemCap == CapImm)) {
 			return
 		}
 		checker.consumeRootAtInstruction(state, binding.Value, instr, binding.TransferKind())
@@ -237,7 +309,7 @@ func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFu
 		return
 	}
 	valuePlace, ok := checker.places.PlaceForValue(instr.X)
-	if !ok || valuePlace.Root == nil || checker.capForPlace(valuePlace) != CapIso {
+	if !ok || valuePlace.Root == nil || !placeCanTransferAsIso(checker.caps, valuePlace) {
 		return
 	}
 	chCap := checker.caps.ChanElemCap(chPlace.Root)
@@ -252,6 +324,10 @@ func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFu
 }
 
 func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFunctionState) {
+	if binding, ok := checker.bindings.Intrinsic(checker.pkg, instr); ok {
+		checker.applyIntrinsicTransfer(binding, state, instr)
+		return
+	}
 	if binding, ok := checker.bindings.Call(checker.pkg, instr); ok {
 		checker.applyBoundCallTransfer(binding, state, instr, "call")
 		return
@@ -260,6 +336,65 @@ func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFu
 		return
 	}
 	checker.applyCallCommonTransfer(&instr.Call, state, instr, "call")
+}
+
+func (checker *ssaGWN001Checker) applyIntrinsicTransfer(binding IntrinsicBinding, state *SSAFunctionState, instr ssa.Instruction) {
+	switch binding.Kind {
+	case IntrinsicMub:
+		checker.checkExplicitBorrowIntrinsic(binding, state, instr, CapMub)
+	case IntrinsicRob:
+		checker.checkExplicitBorrowIntrinsic(binding, state, instr, CapRob)
+	case IntrinsicFreeze:
+		checker.applyExplicitFreezeIntrinsic(binding, state, instr)
+	case IntrinsicUnsafe:
+		checker.applyUnsafeIntrinsic(binding, state, instr)
+	}
+}
+
+func (checker *ssaGWN001Checker) applyUnsafeIntrinsic(binding IntrinsicBinding, state *SSAFunctionState, instr ssa.Instruction) {
+	place := binding.ArgPlace
+	if place.Root == nil || !capTracked(checker.capForPlace(place)) {
+		return
+	}
+	checker.enterFrontierAtInstruction(state, place, instr, "unsafe")
+}
+
+func (checker *ssaGWN001Checker) applyExplicitFreezeIntrinsic(binding IntrinsicBinding, state *SSAFunctionState, instr ssa.Instruction) {
+	place := binding.ArgPlace
+	if place.Root == nil {
+		return
+	}
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	if !placeCanTransferAsIso(checker.caps, place) {
+		checker.reportCheckerError(newCheckerErrorAtPosition(
+			GWN010,
+			pos,
+			fmt.Sprintf("cannot freeze %s value %q", checker.capForPlace(place), place.Root.Name()),
+		))
+		return
+	}
+	checker.consumeRootAtInstruction(state, place, instr, "freeze")
+}
+
+func (checker *ssaGWN001Checker) checkExplicitBorrowIntrinsic(binding IntrinsicBinding, state *SSAFunctionState, instr ssa.Instruction, borrowCap Cap) {
+	place := binding.ArgPlace
+	if place.Root == nil {
+		return
+	}
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	if site, frontiered := state.CheckFrontier(place.Key()); frontiered {
+		checker.reportFrontierViolation(pos, place, site, borrowCap.String()+" borrow")
+		return
+	}
+	if namedBorrowSourceAllowed(checker.caps, borrowCap, place) {
+		return
+	}
+	sourceCap := checker.capForPlace(place)
+	checker.reportCheckerError(newCheckerErrorAtPosition(
+		GWN010,
+		pos,
+		fmt.Sprintf("cannot create %s borrow from %s value %q", borrowCap, sourceCap, place.Root.Name()),
+	))
 }
 
 func (checker *ssaGWN001Checker) applyBoundCallTransfer(binding CallBinding, state *SSAFunctionState, instr ssa.Instruction, kind string) {
@@ -273,7 +408,7 @@ func (checker *ssaGWN001Checker) applyBoundCallTransfer(binding CallBinding, sta
 		}
 		switch paramCap {
 		case CapIso:
-			if checker.capForPlace(argPlace) == CapIso {
+			if placeCanTransferAsIso(checker.caps, argPlace) {
 				checker.consumeRootAtInstruction(state, argPlace, instr, kind)
 			}
 		case CapMub, CapRob:
@@ -405,7 +540,7 @@ func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, s
 		}
 		switch paramCap {
 		case CapIso:
-			if checker.capForPlace(argPlace) == CapIso {
+			if placeCanTransferAsIso(checker.caps, argPlace) {
 				checker.consumeRootAtInstruction(state, argPlace, instr, kind)
 			}
 		case CapMub, CapRob:
@@ -494,6 +629,7 @@ func (checker *ssaGWN001Checker) applyReturnTransfer(instr *ssa.Return, state *S
 		return
 	}
 	checker.checkReturnFrontierConflicts(instr, state)
+	checker.applyReturnOwnershipTransfers(instr, state)
 	if len(state.Deferred) == 0 {
 		return
 	}
@@ -503,6 +639,74 @@ func (checker *ssaGWN001Checker) applyReturnTransfer(instr *ssa.Return, state *S
 		checker.applyDeferredGroupAtExit(exitState.Deferred[i], &exitState)
 	}
 	*state = exitState
+}
+
+func (checker *ssaGWN001Checker) applyReturnOwnershipTransfers(instr *ssa.Return, state *SSAFunctionState) {
+	resultCaps := checker.resultCapsForReturn(instr)
+	if len(resultCaps) == 0 {
+		return
+	}
+	values := checker.valueCapabilitiesForReturn(instr)
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	for i, resultCap := range resultCaps {
+		if i >= len(values) || !capTracked(resultCap) {
+			continue
+		}
+		value := values[i]
+		switch resultCap {
+		case CapIso:
+			if value.Cap != CapIso {
+				checker.reportReturnCapabilityMismatch(pos, value, resultCap)
+				continue
+			}
+			if !value.Fresh && value.Place.Root != nil {
+				checker.consumeRootAtInstruction(state, value.Place, instr, "return")
+			}
+		case CapImm:
+			switch value.Cap {
+			case CapImm:
+				continue
+			case CapIso:
+				if !value.Fresh && value.Place.Root != nil {
+					checker.consumeRootAtInstruction(state, value.Place, instr, "return freeze")
+				}
+			default:
+				checker.reportReturnCapabilityMismatch(pos, value, resultCap)
+			}
+		}
+	}
+}
+
+func (checker *ssaGWN001Checker) reportReturnCapabilityMismatch(pos token.Position, value ValueCapability, resultCap Cap) {
+	if value.Cap == CapInvalid {
+		return
+	}
+	name := "<expression>"
+	if value.Place.Root != nil {
+		name = value.Place.Root.Name()
+	}
+	checker.reportCheckerError(newCheckerErrorAtPosition(
+		GWN010,
+		pos,
+		fmt.Sprintf("cannot return %s value %q as %s result", value.Cap, name, resultCap),
+	))
+}
+
+func (checker *ssaGWN001Checker) valueCapabilitiesForReturn(instr *ssa.Return) []ValueCapability {
+	key := sourcePositionKey(checker.pkg.Fset.Position(instr.Pos()))
+	values := append([]ValueCapability(nil), checker.returnValues[key]...)
+	for len(values) < len(instr.Results) {
+		i := len(values)
+		value := ValueCapability{Cap: CapInvalid}
+		if place, ok := checker.places.PlaceForValue(instr.Results[i]); ok && place.Root != nil {
+			value = ValueCapability{
+				Cap:   checker.capForPlace(place),
+				Place: place,
+			}
+		}
+		values = append(values, value)
+	}
+	return values
 }
 
 func (checker *ssaGWN001Checker) checkReturnFrontierConflicts(instr *ssa.Return, state *SSAFunctionState) {
@@ -673,7 +877,7 @@ func (checker *ssaGWN001Checker) applyGoClosureCaptureTransfer(instr *ssa.Go, st
 	}
 	for _, binding := range closure.Bindings {
 		place, ok := checker.places.PlaceForValue(binding)
-		if !ok || place.Root == nil || checker.capForPlace(place) != CapIso {
+		if !ok || place.Root == nil || !placeCanTransferAsIso(checker.caps, place) {
 			continue
 		}
 		checker.consumeRootAtInstruction(state, place, instr, "go")
@@ -801,7 +1005,7 @@ func collectSSAAssignmentMoves(pkg *packages.Package, caps *CapabilityIndex) map
 			}
 			for i, rhs := range assign.Rhs {
 				src, ok := caps.PlaceForExpr(rhs)
-				if !ok || src.Root == nil || capForSSAPlace(caps, src) != CapIso {
+				if !ok || src.Root == nil || !placeCanTransferAsIso(caps, src) {
 					continue
 				}
 				dst, ok := caps.PlaceForExpr(assign.Lhs[i])
@@ -841,11 +1045,35 @@ func collectSSAReturnPlaces(pkg *packages.Package, caps *CapabilityIndex) map[so
 	return returns
 }
 
-func capForSSAPlace(caps *CapabilityIndex, place Place) Cap {
-	if caps == nil || place.Root == nil {
-		return CapInvalid
+func collectSSAReturnValues(pkg *packages.Package, caps *CapabilityIndex) map[sourcePosKey][]ValueCapability {
+	returns := make(map[sourcePosKey][]ValueCapability)
+	if pkg == nil || caps == nil {
+		return returns
 	}
-	return caps.ObjectCap(capObjectForSSAPlace(caps, place))
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			ret, ok := n.(*ast.ReturnStmt)
+			if !ok {
+				return true
+			}
+			key := sourcePositionKey(pkg.Fset.Position(ret.Return))
+			values := make([]ValueCapability, len(ret.Results))
+			for i, result := range ret.Results {
+				if value, ok := valueCapabilityForExpr(pkg, caps, result); ok {
+					values[i] = value
+				} else {
+					values[i] = ValueCapability{Cap: CapInvalid}
+				}
+			}
+			returns[key] = values
+			return true
+		})
+	}
+	return returns
+}
+
+func capForSSAPlace(caps *CapabilityIndex, place Place) Cap {
+	return EffectivePlaceCap(caps, place)
 }
 
 func debugRefExprKey(expr ast.Expr) ast.Expr {
@@ -864,10 +1092,12 @@ func (checker *ssaGWN001Checker) enterFrontierAtInstruction(state *SSAFunctionSt
 	}
 	pos := checker.pkg.Fset.Position(instr.Pos())
 	state.EnterFrontier(place.Key(), SSAFrontierSite{
-		Name: place.Root.Name(),
-		Kind: kind,
-		Line: sourceLine(pos),
-		Col:  sourceColumn(pos),
+		Name:   place.Root.Name(),
+		Kind:   kind,
+		Path:   gownSourcePath(pos.Filename),
+		Offset: pos.Offset,
+		Line:   sourceLine(pos),
+		Col:    sourceColumn(pos),
 	})
 }
 
@@ -878,9 +1108,17 @@ func (checker *ssaGWN001Checker) reportFrontierViolation(pos token.Position, pla
 	}
 	message := fmt.Sprintf("cannot use %q as %s after proof ended at %d:%d (%s)",
 		name, operation, site.Line, site.Col, site.Kind)
-	checker.reportCheckerError(newCheckerErrorAtPosition(
+	err := newCheckerErrorAtPosition(
 		GWN012,
 		pos,
 		message,
-	))
+	)
+	err.Notes = []CheckerNote{{
+		Path:    site.Path,
+		Offset:  site.Offset,
+		Line:    site.Line,
+		Col:     site.Col,
+		Message: fmt.Sprintf("proof ended here (%s)", site.Kind),
+	}}
+	checker.reportCheckerError(err)
 }

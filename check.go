@@ -83,6 +83,9 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	}
 
 	overlay := make(map[string][]byte)
+	emitSources := make(map[string][]byte)
+	needIntrinsicHelpers := false
+	firstOverlayPath := ""
 	for name := range gownNames {
 		gownPath := filepath.Join(gp.path, name)
 		src, ok := lookupGownOverlay(opts.GownOverlay, gownPath)
@@ -98,24 +101,33 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 			return nil, err
 		}
 		gp.files = append(gp.files, gf)
+		if len(gf.intrinsics) > 0 {
+			needIntrinsicHelpers = true
+		}
 
 		goName := strings.TrimSuffix(name, ".gown") + ".go"
 		goPath := filepath.Join(gp.path, goName)
-		if opts.CheckOnly {
-			absGoPath, err := filepath.Abs(goPath)
-			if err != nil {
-				return nil, fmt.Errorf("resolving %s: %w", goPath, err)
-			}
-			overlay[absGoPath] = analysisSrc
-			continue
+		absGoPath, err := filepath.Abs(goPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolving %s: %w", goPath, err)
 		}
-		if err := os.WriteFile(goPath, emitSrc, 0644); err != nil {
-			return nil, fmt.Errorf("writing %s: %w", goPath, err)
+		overlay[absGoPath] = analysisSrc
+		emitSources[absGoPath] = emitSrc
+		if firstOverlayPath == "" {
+			firstOverlayPath = absGoPath
 		}
+	}
+
+	if len(gownNames) == 0 {
+		return nil, fmt.Errorf("no .gown files found in %s", gp.path)
 	}
 
 	if len(gp.files) == 0 {
 		return nil, fmt.Errorf("no .gown files found in %s", gp.path)
+	}
+
+	if needIntrinsicHelpers && firstOverlayPath != "" {
+		overlay[firstOverlayPath] = append(append([]byte(nil), overlay[firstOverlayPath]...), []byte(intrinsicAnalysisHelperDecls())...)
 	}
 
 	cfg := &packages.Config{
@@ -211,7 +223,36 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		return gp.analysis(), errs
 	}
 
+	if !opts.CheckOnly {
+		for _, gf := range gp.files {
+			goPath := filepath.Join(gp.path, generatedGoName(gf.path))
+			absGoPath, err := filepath.Abs(goPath)
+			if err != nil {
+				return nil, fmt.Errorf("resolving %s: %w", goPath, err)
+			}
+			emitSrc := emitSources[absGoPath]
+			finalSrc, err := buildEmitSource(gp.pkg, gp.caps, gf, emitSrc)
+			if err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(goPath, finalSrc, 0644); err != nil {
+				return nil, fmt.Errorf("writing %s: %w", goPath, err)
+			}
+		}
+	}
+
 	return gp.analysis(), nil
+}
+
+func intrinsicAnalysisHelperDecls() string {
+	return `
+func mub_[T any](x T) T { return x }
+func rob_[T any](x T) T { return x }
+func freeze_[T any](x T) T { return x }
+func clone_[T any](x T) T { return x }
+func unsafe_[T any](x T) T { return x }
+func new_[T any](x T) *T { return &x }
+`
 }
 
 func (gp *GownPackage) analysis() *GownAnalysis {

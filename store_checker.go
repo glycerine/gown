@@ -82,7 +82,7 @@ func checkWriteTarget(pkg *packages.Package, caps *CapabilityIndex, expr ast.Exp
 	if !ok || place.Root == nil {
 		return CheckerError{}, false
 	}
-	cap := caps.ObjectCap(place.Root)
+	cap := EffectivePlaceCap(caps, place)
 	if cap != CapRob && cap != CapImm {
 		return CheckerError{}, false
 	}

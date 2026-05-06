@@ -95,7 +95,7 @@ func recordNamedBorrow(info *SSANamedBorrowInfo, caps *CapabilityIndex, obj *typ
 	if borrowCap != CapMub && borrowCap != CapRob {
 		return
 	}
-	source, ok := caps.PlaceForExpr(sourceExpr)
+	source, ok := namedBorrowSourcePlace(caps, sourceExpr)
 	if !ok || source.Root == nil || !namedBorrowSourceAllowed(caps, borrowCap, source) {
 		return
 	}
@@ -112,6 +112,19 @@ func recordNamedBorrow(info *SSANamedBorrowInfo, caps *CapabilityIndex, obj *typ
 	}
 	key := debugRefExprKey(sourceExpr)
 	info.Defs[key] = append(info.Defs[key], obj)
+}
+
+func namedBorrowSourcePlace(caps *CapabilityIndex, sourceExpr ast.Expr) (Place, bool) {
+	if caps == nil || sourceExpr == nil {
+		return Place{}, false
+	}
+	if call, ok := sourceExpr.(*ast.CallExpr); ok {
+		binding, ok := caps.IntrinsicBinding(call)
+		if ok && (binding.Kind == IntrinsicMub || binding.Kind == IntrinsicRob) {
+			return binding.ArgPlace, binding.ArgPlace.Root != nil
+		}
+	}
+	return caps.PlaceForExpr(sourceExpr)
 }
 
 func collectNamedBorrowDeferCaptures(pkg *packages.Package, info *SSANamedBorrowInfo, stmt *ast.DeferStmt) {
@@ -152,9 +165,11 @@ func namedBorrowSourceAllowed(caps *CapabilityIndex, borrowCap Cap, source Place
 	sourceCap := capForSSAPlace(caps, source)
 	switch borrowCap {
 	case CapMub:
-		return sourceCap == CapIso || sourceCap == CapMub
+		return sourceCap == CapIso || sourceCap == CapMub ||
+			(source.Key().Path != "" && caps != nil && source.Root != nil && caps.ObjectCap(source.Root) == CapIso)
 	case CapRob:
-		return sourceCap == CapIso || sourceCap == CapMub || sourceCap == CapRob || sourceCap == CapImm
+		return sourceCap == CapIso || sourceCap == CapMub || sourceCap == CapRob || sourceCap == CapImm ||
+			(source.Key().Path != "" && caps != nil && source.Root != nil && caps.ObjectCap(source.Root) == CapIso)
 	default:
 		return false
 	}

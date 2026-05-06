@@ -10,6 +10,9 @@ type SendBinding struct {
 	Stmt        *ast.SendStmt
 	Chan        Place
 	Value       Place
+	ValueFresh  bool
+	ValueSource Place
+	ValueIso    bool
 	ChanElemCap Cap
 	ValueCap    Cap
 	Offset      int
@@ -58,7 +61,7 @@ func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.Send
 	if !ok {
 		return
 	}
-	value, ok := directRootPlace(pkg, send.Value)
+	value, ok := valueCapabilityForExpr(pkg, idx, send.Value)
 	if !ok {
 		return
 	}
@@ -66,9 +69,12 @@ func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.Send
 	idx.addSendBinding(SendBinding{
 		Stmt:        send,
 		Chan:        ch,
-		Value:       value,
+		Value:       value.Place,
+		ValueFresh:  value.Fresh,
+		ValueSource: value.Source,
+		ValueIso:    placeCanTransferAsIso(idx, value.Place) || value.Cap == CapIso,
 		ChanElemCap: idx.ChanElemCap(ch.Root),
-		ValueCap:    idx.ObjectCap(value.Root),
+		ValueCap:    value.Cap,
 		Offset:      pos.Offset,
 		Line:        pos.Line,
 		Col:         pos.Column,

@@ -55,6 +55,22 @@ func Use(x \iso *payload) {
 }
 `
 
+const cliIntrinsicSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main(x \iso *payload) {
+	b := \mub(x)
+	r := \rob(x)
+	z := \clone(r)
+	u := \unsafe(x)
+	p := \new(payload{})
+	_, _, _, _, _ = b, r, z, u, p
+}
+`
+
 func TestRunReportsCheckerErrorWithoutPanic(t *testing.T) {
 	dir := writeCLIGownDir(t, "failing.gown", cliFailingSource)
 	var stderr bytes.Buffer
@@ -148,6 +164,16 @@ func TestRunPropagateRewritesGownThenChecks(t *testing.T) {
 		t.Fatalf("-propagate -check wrote generated file %s", goPath)
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
+	}
+}
+
+func TestRunCheckAcceptsIntrinsicSyntaxForAnalysis(t *testing.T) {
+	dir := writeCLIGownDir(t, "intrinsics.gown", cliIntrinsicSource)
+	var stderr bytes.Buffer
+
+	code := run([]string{"-check", dir}, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
 }
 

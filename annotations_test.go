@@ -73,14 +73,34 @@ const gownIntrinsicSource = `package example
 
 type Msg struct{}
 
-func Use(x *Msg) {
+func UseMub(x \iso *Msg) {
 	b := \mub(x)
+	_ = b
+}
+
+func UseRob(x \imm *Msg) {
 	r := \rob(x)
+	_ = r
+}
+
+func UseFreeze(x \iso *Msg) {
 	y := \freeze(x)
+	_ = y
+}
+
+func UseClone(x \imm *Msg) {
 	z := \clone(x)
+	_ = z
+}
+
+func UseUnsafe(x *Msg) {
 	u := \unsafe(x)
+	_ = u
+}
+
+func UseNew() {
 	p := \new(Msg{})
-	_, _, _, _, _, _ = b, r, y, z, u, p
+	_ = p
 }
 `
 
@@ -118,6 +138,15 @@ func TestScanAndClassifyIntrinsics(t *testing.T) {
 	}
 	if bytes.Contains(emitSrc, []byte(`\`)) {
 		t.Fatalf("emit source still contains a Gown backslash token:\n%s", emitSrc)
+	}
+}
+
+func TestAnalyzeIntrinsicCallsTypeCheckWithSyntheticHelpers(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"intrinsics.gown": gownIntrinsicSource})
+	gp := NewGownPackage(dir)
+
+	if err := gp.CheckWithOptions(CheckOptions{CheckOnly: true}); err != nil {
+		t.Fatal(err)
 	}
 }
 

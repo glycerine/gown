@@ -50,6 +50,66 @@ func main() {
 }
 `
 
+const gownSSAExplicitFreezeUseAfterSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var x \iso *payload
+	y := \freeze(x)
+	_ = y
+	println(x)
+}
+`
+
+const gownSSAExplicitFreezeResultImmSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var x \iso *payload
+	y := \freeze(x)
+	ch := make(chan \imm *payload)
+	ch <- y
+	println(y)
+}
+`
+
+const gownSSAExplicitFreezeLiveBorrowSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main() {
+	var x \iso *payload
+	b := \mub(x)
+	y := \freeze(x)
+	_, _ = b, y
+}
+`
+
+const gownSSAExplicitFreezeFieldProjectionSource = `package example
+
+type payload struct {
+	Data string
+}
+
+type holder struct {
+	Item *payload
+}
+
+func main() {
+	var h \iso *holder
+	y := \freeze(h.Item)
+	_ = y
+}
+`
+
 func TestSSAGWN001ReportsDirectUseAfterIsoSend(t *testing.T) {
 	gp := loadGownForSSACheck(t, "use_after_send.gown", gownUseAfterIsoSendSource)
 
@@ -151,6 +211,38 @@ func TestSSAGWN001AllowsGoClosureCaptureWithoutLaterUse(t *testing.T) {
 	}
 }
 
+func TestSSAExplicitFreezeConsumesIso(t *testing.T) {
+	gp := loadGownForSSACheck(t, "freeze_use_after.gown", gownSSAExplicitFreezeUseAfterSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN001)
+}
+
+func TestSSAExplicitFreezeResultIsImm(t *testing.T) {
+	gp := loadGownForSSACheck(t, "freeze_result_imm.gown", gownSSAExplicitFreezeResultImmSource)
+
+	if errs := checkSendCapabilitiesSSA(gp.pkg, gp.ssaPkg, gp.caps); len(errs) != 0 {
+		t.Fatalf("SSA send checker unexpectedly rejected explicit freeze result: %#v", errs)
+	}
+	if errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps); len(errs) != 0 {
+		t.Fatalf("SSA GWN001 unexpectedly rejected explicit freeze result: %#v", errs)
+	}
+}
+
+func TestSSAExplicitFreezeRejectsLiveMubBorrow(t *testing.T) {
+	gp := loadGownForSSACheck(t, "freeze_live_borrow.gown", gownSSAExplicitFreezeLiveBorrowSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN002)
+}
+
+func TestSSAExplicitFreezeRejectsFieldProjection(t *testing.T) {
+	gp := loadGownForSSACheck(t, "freeze_field.gown", gownSSAExplicitFreezeFieldProjectionSource)
+
+	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN011)
+}
+
 func TestSSAGWN001ReportsUseAfterInferredFreezeSend(t *testing.T) {
 	gp := loadGownForSSACheck(t, "iso_to_imm_use.gown", gownIsoSendToImmChannelUseAfterSource)
 
@@ -176,7 +268,7 @@ func loadGownForSSACheck(t *testing.T, name, source string) *GownPackage {
 	t.Helper()
 	dir := writeGownDir(t, map[string]string{name: source})
 	gp := NewGownPackage(dir)
-	err := gp.Check()
+	err := gp.CheckWithOptions(CheckOptions{CheckOnly: true})
 	if err == nil {
 		return gp
 	}
