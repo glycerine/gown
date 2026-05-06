@@ -43,6 +43,21 @@ func Use() *Msg {
 }
 `
 
+const transactionCallResultArgumentSource = `package example
+
+type Msg struct{}
+
+func Make() \iso *Msg {
+	return &Msg{}
+}
+
+func Take(x *Msg) {}
+
+func Use() {
+	Take(Make())
+}
+`
+
 const transactionConflictSource = `package example
 
 type Msg struct{}
@@ -60,6 +75,19 @@ type Msg struct{}
 
 func Send(ch chan \imm *Msg, x *Msg) {
 	ch <- x
+}
+`
+
+const transactionChannelCallResultSource = `package example
+
+type Msg struct{}
+
+func Make() \imm *Msg {
+	return &Msg{}
+}
+
+func Send(ch chan *Msg) {
+	ch <- Make()
 }
 `
 
@@ -163,6 +191,26 @@ func TestForcePropagateAnnotationsWritesReturnResult(t *testing.T) {
 	}
 }
 
+func TestForcePropagateAnnotationsWritesCallResultArgument(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"arg_result.gown": transactionCallResultArgumentSource})
+	path := filepath.Join(dir, "arg_result.gown")
+
+	result, err := ForcePropagateAnnotations(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Edits) != 1 {
+		t.Fatalf("edits = %#v, want exactly one call-result argument edit", result.Edits)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `func Take(x \iso *Msg)`) {
+		t.Fatalf("forced source missing call-result argument annotation:\n%s", got)
+	}
+}
+
 func TestForcePropagateAnnotationsWritesChannelSend(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"channel.gown": transactionChannelSource})
 	path := filepath.Join(dir, "channel.gown")
@@ -180,6 +228,26 @@ func TestForcePropagateAnnotationsWritesChannelSend(t *testing.T) {
 	}
 	if !strings.Contains(string(got), `func Send(ch chan \imm *Msg, x \imm *Msg)`) {
 		t.Fatalf("forced source missing send value annotation:\n%s", got)
+	}
+}
+
+func TestForcePropagateAnnotationsWritesChannelCallResult(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"channel_result.gown": transactionChannelCallResultSource})
+	path := filepath.Join(dir, "channel_result.gown")
+
+	result, err := ForcePropagateAnnotations(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Edits) != 1 {
+		t.Fatalf("edits = %#v, want exactly one channel call-result edit", result.Edits)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `func Send(ch chan \imm *Msg)`) {
+		t.Fatalf("forced source missing channel call-result annotation:\n%s", got)
 	}
 }
 

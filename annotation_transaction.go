@@ -509,9 +509,22 @@ func (graph *annotationGraph) collectSourceEdges() {
 					callee := callCallee(pkg, n)
 					if callee != nil {
 						if sig, _ := callee.Type().(*types.Signature); sig != nil {
+							if len(n.Args) == 1 {
+								if callArg, ok := n.Args[0].(*ast.CallExpr); ok {
+									graph.addCallResultEdges(callArg, sig.Params().Len(), func(i int) string {
+										return objectSiteKey(sig.Params().At(i))
+									}, "call result argument")
+								}
+							}
 							for i, arg := range n.Args {
 								if i < sig.Params().Len() {
-									graph.addEdge(objectSiteKey(sig.Params().At(i)), graph.exprSiteKey(arg), "call argument")
+									paramKey := objectSiteKey(sig.Params().At(i))
+									graph.addEdge(paramKey, graph.exprSiteKey(arg), "call argument")
+									if callArg, ok := arg.(*ast.CallExpr); ok {
+										graph.addCallResultEdges(callArg, 1, func(int) string {
+											return paramKey
+										}, "call result argument")
+									}
 								}
 							}
 						}
@@ -537,6 +550,18 @@ func (graph *annotationGraph) collectSourceEdges() {
 							}
 						}
 					}
+				case *ast.SendStmt:
+					call, ok := n.Value.(*ast.CallExpr)
+					if !ok {
+						break
+					}
+					ch, ok := directRootPlace(pkg, n.Chan)
+					if !ok {
+						break
+					}
+					graph.addCallResultEdges(call, 1, func(int) string {
+						return channelSiteKey(ch.Root)
+					}, "channel send call result")
 				case *ast.AssignStmt:
 					if len(n.Lhs) == len(n.Rhs) {
 						for i := range n.Lhs {
