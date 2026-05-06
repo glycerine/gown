@@ -60,18 +60,107 @@ Implemented:
 
 Still missing:
 
-- Broader SSA dataflow beyond the current `GWN001` consumed-place, named
-  borrow-liveness, loop fixpoint, and deferred-effect engine, especially
-  closure aliasing through heap, container, interface, and interprocedural
-  flows, and explicit freeze/clone/unsafe.
+- Explicit intrinsic semantics for `\freeze`, `\clone`, `\new`, `\unsafe`, and
+  expression-level `\mub`/`\rob` beyond token recognition and formatting.
+- Complete receive/select semantics for capability-typed channels.
+- Complete viewpoint adaptation for every outer/field capability combination,
+  especially read-only or immutable roots reaching fields with less restrictive
+  declared capabilities.
+- Full return/result ownership semantics, including returning `\iso` while a
+  derived borrow may still be live and inferred freeze on `\imm` results.
+- Heap, container, interface, and interprocedural alias flow beyond the current
+  conservative frontier/collapse rules.
 - Final emit behavior that inserts nil assignments after consumed `\iso`
-  moves.
-- Semantics for explicit freeze/clone/unsafe beyond token recognition and
-  formatting.
+  moves and implements clone/freeze output.
 - Broader boundary modeling for reflection, `sync`, atomics, and unsafe code.
+- Spec/code cleanup: the language spec's error-code table and older hard
+  `\unsafe` boundary language no longer match the current frontier-based
+  implementation.
 
 This architecture now treats the hybrid AST/types/place plus SSA model as the
 main checker shape rather than just a front-end scaffold.
+
+## May 2026 Repository Snapshot
+
+This update is based on a repository sweep of the current source tree: scanner,
+formatter, capability binding, AST fallback checkers, SSA checkers, tests,
+vectors, CLI code, the language spec, and the existing architecture notes. The
+important conclusion is that the SSA borrow checker is no longer speculative.
+The main checker runner builds SSA unconditionally after `go/packages` load and
+prefers SSA passes whenever `SSAPkg` is available.
+
+What is solid:
+
+- `checker_runner.go` routes all current checker families through SSA-backed
+  implementations first: moved-use/dataflow, call-borrow conflicts, sends,
+  goroutine escapes, closure escapes, stores, returns, untracked-call
+  frontiers, and interface-erasure frontiers.
+- `ssa_gwn001.go` is the real lifetime engine. It runs a forward worklist over
+  SSA basic blocks, tracks consumed roots, proof frontiers, active borrows, and
+  deferred effects, merges state conservatively at CFG joins, and reuses the
+  same engine for deferred closure bodies at function exit.
+- `ssa_named_borrow.go`, `ssa_defer_effect.go`, and `ssa_state.go` cover the
+  hard borrow-lifetime cases already validated by tests: named local
+  `\mub`/`\rob` borrows, branch and loop liveness, deferred borrow extension,
+  deferred closure LIFO behavior, and repeated deferred `\iso` moves.
+- `ssa_place.go` proves the hybrid model. AST/types seed source places;
+  `ssa.GlobalDebug` and `ValueForExpr` connect those places to SSA values; SSA
+  then propagates places through `FieldAddr`, `UnOp`, `Store`, and conservative
+  collapse points such as `IndexAddr`, `Lookup`, and `MakeInterface`.
+- Field-sensitive place keys and overlap checks exist. They distinguish
+  sibling fields for borrows and reject ownership moves from field projections
+  with `GWN011`.
+- Proof frontiers are implemented as `GWN012` inside the SSA moved-use engine:
+  untracked calls, untracked parameters in otherwise annotated calls, and
+  interface erasure end the local proof without rejecting the boundary itself.
+  Later capability-required operations reject the value.
+- Closure escape checking is partly source-flow-sensitive. It tracks local
+  function-valued variables, assignment replacement, branch joins, returned
+  closures, stored closures, and closures passed to untracked calls.
+- The test suite has broad focused coverage for the SSA path: inventory,
+  place propagation, state merges, direct sends/calls/assignments, branches,
+  loops, named borrows, defers, deferred closure CFGs, go statements, stores,
+  returns, closure escapes, proof frontiers, and diagnostic mapping back to
+  `.gown` source.
+
+What remains to finish the SSA borrow checker:
+
+- Replace the current intrinsic placeholders with real semantics. The scanner
+  rewrites `\mub(x)`, `\rob(x)`, `\new(...)`, `\clone(x)`, `\freeze(x)`, and
+  `\unsafe(x)` to analysis identifiers, but the checker and emitter do not yet
+  give those operations their specified capability or output behavior.
+- Implement channel receive and select semantics. Sends are well covered,
+  including inferred freeze-send to `chan \imm`, but receives do not yet bind
+  result capabilities from channel element types, and select-specific branch
+  rules need explicit tests and transfer handling.
+- Finish viewpoint adaptation. Today `capForSSAPlace` can choose a tracked field
+  capability or the root capability, but it does not yet compute the full meet
+  matrix from the spec. In particular, access through `\rob` or `\imm` must
+  force reachable fields to read-only or immutable even if the field declaration
+  is less restrictive.
+- Strengthen return/result transfer checking. Returning borrows is rejected,
+  and frontiered tracked returns are rejected, but `\iso` result moves and
+  inferred freeze for `\imm` results still need the same live-borrow and
+  exclusivity checks as sends/calls.
+- Decide and implement the interprocedural story. Current checking is mostly
+  intraprocedural plus signature/call-site side tables. That is enough for many
+  source examples, but heap/container/interface flows and closure values that
+  cross function boundaries need either summaries or deliberately conservative
+  frontier rules.
+- Model escaping heap and container aliases more completely. Dynamic indexes,
+  maps, interfaces, and unknown stores currently collapse or frontier; this is
+  sound as a first approximation but imprecise and incomplete for real Go.
+- Surface frontier information better. `GWN012` reports the later invalid
+  capability operation, but users will need clearer notes about the earlier
+  frontier that ended the proof.
+- Emit correct Go, not only stripped Go. Normal mode currently writes
+  annotation-erased Go. It still needs nil insertion after `\iso` send/call/
+  assignment/freeze moves and generated or user-directed clone support.
+- Reconcile the written spec with the implementation. The spec still describes
+  hard `\unsafe` boundaries and an older error-code table; the code now uses
+  `GWN003`/`GWN010` for send errors, `GWN008`/`GWN009` as historical frontier
+  test names, `GWN011` for field-projection moves, and `GWN012` for proof
+  frontiers.
 
 ## End-To-End Pipeline
 
@@ -405,12 +494,14 @@ func f(ch chan \iso *T, x \iso *T) {
 Temporary call borrows live for the synchronous call duration only. They do not
 block a later send once the call returns.
 
-Named or escaping borrows are a future feature. If explicit `\mub(x)` syntax is
-enabled later, then this form blocks transfer until the borrow is dead:
+Named local borrows exist today when a local variable is explicitly annotated
+and initialized from an allowed source. Expression-level `\mub(x)` syntax is
+recognized by the scanner but does not yet have checker/emitter semantics. The
+implemented equivalent shape is:
 
 ```go
 func f(ch chan \iso *T, x \iso *T) {
-    b := \mub(x) // future explicit syntax
+    var b \mub *T = x
     ch <- x // error: active borrow in region x
     _ = b
 }
@@ -432,9 +523,8 @@ func f(ch chan \iso *Outer, x \iso *Outer) {
 
 Field-sensitive tracking records place `x.f` during the call. Root transfer of
 `x` requires no live descendant borrows, so this is safe once the call borrow
-has ended. If a future explicit/named borrow of `x.f` remains live, root
-transfer is rejected. A root-only implementation may conservatively collapse
-`x.f` to `x`.
+has ended. If an explicit named borrow of `x.f` remains live, root transfer is
+rejected. A root-only implementation may conservatively collapse `x.f` to `x`.
 
 ### Freeze Requires Exclusivity
 
@@ -454,8 +544,11 @@ func bad(x \iso *T) \imm *T {
 
 Freeze, whether explicit or inferred from return/send context, requires no
 live mutable or read borrows in the region being frozen. For inferred call
-borrows, the lifetime is the call. For future named borrows, instruction-level
-liveness is required; block-level liveness is not precise enough.
+borrows, the lifetime is the call. For named borrows, instruction-level
+liveness is required; block-level liveness is not precise enough. SSA liveness
+for named local borrows is implemented for sends, calls, goroutine calls,
+deferred calls, deferred closures, branches, and loops; explicit `\freeze`
+and inferred return-freeze still need equivalent treatment.
 
 ## Current And Next Implementation Slices
 
@@ -483,9 +576,13 @@ Completed checker slices:
 - `GWN005`: writes through `\rob`/`\imm`.
 - `GWN006`: storing borrows into escaping locations.
 - `GWN007`: returning borrows.
-- `GWN008`/`GWN009`: legacy hard-boundary checks for untracked calls and
-  interface erasure. These have been superseded for ordinary tracked values by
-  proof frontier tracking in `GWN001`.
+- `GWN008`/`GWN009`: historical hard-boundary checks for untracked calls and
+  interface erasure. The active AST and SSA boundary passes now return no hard
+  errors for ordinary tracked values; proof frontier tracking in `GWN001`
+  records the boundary and later reports `GWN012` if code tries to use the
+  value as proven capability again. The closure-escape checker still reports
+  `GWN008` when a closure capturing a non-shareable tracked value is passed to
+  an untracked call.
 - `GWN012`: using a value as a proven capability after its proof has ended at
   an untracked call, untracked parameter, or interface-erasure frontier.
 
@@ -753,12 +850,11 @@ repeated deferred closure `\iso` move rejection, and projected field-move
 rejection. It also tracks proof frontiers for untracked calls, untracked
 parameters of partially annotated calls, and interface erasure, rejecting later
 capability-required operations with `GWN012`. It
-also includes `GWN002` through `GWN010` parity for inferred call-borrow
-conflicts, send capability checks, goroutine borrow escapes, escaping closures
-that capture non-shareable tracked values, read-only writes, borrow stores,
-and returned borrows. These SSA checks are now wired into the main checker
-pipeline, with AST/place
-implementations retained as fallbacks and comparison references.
+also includes SSA-backed checks for inferred call-borrow conflicts, send
+capability checks, goroutine borrow escapes, escaping closures that capture
+non-shareable tracked values, read-only writes, borrow stores, and returned
+borrows. These SSA checks are now wired into the main checker pipeline, with
+AST/place implementations retained as fallbacks and comparison references.
 
 Wiring the SSA runner into the main pipeline exposed one diagnostic lesson:
 operation positions and annotation positions are both valuable, but not
