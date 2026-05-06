@@ -1,6 +1,6 @@
 module github.com/glycerine/gown
 
-go 1.26.2
+go 1.25.3
 
 require (
 	4d63.com/tz v1.2.0
