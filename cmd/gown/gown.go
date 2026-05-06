@@ -14,10 +14,12 @@ const ProgramName = "gown"
 type Config struct {
 	Path      string
 	CheckOnly bool // true means do not overwrite/generate .go
+	Propagate bool // true means rewrite .gown annotations before checking
 }
 
 func (c *Config) DefineFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&c.CheckOnly, "check", false, "do not overwrite .go, only typecheck .gown")
+	fs.BoolVar(&c.Propagate, "propagate", false, "force-propagate implied capability annotations before checking")
 }
 
 func (c *Config) ValidateConfig() error {
@@ -52,6 +54,21 @@ func run(args []string, stderr io.Writer) int {
 	}
 
 	for _, dir := range dirs {
+		if cfg.Propagate {
+			result, err := gown.ForcePropagateAnnotations(dir)
+			if result != nil {
+				if len(result.Edits) > 0 {
+					fmt.Fprintf(stderr, "%s propagated %d annotation edit(s) in %s\n", ProgramName, len(result.Edits), dir)
+				}
+				for _, conflict := range result.Conflicts {
+					fmt.Fprintf(stderr, "%s propagation conflict: %s\n", ProgramName, conflict)
+				}
+			}
+			if err != nil {
+				fmt.Fprintln(stderr, gown.FormatError(err))
+				return 1
+			}
+		}
 		gp := gown.NewGownPackage(dir)
 		if err := gp.CheckWithOptions(gown.CheckOptions{CheckOnly: cfg.CheckOnly}); err != nil {
 			fmt.Fprintln(stderr, gown.FormatError(err))

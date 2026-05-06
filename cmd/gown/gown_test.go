@@ -42,6 +42,19 @@ func main() {
 }
 `
 
+const cliPropagateSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func Take(x *payload) {}
+
+func Use(x \iso *payload) {
+	Take(x)
+}
+`
+
 func TestRunReportsCheckerErrorWithoutPanic(t *testing.T) {
 	dir := writeCLIGownDir(t, "failing.gown", cliFailingSource)
 	var stderr bytes.Buffer
@@ -108,6 +121,33 @@ func TestRunFormatsOriginalGownLineForAnnotatedCheckerError(t *testing.T) {
 	}
 	if strings.Contains(got, "var a      *payload") {
 		t.Fatalf("stderr %q appears to contain stripped .go line", got)
+	}
+}
+
+func TestRunPropagateRewritesGownThenChecks(t *testing.T) {
+	dir := writeCLIGownDir(t, "propagate.gown", cliPropagateSource)
+	path := filepath.Join(dir, "propagate.gown")
+	var stderr bytes.Buffer
+
+	code := run([]string{"-propagate", "-check", dir}, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), `func Take(x \iso *payload)`) {
+		t.Fatalf("-propagate did not rewrite Take parameter:\n%s", got)
+	}
+	if !strings.Contains(stderr.String(), "propagated 1 annotation edit") {
+		t.Fatalf("stderr = %q, want propagation summary", stderr.String())
+	}
+	goPath := filepath.Join(dir, "propagate.go")
+	if _, err := os.Stat(goPath); err == nil {
+		t.Fatalf("-propagate -check wrote generated file %s", goPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
 	}
 }
 

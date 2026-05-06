@@ -64,6 +64,21 @@ type AnnotationReason struct {
 	Reason string `json:"reason"`
 }
 
+type ForcedAnnotationPropagation struct {
+	Dir       string               `json:"dir"`
+	Edits     []AnnotationTextEdit `json:"edits"`
+	Conflicts []string             `json:"conflicts,omitempty"`
+}
+
+type ForcedAnnotationConflicts []string
+
+func (conflicts ForcedAnnotationConflicts) Error() string {
+	if len(conflicts) == 1 {
+		return conflicts[0]
+	}
+	return fmt.Sprintf("%s and %d more propagation conflicts", conflicts[0], len(conflicts)-1)
+}
+
 type annotationDelta struct {
 	kind      string
 	path      string
@@ -172,6 +187,23 @@ func PlanAnnotationTransaction(opts AnnotationTransactionOptions) (*PlannedAnnot
 	}
 	sortAnnotationEdits(txn.Edits)
 	return txn, nil
+}
+
+func ForcePropagateAnnotations(dir string) (*ForcedAnnotationPropagation, error) {
+	gp := NewGownPackage(dir)
+	analysis, err := gp.AnalyzeWithOptions(CheckOptions{CheckOnly: true})
+	if analysis == nil {
+		return nil, err
+	}
+	graph := buildAnnotationGraph(analysis, nil)
+	result := graph.planForcedPropagation(dir)
+	if len(result.Conflicts) > 0 {
+		return result, ForcedAnnotationConflicts(result.Conflicts)
+	}
+	if err := applyAnnotationEdits(result.Edits); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func detectAnnotationDelta(path string, before, after []byte) (annotationDelta, error) {
@@ -467,6 +499,9 @@ func (graph *annotationGraph) collectSourceEdges() {
 				continue
 			}
 			fnObj, _ := pkg.TypesInfo.Defs[fn.Name].(*types.Func)
+			if fnObj == nil {
+				continue
+			}
 			sig, _ := fnObj.Type().(*types.Signature)
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				switch n := n.(type) {
@@ -483,9 +518,22 @@ func (graph *annotationGraph) collectSourceEdges() {
 					}
 				case *ast.ReturnStmt:
 					if sig != nil {
+						if len(n.Results) == 1 {
+							if call, ok := n.Results[0].(*ast.CallExpr); ok {
+								graph.addCallResultEdges(call, sig.Results().Len(), func(i int) string {
+									return objectSiteKey(sig.Results().At(i))
+								}, "return call result")
+							}
+						}
 						for i, expr := range n.Results {
 							if i < sig.Results().Len() {
 								graph.addEdge(objectSiteKey(sig.Results().At(i)), graph.exprSiteKey(expr), "return result")
+								if call, ok := expr.(*ast.CallExpr); ok {
+									resultIndex := i
+									graph.addCallResultEdges(call, 1, func(int) string {
+										return objectSiteKey(sig.Results().At(resultIndex))
+									}, "return call result")
+								}
 							}
 						}
 					}
@@ -495,17 +543,73 @@ func (graph *annotationGraph) collectSourceEdges() {
 							graph.addEdge(graph.exprSiteKey(n.Lhs[i]), graph.exprSiteKey(n.Rhs[i]), "assignment")
 						}
 					}
+					if len(n.Rhs) == 1 {
+						if call, ok := n.Rhs[0].(*ast.CallExpr); ok {
+							graph.addCallResultEdges(call, len(n.Lhs), func(i int) string {
+								return graph.exprSiteKey(n.Lhs[i])
+							}, "call result assignment")
+						}
+					} else if len(n.Lhs) == len(n.Rhs) {
+						for i, rhs := range n.Rhs {
+							call, ok := rhs.(*ast.CallExpr)
+							if !ok {
+								continue
+							}
+							lhsIndex := i
+							graph.addCallResultEdges(call, 1, func(int) string {
+								return graph.exprSiteKey(n.Lhs[lhsIndex])
+							}, "call result assignment")
+						}
+					}
 				case *ast.ValueSpec:
+					if len(n.Values) == 1 {
+						if call, ok := n.Values[0].(*ast.CallExpr); ok {
+							graph.addCallResultEdges(call, len(n.Names), func(i int) string {
+								obj, _ := pkg.TypesInfo.Defs[n.Names[i]].(*types.Var)
+								return objectSiteKey(obj)
+							}, "call result initialization")
+						}
+					}
 					for i, name := range n.Names {
 						if i < len(n.Values) {
 							obj, _ := pkg.TypesInfo.Defs[name].(*types.Var)
 							graph.addEdge(objectSiteKey(obj), graph.exprSiteKey(n.Values[i]), "variable initialization")
+							if call, ok := n.Values[i].(*ast.CallExpr); ok {
+								nameIndex := i
+								graph.addCallResultEdges(call, 1, func(int) string {
+									obj, _ := pkg.TypesInfo.Defs[n.Names[nameIndex]].(*types.Var)
+									return objectSiteKey(obj)
+								}, "call result initialization")
+							}
 						}
 					}
 				}
 				return true
 			})
 		}
+	}
+}
+
+func (graph *annotationGraph) addCallResultEdges(call *ast.CallExpr, targetCount int, targetKey func(int) string, reason string) {
+	if call == nil || targetCount == 0 {
+		return
+	}
+	callee := callCallee(graph.analysis.Package, call)
+	if callee == nil {
+		return
+	}
+	sig, _ := callee.Type().(*types.Signature)
+	if sig == nil || sig.Results() == nil || sig.Results().Len() == 0 {
+		return
+	}
+	results := sig.Results()
+	if targetCount != results.Len() {
+		if targetCount != 1 || results.Len() != 1 {
+			return
+		}
+	}
+	for i := 0; i < results.Len() && i < targetCount; i++ {
+		graph.addEdge(objectSiteKey(results.At(i)), targetKey(i), reason)
 	}
 }
 
@@ -611,6 +715,135 @@ func (graph *annotationGraph) planAddOrConvert(txn *PlannedAnnotationTransaction
 			txn.Edits = append(txn.Edits, edit)
 		}
 	}
+}
+
+func (graph *annotationGraph) planForcedPropagation(dir string) *ForcedAnnotationPropagation {
+	result := &ForcedAnnotationPropagation{Dir: dir}
+	seen := make(map[string]bool)
+	editByKey := make(map[string]AnnotationTextEdit)
+
+	for key := range graph.sites {
+		if seen[key] {
+			continue
+		}
+		component := graph.connectedComponent(key)
+		for _, componentSite := range component {
+			seen[componentSite.key] = true
+		}
+		cap, roots, conflicts := graph.componentCapability(component)
+		if len(conflicts) > 0 {
+			result.Conflicts = append(result.Conflicts, conflicts...)
+			continue
+		}
+		if cap == CapUntracked {
+			continue
+		}
+		for _, site := range component {
+			if site.cap == cap {
+				continue
+			}
+			if site.chanElem && cap != CapIso && cap != CapImm {
+				result.Conflicts = append(result.Conflicts,
+					fmt.Sprintf("%s implies %s for channel element %s, but channel elements may only be \\iso or \\imm",
+						strings.Join(roots, ", "), cap, site.label))
+				continue
+			}
+			edit, ok := graph.editForSite(site, cap, "forced propagation from "+strings.Join(roots, ", "))
+			if !ok {
+				continue
+			}
+			editKey := fmt.Sprintf("%s:%d:%d:%s", edit.Path, edit.Start, edit.End, edit.NewText)
+			editByKey[editKey] = edit
+		}
+	}
+	for _, edit := range editByKey {
+		result.Edits = append(result.Edits, edit)
+	}
+	sortAnnotationEdits(result.Edits)
+	sort.Strings(result.Conflicts)
+	return result
+}
+
+func (graph *annotationGraph) connectedComponent(start string) []*annotationSite {
+	seen := make(map[string]bool)
+	queue := []string{start}
+	seen[start] = true
+	var component []*annotationSite
+	for len(queue) > 0 {
+		key := queue[0]
+		queue = queue[1:]
+		if site := graph.sites[key]; site != nil {
+			component = append(component, site)
+		}
+		for _, edge := range graph.edges[key] {
+			if !seen[edge.to] {
+				seen[edge.to] = true
+				queue = append(queue, edge.to)
+			}
+		}
+	}
+	return component
+}
+
+func (graph *annotationGraph) componentCapability(component []*annotationSite) (Cap, []string, []string) {
+	cap := CapUntracked
+	var roots []string
+	var conflicts []string
+	for _, site := range component {
+		if !capTracked(site.cap) || site.ann == nil {
+			continue
+		}
+		roots = append(roots, site.label+" "+site.cap.String())
+		if cap == CapUntracked {
+			cap = site.cap
+			continue
+		}
+		if cap != site.cap {
+			conflicts = append(conflicts,
+				fmt.Sprintf("conflicting annotations in implied set: %s wants %s but %s is %s",
+					strings.Join(roots[:len(roots)-1], ", "), cap, site.label, site.cap))
+		}
+	}
+	sort.Strings(roots)
+	return cap, roots, conflicts
+}
+
+func applyAnnotationEdits(edits []AnnotationTextEdit) error {
+	byPath := make(map[string][]AnnotationTextEdit)
+	for _, edit := range edits {
+		byPath[edit.Path] = append(byPath[edit.Path], edit)
+	}
+	for path, pathEdits := range byPath {
+		sortAnnotationEdits(pathEdits)
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		next := append([]byte(nil), src...)
+		for _, edit := range pathEdits {
+			if edit.Start < 0 || edit.End < edit.Start || edit.End > len(next) {
+				return fmt.Errorf("%s: invalid edit range [%d,%d)", path, edit.Start, edit.End)
+			}
+			if edit.OldText != "" && string(next[edit.Start:edit.End]) != edit.OldText {
+				return fmt.Errorf("%s: edit at offset %d expected %q, found %q",
+					path, edit.Start, edit.OldText, string(next[edit.Start:edit.End]))
+			}
+			replacement := []byte(edit.NewText)
+			updated := make([]byte, 0, len(next)-(edit.End-edit.Start)+len(replacement))
+			updated = append(updated, next[:edit.Start]...)
+			updated = append(updated, replacement...)
+			updated = append(updated, next[edit.End:]...)
+			next = updated
+		}
+		if err := os.WriteFile(path, next, info.Mode().Perm()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (graph *annotationGraph) editForSite(site *annotationSite, cap Cap, reason string) (AnnotationTextEdit, bool) {
