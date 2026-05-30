@@ -73,6 +73,8 @@ const gownIntrinsicSource = `package example
 
 type Msg struct{}
 
+func (m *Msg) Clone() *Msg { return &Msg{} }
+
 func UseMub(x \iso *Msg) {
 	b := \mub(x)
 	_ = b

@@ -8,6 +8,8 @@ type payload struct {
 	Data string
 }
 
+func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+
 func main() {
 	var x \imm *payload
 	ch := make(chan \iso *payload)
@@ -90,6 +92,8 @@ const gownSelectCloneSendSource = `package example
 type payload struct {
 	Data string
 }
+
+func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
 
 func main(ch chan \iso *payload) {
 	var x \imm *payload

@@ -66,19 +66,18 @@ Implemented:
   generated `.go` files into the package directory.
 - Normal mode emits semantic Go for the current straightforward cases:
   capability qualifiers are erased, borrow/unsafe/freeze intrinsics lower to
-  their argument, `\new(T{...})` lowers to `&T{...}`, and direct consumed
-  `\iso` sends/calls/assignments/defers/freezes insert `x = nil`. Normal emit
-  rejects `\clone` until a real clone implementation is configured or
-  generated.
+  their argument, `\new(T{...})` lowers to `&T{...}`, `\clone(x)` lowers to
+  `(x).Clone()` after same-type `Clone` validation, and direct consumed `\iso`
+  sends/calls/assignments/defers/freezes insert `x = nil`.
 - `gownfmt` formats `.gown` source through `go/format` while preserving Gown
   annotations.
 
 Still missing or deliberately conservative:
 
-- `\clone(x)` currently type-checks as a fresh source-less `\iso` for local
-  analysis, but normal emit rejects it. Production emit needs a configured
-  clone hook or generated clone implementation; it must not silently shallow
-  copy pointer graphs.
+- `\clone(x)` currently type-checks as a fresh source-less `\iso` and emits to
+  `(x).Clone()` when the exact static argument type is a named struct `T` with
+  `Clone() T`, or `*T` with `Clone() *T`. This is a trusted user proof that the
+  method returns an independent value.
 - Heap, container, interface, and interprocedural alias flow are conservative:
   `\iso` stores to escaping locations become proof frontiers, borrows stored
   into escaping locations remain hard errors, and function summaries are still
@@ -136,10 +135,9 @@ What is solid:
 
 What remains to finish the SSA borrow checker:
 
-- Decide the final clone story. The checker can treat `\clone(x)` as producing
-  a fresh local `\iso`, but final emit must not silently shallow-copy object
-  graphs. The next design decision is whether clone comes from generated code,
-  a user-supplied hook, or an explicit interface.
+- Expand clone policy only if needed. The current same-type `Clone` hook is
+  intentionally small and auditable; future work may add generated clone helpers
+  or broader clone contracts.
 - Refine heap/container/interface precision. The current model is sound and
   conservative: escaping `\iso` stores become frontiers, borrow stores hard
   error, map stores frontier, and interface erasure frontiers. More precision
@@ -168,8 +166,8 @@ The target pipeline is:
 
 1. Scan `.gown` and record every Gown token as an `Annotation`.
 2. Classify each token. The mainline syntax is capability type qualifiers.
-   Explicit unsafe or intrinsic-like expression forms can be scanned and
-   formatted today, but most checker semantics are future work.
+   Explicit unsafe and intrinsic-like expression forms are scanned into side
+   tables and rewritten to analysis-only placeholders.
 3. Produce analysis Go:
    - Replace capability type qualifiers with spaces.
    - Leave ordinary Go expressions unchanged.
@@ -269,8 +267,8 @@ type Annotation struct {
 - Channel element capabilities for `chan \iso *T` and `chan \imm *T`.
 - Call-site bindings that record the callee's expected parameter/result
   capabilities, enabling inferred temporary borrows and ownership moves.
-- Optional explicit-operation annotations for expression syntax such as
-  `\unsafe(x)` or `\clone(x)`, whose semantics are still mostly future work.
+- Explicit-operation annotations for expression syntax such as `\unsafe(x)`,
+  `\clone(x)`, `\freeze(x)`, `\mub(x)`, and `\rob(x)`.
 - Source locations for diagnostics in original `.gown` files.
 
 SSA values are not enough to model Gown ownership. The checker must also track

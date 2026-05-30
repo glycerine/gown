@@ -66,9 +66,15 @@ func collectIntrinsicEmitEdits(pkg *packages.Package, caps *CapabilityIndex, gf 
 			}
 			replacement = append([]byte("&"), arg...)
 		case IntrinsicClone:
-			pos := pkg.Fset.Position(binding.Call.Pos())
-			return nil, fmt.Errorf("%s:%d:%d: cannot emit \\clone without a configured clone implementation",
-				gownSourcePath(pos.Filename), pos.Line, pos.Column)
+			if err, ok := checkCloneIntrinsic(pkg.TypesInfo, binding); ok {
+				return nil, err
+			}
+			arg := nodeText(pkg, src, binding.Arg)
+			if len(arg) == 0 {
+				continue
+			}
+			replacement = append([]byte("("), arg...)
+			replacement = append(replacement, []byte(").Clone()")...)
 		default:
 			continue
 		}

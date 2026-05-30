@@ -620,7 +620,7 @@ they do not exist as Go functions and are fully erased on output.
 | Built-in         | Input         | Output        | Erases to             |
 |------------------|---------------|---------------|-----------------------|
 | `\new(...)`      | struct literal| `\iso *T`     | `&T{...}`             |
-| `\clone(x)`      | any `*T`      | `\iso *T`     | deep copy             |
+| `\clone(x)`      | `T` or `*T` with same-type `Clone` | fresh `\iso` same type | `(x).Clone()` |
 | `\mub(x)`        | `\iso *T`     | `\mub *T`     | plain assignment      |
 | `\rob(x)`        | `\iso *T`     | `\rob *T`     | plain assignment      |
 | `\rob(x)`        | `\imm *T`     | `\rob *T`     | plain assignment      |
@@ -630,13 +630,12 @@ they do not exist as Go functions and are fully erased on output.
 `\new` is the preferred constructor for `\iso` values. It guarantees the
 returned pointer is freshly allocated with no existing aliases.
 
-`\clone` performs a deep copy of its argument and returns a fresh `\iso`. The
-source may have any capability, including untracked. The returned `\iso` shares
-no memory with the original. `\clone` is the primary on-ramp for adapting
-existing Go code to the capability system — it creates a capability-tracked
-value from an untracked source. The transpiler emits a deep copy function call;
-the specific implementation is provided by a generated helper or a
-user-specified clone method.
+`\clone` performs a trusted user-defined copy and returns a fresh `\iso`. If
+`x` has static type `T`, that exact type must define `Clone() T`; if `x` has
+static type `*T`, that exact type must define `Clone() *T`. In v1, `T` must be
+a named struct type. The source may have any capability, including untracked,
+and is not consumed. The returned `\iso` is trusted to share no mutable memory
+with the original. The transpiler emits `(x).Clone()`.
 
 ---
 
@@ -670,7 +669,7 @@ numbers where possible.
 | `\freeze(x)`               | `dst := x; x = nil`           |
 | `\mub(x)`                  | `b := x`                      |
 | `\rob(x)`                  | `r := x`                      |
-| `\clone(x)`                | deep copy function call        |
+| `\clone(x)`                | `(x).Clone()`                  |
 | `\new(...)`                | `&T{...}`                      |
 | `\unsafe(x)`               | `x`                            |
 

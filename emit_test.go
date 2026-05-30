@@ -134,13 +134,48 @@ func main() {
 	requireNotContains(t, out, "z = nil")
 }
 
-func TestEmitCloneRequiresConfiguredImplementation(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"clone.gown": `package example
+func TestEmitCloneLowersToSameTypeCloneMethod(t *testing.T) {
+	out := emitGownSource(t, "clone.gown", `package example
+
+type payload struct{ Data string }
+
+func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+
+func main() {
+	var x *payload
+	y := \clone(x)
+	_, _ = x, y
+}
+`)
+
+	requireContains(t, out, "y := (x).Clone()")
+	requireNotContains(t, out, `\clone`)
+}
+
+func TestEmitCloneCallArgumentLowersWithParens(t *testing.T) {
+	out := emitGownSource(t, "clone_call.gown", `package example
+
+type payload struct{ Data string }
+
+func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+
+func Get() *payload { return &payload{} }
+
+func main(ch chan \iso *payload) {
+	ch <- \clone(Get())
+}
+`)
+
+	requireContains(t, out, "ch <- (Get()).Clone()")
+}
+
+func TestEmitCloneFailsClosedWhenInvalid(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"clone_invalid.gown": `package example
 
 type payload struct{ Data string }
 
 func main() {
-	var x \imm *payload
+	var x *payload
 	y := \clone(x)
 	_, _ = x, y
 }
@@ -148,10 +183,10 @@ func main() {
 	gp := NewGownPackage(dir)
 	err := gp.Check()
 	if err == nil {
-		t.Fatal("expected clone emit error, got nil")
+		t.Fatal("expected clone checker error, got nil")
 	}
-	if !strings.Contains(err.Error(), "cannot emit \\clone") {
-		t.Fatalf("clone emit error = %v", err)
+	if !strings.Contains(err.Error(), "Clone()") {
+		t.Fatalf("clone checker error = %v", err)
 	}
 }
 

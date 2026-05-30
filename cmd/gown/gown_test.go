@@ -61,6 +61,8 @@ type payload struct {
 	Data string
 }
 
+func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+
 func main(x \iso *payload) {
 	b := \mub(x)
 	r := \rob(x)

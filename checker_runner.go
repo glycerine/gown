@@ -14,6 +14,7 @@ type CheckerContext struct {
 type CheckerPass func(*CheckerContext) CheckerErrors
 
 var checkerPasses = []CheckerPass{
+	checkCloneIntrinsics,
 	checkMovedUses,
 	checkCallBorrows,
 	checkSends,
