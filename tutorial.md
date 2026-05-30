@@ -1,17 +1,63 @@
-# Gown Tutorial: Capability Annotations for Go
+# Gown Tutorial: Gown = Go + Ownership. 
 
-Gown is Go with a small set of capability annotations. A capability tells the
-checker what kind of access a piece of code has to a value: unique ownership,
-local mutation, read-only access, or immutable sharing.
+The Gown pre-processor allows the Gop developer
+to describe pointer ownership and data immutability, and thus
+catches data-races in Go code at compile time.
 
-The goal is to make data-race freedom visible in the source code. You write
-`.gown` files, Gown checks them, and then Gown emits ordinary `.go` files with
-the annotations erased.
+## overview
 
-This tutorial is a beginner-friendly tour. For the full formal reference, see
-`gown-spec.md`.
+Inspired a little by Rust, and alot by Pony's 
+capability-ownership system, Gown is a pre-processor 
+for Go source that statically detects use-after-move
+data-races at compile time. 
 
-## The Core Idea
+Gown is much simpler than Pony. Gown is also 
+much, much simpler than Rust. Rust requires lifetime
+annotations, Gown does not. Pony has six capability
+annotations. Gown has only four.
+
+In one line, the summary of Gown would be: 
+channel sends can now enforce at compile time the former 
+"convention only" transfer of ownership.
+
+The most common data race in my own Go programs is simultaneous access after
+I have sent data to another goroutine over a channel. 
+
+Gown aims to catch that mistake early, long before runtime.
+
+To do this Gown analyzes the SSA form of a Go package. It
+will conservatively reject programs that it cannot prove
+correct. Thus some re-arrangement of pointer manipulation,
+aiming for provable safety, may be required, particularly
+after a select{} statement that sends an \iso pointer. To my thinking,
+this is a small inconvenience in exchange for data-race freedom.
+
+## introduction
+
+In Gown there are only four core annotations
+on pointers: \iso for single-owner (isolated) mutable data, \imm for
+immutable data, \mub for mutable borrow, and \rob for read-only borrowed data.
+
+The annotations are also called capabilities. There
+are also some helpers like \new and \clone which create new \iso
+pointers that we will get to later in this tutorial. For now we concentrate
+on the capability definitions.
+
+Each capability tells the Gown checker what kind of 
+access a piece of code has to a value: unique ownership (\iso),
+local mutation (\mub), read-only access (\rob), or 
+immutable and thus safe for sharing (\imm)
+
+As a pre-processor, Gown aims to check for data-races before Go
+compilation starts. You write `.gown` files, Gown checks them, 
+and then Gown emits ordinary `.go` files with the annotations erased.
+
+This tutorial is an introduction and starting point. For the 
+full formal reference, see `gown-spec.md`. The formal proof
+of soundness are in the theory-proof.md and theory-proof-gemini-v2.md
+files, which are backed by a `Gown.lean` LEAN proof.
+
+### the core idea
 
 In ordinary Go, a pointer does not say much about who else might hold the same
 pointer. That is flexible, but it can make concurrent programs hard to reason
@@ -39,7 +85,7 @@ The four core annotations are:
 | `\rob` | read-only borrow | no | no | temporary local reading |
 | `\imm` | immutable | no | yes, by sharing | safe to share freely |
 
-## Annotation Syntax
+## annotation syntax
 
 Capability annotations appear before the `*` in pointer types:
 
@@ -112,7 +158,7 @@ func main() {
 Rebinding is common. The important rule is that the new value must itself be a
 valid `\iso` value.
 
-### Assignment Moves Ownership
+### assignment moves ownership
 
 Assigning one `\iso` variable to another is also a move.
 
@@ -128,7 +174,7 @@ func main() {
 }
 ```
 
-### Sending `\iso` On A Channel
+### sending `\iso` on a channel
 
 An `\iso` value can be sent across a channel whose element type is `\iso`.
 
@@ -154,7 +200,7 @@ func worker(ch chan \iso *Buffer) {
 }
 ```
 
-## `\mub`: Mutable Borrow
+## `\mub`: mutable borrow
 
 Use `\mub` when a function needs to mutate a value temporarily, but should not
 take ownership of it.
@@ -204,7 +250,7 @@ func Bad(ch chan \iso *Buffer, b \mub *Buffer) {
 Use `\mub` for ordinary local mutation. It is the annotation that most closely
 matches normal single-goroutine Go pointer use.
 
-## `\rob`: Read-Only Borrow
+## `\rob`: read-only borrow
 
 Use `\rob` when a function should be allowed to inspect a value but not mutate
 it.
@@ -253,7 +299,7 @@ func main() {
 `\rob` is also goroutine-local. It is read-only, but it is still a borrow, not
 a shareable value. Use `\imm` when you want safe sharing across goroutines.
 
-## `\imm`: Deep Immutable Sharing
+## `\imm`: deeply immutable (always sharable)
 
 Use `\imm` when many parts of the program may share the same value, including
 different goroutines, and none of them may mutate it.
@@ -304,7 +350,7 @@ func Bad(b \imm *Buffer) {
 }
 ```
 
-## The Built-In Operations
+## built-ins
 
 Gown has a small set of built-in operations. They look like function calls, but
 they are preprocessor constructs.
@@ -409,7 +455,7 @@ func main() {
 `\unsafe` is intentionally visible and searchable. It is the place where the
 programmer says, "I know something the checker cannot verify."
 
-## Function Patterns
+## function patterns
 
 A useful way to learn Gown is to compare the same API shape under different
 annotations.
@@ -459,7 +505,7 @@ The key distinction:
 | `\rob` | caller lends read-only access temporarily |
 | `\imm` | caller shares immutable access |
 
-## Channel Patterns
+## channel patterns
 
 Channels are where the difference between moving and sharing becomes very
 important.
@@ -483,7 +529,7 @@ func consumer(ch chan \iso *Buffer) {
 }
 ```
 
-### Immutable Broadcast Channel
+### immutable broadcast channel
 
 Use `chan \imm *T` when many receivers may safely share the same data.
 
@@ -498,7 +544,7 @@ func publish(ch chan \imm *Buffer) {
 }
 ```
 
-### Sending A Clone
+### sending a clone
 
 When you want to keep a local value but send a fresh owned copy, clone at the
 send site.
@@ -512,7 +558,7 @@ func publishCopies(ch chan \iso *Buffer, template \rob *Buffer) {
 
 The channel receives fresh `\iso` values. The template is not consumed.
 
-## Struct Fields
+## struct fields
 
 Struct fields may also carry capability annotations.
 
@@ -547,7 +593,7 @@ For beginners, it is enough to remember:
   read-only too.
 - Be careful moving ownership out of fields; prefer explicit helper functions.
 
-## Common Errors
+## common errors
 
 Gown reports structured errors with codes. These are the ones beginners usually
 hit first.
@@ -561,7 +607,7 @@ hit first.
 | `GWN010` | invalid capability conversion, channel mismatch, or clone shape | adjust the annotation or method signature |
 | `GWN012` | tried to use a value as tracked after a proof frontier | keep it tracked or use an explicit unsafe boundary |
 
-## A Small Complete Example
+## a small complete example
 
 This example uses ownership transfer for work items and immutable sharing for
 configuration.
@@ -636,7 +682,7 @@ What happened here:
 - `Size` borrowed each request read-only.
 - `Finish` consumed each request.
 
-## Exercises
+## exercises
 
 Try these changes in small `.gown` files:
 
@@ -652,7 +698,7 @@ Try these changes in small `.gown` files:
    to use `b`.
 6. Try to send a `\mub *Buffer` on a channel and explain why Gown rejects it.
 
-## Quick Reference
+## quick reference
 
 Use `\iso` when there is exactly one mutable owner.
 
