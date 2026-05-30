@@ -1,6 +1,6 @@
-# Gown Tutorial: Gown = Go + Ownership. 
+# Go + Ownership = Gown. the Gown tutorial
 
-The Gown pre-processor allows the Gop developer
+The Gown pre-processor allows the Go developer
 to describe pointer ownership and data immutability, and thus
 catches data-races in Go code at compile time.
 
