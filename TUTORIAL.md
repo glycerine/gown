@@ -53,7 +53,7 @@ compilation starts. You write `.gown` files, Gown checks them,
 and then Gown emits ordinary `.go` files with the annotations erased.
 
 This tutorial is an introduction and starting point. For the 
-full formal reference, see `gown-spec.md`. The formal proof
+full formal reference, see `gown-spec.md`. The formal proofs
 of soundness are in the theory-proof.md and theory-proof-gemini-v2.md
 files, which are backed by a `Gown.lean` LEAN proof.
 
