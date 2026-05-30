@@ -397,7 +397,7 @@ Example:
 ```go
 func (b *Buffer) Clone() *Buffer {
     cp := *b
-    cp.Data = append([]byte(nil), b.Data...)
+    cp.Data = append([]byte{}, b.Data...)
     return &cp
 }
 
@@ -625,7 +625,7 @@ type Request struct {
 
 func (r *Request) Clone() *Request {
     cp := *r
-    cp.Body = append([]byte(nil), r.Body...)
+    cp.Body = append([]byte{}, r.Body...)
     return &cp
 }
 
