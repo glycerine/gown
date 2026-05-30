@@ -112,7 +112,7 @@ All Gown annotations begin with `\`. If an annotation accidentally leaks into
 generated Go, the Go compiler will reject it. That makes annotation leakage
 fail fast instead of silently changing the program.
 
-## `\iso`: Isolated Ownership
+## `\iso`: isolated ownership
 
 Use `\iso` when one part of the program owns a mutable value uniquely.
 
@@ -141,7 +141,7 @@ func main() {
 Passing an `\iso` to a parameter declared `\iso` transfers ownership to the
 callee. The caller must stop using the old variable.
 
-### Rebinding After A Move
+### rebinding after a move
 
 A moved variable can be used again after it is assigned a fresh valid value.
 
