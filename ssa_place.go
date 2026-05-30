@@ -11,12 +11,14 @@ import (
 type SSAPlaceIndex struct {
 	ValuePlaces       map[ssa.Value]Place
 	InstructionPlaces map[ssa.Instruction]Place
+	AmbiguousValues   map[ssa.Value]bool
 }
 
 func buildSSAPlaceIndex(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) *SSAPlaceIndex {
 	idx := &SSAPlaceIndex{
 		ValuePlaces:       make(map[ssa.Value]Place),
 		InstructionPlaces: make(map[ssa.Instruction]Place),
+		AmbiguousValues:   make(map[ssa.Value]bool),
 	}
 	if pkg == nil || ssaPkg == nil {
 		return idx
@@ -44,6 +46,13 @@ func (idx *SSAPlaceIndex) PlaceForValue(value ssa.Value) (Place, bool) {
 	return place, ok
 }
 
+func (idx *SSAPlaceIndex) ValuePlaceAmbiguous(value ssa.Value) bool {
+	if idx == nil || value == nil {
+		return false
+	}
+	return idx.AmbiguousValues[value]
+}
+
 func (idx *SSAPlaceIndex) PlaceForInstruction(instr ssa.Instruction) (Place, bool) {
 	if idx == nil || instr == nil {
 		return Place{}, false
@@ -64,31 +73,57 @@ func (idx *SSAPlaceIndex) seedGlobals(ssaPkg *ssa.Package) {
 			continue
 		}
 		if obj, ok := global.Object().(*types.Var); ok {
-			idx.ValuePlaces[global] = Place{Root: obj}
+			idx.setValuePlace(global, Place{Root: obj})
 		}
 	}
 }
 
 func (idx *SSAPlaceIndex) seedFromASTPlaces(pkg *packages.Package, ssaPkg *ssa.Package, places *PlaceIndex) {
 	for _, fn := range collectSSAFunctions(ssaPkg) {
-		for _, file := range pkg.Syntax {
-			ast.Inspect(file, func(n ast.Node) bool {
-				expr, ok := n.(ast.Expr)
-				if !ok {
-					return true
-				}
-				place, ok := places.PlaceForExpr(expr)
-				if !ok {
-					return true
-				}
-				value, _ := fn.ValueForExpr(expr)
-				if value != nil {
-					idx.ValuePlaces[value] = place
-				}
-				return true
-			})
+		syntax := fn.Syntax()
+		if syntax == nil {
+			continue
 		}
+		skips := sourceValueSeedSkips(syntax)
+		ast.Inspect(syntax, func(n ast.Node) bool {
+			expr, ok := n.(ast.Expr)
+			if !ok {
+				return true
+			}
+			if skips[expr] {
+				return true
+			}
+			place, ok := places.PlaceForExpr(expr)
+			if !ok {
+				return true
+			}
+			value, _ := fn.ValueForExpr(expr)
+			if value != nil {
+				idx.setValuePlace(value, place)
+			}
+			return true
+		})
 	}
+}
+
+func sourceValueSeedSkips(syntax ast.Node) map[ast.Expr]bool {
+	skips := make(map[ast.Expr]bool)
+	ast.Inspect(syntax, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			for _, lhs := range n.Lhs {
+				skips[lhs] = true
+			}
+		case *ast.ValueSpec:
+			if len(n.Values) > 0 {
+				for _, name := range n.Names {
+					skips[name] = true
+				}
+			}
+		}
+		return true
+	})
+	return skips
 }
 
 func (idx *SSAPlaceIndex) propagateSSAPlaces(ssaPkg *ssa.Package) {
@@ -96,34 +131,123 @@ func (idx *SSAPlaceIndex) propagateSSAPlaces(ssaPkg *ssa.Package) {
 		for _, block := range fn.Blocks {
 			for _, instr := range block.Instrs {
 				switch instr := instr.(type) {
+				case *ssa.ChangeInterface:
+					idx.propagateValuePlace(instr, instr.X)
+				case *ssa.ChangeType:
+					idx.propagateValuePlace(instr, instr.X)
+				case *ssa.Convert:
+					idx.propagateValuePlace(instr, instr.X)
 				case *ssa.FieldAddr:
 					if place, ok := idx.fieldAddrPlace(instr); ok {
-						idx.ValuePlaces[instr] = place
+						idx.forceValuePlace(instr, place)
+						if idx.ValuePlaceAmbiguous(instr.X) {
+							idx.AmbiguousValues[instr] = true
+						}
 					}
 				case *ssa.IndexAddr:
 					if place, ok := idx.PlaceForValue(instr.X); ok {
-						idx.ValuePlaces[instr] = collapsePlace(place)
+						idx.forceValuePlace(instr, collapsePlace(place))
+						if idx.ValuePlaceAmbiguous(instr.X) {
+							idx.AmbiguousValues[instr] = true
+						}
 					}
 				case *ssa.Lookup:
 					if place, ok := idx.PlaceForValue(instr.X); ok {
-						idx.ValuePlaces[instr] = collapsePlace(place)
+						idx.forceValuePlace(instr, collapsePlace(place))
+						if idx.ValuePlaceAmbiguous(instr.X) {
+							idx.AmbiguousValues[instr] = true
+						}
 					}
 				case *ssa.MakeInterface:
 					if place, ok := idx.PlaceForValue(instr.X); ok {
-						idx.ValuePlaces[instr] = collapsePlace(place)
+						idx.forceValuePlace(instr, collapsePlace(place))
+						if idx.ValuePlaceAmbiguous(instr.X) {
+							idx.AmbiguousValues[instr] = true
+						}
+					}
+				case *ssa.Phi:
+					if place, ok := idx.phiPlace(instr); ok {
+						idx.forceValuePlace(instr, place)
 					}
 				case *ssa.Store:
 					if place, ok := idx.PlaceForValue(instr.Addr); ok {
 						idx.InstructionPlaces[instr] = place
 					}
 				case *ssa.UnOp:
-					if place, ok := idx.PlaceForValue(instr.X); ok {
-						idx.ValuePlaces[instr] = place
-					}
+					idx.propagateValuePlace(instr, instr.X)
 				}
 			}
 		}
 	}
+}
+
+func (idx *SSAPlaceIndex) setValuePlace(value ssa.Value, place Place) {
+	if idx == nil || value == nil || place.Root == nil {
+		return
+	}
+	if existing, ok := idx.ValuePlaces[value]; ok && existing.Key() != place.Key() {
+		if isBareFieldPlace(existing) && !isBareFieldPlace(place) {
+			idx.ValuePlaces[value] = place
+			return
+		}
+		if !isBareFieldPlace(existing) && isBareFieldPlace(place) {
+			return
+		}
+		idx.AmbiguousValues[value] = true
+		return
+	}
+	idx.ValuePlaces[value] = place
+}
+
+func (idx *SSAPlaceIndex) forceValuePlace(value ssa.Value, place Place) {
+	if idx == nil || value == nil || place.Root == nil {
+		return
+	}
+	idx.ValuePlaces[value] = place
+}
+
+func (idx *SSAPlaceIndex) propagateValuePlace(dst ssa.Value, src ssa.Value) {
+	if place, ok := idx.PlaceForValue(src); ok {
+		idx.forceValuePlace(dst, place)
+		if idx.ValuePlaceAmbiguous(src) {
+			idx.AmbiguousValues[dst] = true
+		}
+	}
+}
+
+func isBareFieldPlace(place Place) bool {
+	if place.Root == nil || len(place.Projection) != 0 || place.Collapsed {
+		return false
+	}
+	field, ok := place.Root.(*types.Var)
+	return ok && field.IsField()
+}
+
+func (idx *SSAPlaceIndex) phiPlace(instr *ssa.Phi) (Place, bool) {
+	if instr == nil || len(instr.Edges) == 0 {
+		return Place{}, false
+	}
+	var out Place
+	var outKey PlaceKey
+	for _, edge := range instr.Edges {
+		if idx.ValuePlaceAmbiguous(edge) {
+			return Place{}, false
+		}
+		place, ok := idx.PlaceForValue(edge)
+		if !ok || place.Root == nil {
+			return Place{}, false
+		}
+		key := place.Key()
+		if out.Root == nil {
+			out = place
+			outKey = key
+			continue
+		}
+		if key != outKey {
+			return Place{}, false
+		}
+	}
+	return out, out.Root != nil
 }
 
 func (idx *SSAPlaceIndex) fieldAddrPlace(instr *ssa.FieldAddr) (Place, bool) {

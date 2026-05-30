@@ -44,6 +44,34 @@ func TestSSAFunctionStateRootMoveInvalidatesRootAndFields(t *testing.T) {
 	}
 }
 
+func TestSSAFunctionStateRejectsRepeatedRootMove(t *testing.T) {
+	x := ssaStateTestRoot("x")
+	state := NewSSAFunctionState()
+
+	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, SSAMoveSite{Kind: "send"}); ok {
+		t.Fatalf("unexpected first consume violation: %#v", violation)
+	}
+	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, SSAMoveSite{Kind: "call"}); !ok {
+		t.Fatal("expected repeated consume violation")
+	} else if violation.Code != GWN001 {
+		t.Fatalf("repeated consume code = %s, want %s", violation.Code, GWN001)
+	}
+}
+
+func TestSSAFunctionStateRepeatedFieldMoveAfterRootMoveIsMovedUse(t *testing.T) {
+	x := ssaStateTestRoot("x")
+	state := NewSSAFunctionState()
+
+	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x}, SSAMoveSite{Kind: "send"}); ok {
+		t.Fatalf("unexpected first consume violation: %#v", violation)
+	}
+	if violation, ok := state.ConsumeRoot(PlaceKey{Root: x, Path: ".f"}, SSAMoveSite{Kind: "call"}); !ok {
+		t.Fatal("expected moved field consume violation")
+	} else if violation.Code != GWN001 {
+		t.Fatalf("moved field consume code = %s, want %s", violation.Code, GWN001)
+	}
+}
+
 func TestSSAFunctionStateFieldBorrowPrecision(t *testing.T) {
 	x := ssaStateTestRoot("x")
 	state := NewSSAFunctionState()

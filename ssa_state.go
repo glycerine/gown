@@ -58,6 +58,13 @@ func (state *SSAFunctionState) ConsumeRoot(place PlaceKey, site SSAMoveSite) (SS
 	if place.Root == nil {
 		return SSAStateViolation{}, false
 	}
+	if _, moved := state.CheckUse(place); moved {
+		return SSAStateViolation{
+			Code:    GWN001,
+			Place:   place,
+			Message: "cannot move already moved place",
+		}, true
+	}
 	if place.Path != "" {
 		return SSAStateViolation{
 			Code:    GWN011,

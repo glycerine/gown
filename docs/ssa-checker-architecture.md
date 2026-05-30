@@ -108,18 +108,30 @@ What is solid:
 - `ssa_gwn001.go` is the real lifetime engine. It runs a forward worklist over
   SSA basic blocks, tracks consumed roots, proof frontiers, active borrows, and
   deferred effects, merges state conservatively at CFG joins, and reuses the
-  same engine for deferred closure bodies at function exit.
+  same engine for deferred closure bodies at function exit. Consuming an already
+  consumed root is itself a `GWN001` violation; the checker no longer relies on a
+  preceding source debug use to catch repeated moves.
 - `ssa_named_borrow.go`, `ssa_defer_effect.go`, and `ssa_state.go` cover the
   hard borrow-lifetime cases already validated by tests: named local
   `\mub`/`\rob` borrows, branch and loop liveness, deferred borrow extension,
   deferred closure LIFO behavior, and repeated deferred `\iso` moves.
 - `ssa_place.go` proves the hybrid model. AST/types seed source places;
   `ssa.GlobalDebug` and `ValueForExpr` connect those places to SSA values; SSA
-  then propagates places through `FieldAddr`, `UnOp`, `Store`, and conservative
-  collapse points such as `IndexAddr`, `Lookup`, and `MakeInterface`.
+  then propagates unique places through `ChangeType`, `Convert`,
+  `ChangeInterface`, `FieldAddr`, `Phi`, `UnOp`, `Store`, and conservative
+  collapse points such as `IndexAddr`, `Lookup`, and `MakeInterface`. Values
+  that correspond to multiple source places are marked ambiguous and are not used
+  as operand-level proof facts.
 - Field-sensitive place keys and overlap checks exist. They distinguish
   sibling fields for borrows and reject ownership moves from field projections
   with `GWN011`.
+- Moved-use checking uses exact `DebugRef` source expressions for diagnostics and
+  unique SSA operand places as a semantic backstop for uses that are not otherwise
+  exposed as direct source expressions, such as closure bindings.
+- Root rebinding is explicit: after `x` is moved, `x = \new(...)`,
+  `x = \clone(y)`, `x = <-isoChan`, or `x = y` where `y` is a valid `\iso`
+  source restores `x`; moving `y` consumes `y`. Rebinding from untracked,
+  borrowed, frontiered, or already moved values is rejected.
 - Proof frontiers are implemented as `GWN012` inside the SSA moved-use engine:
   untracked calls, untracked parameters in otherwise annotated calls, and
   interface erasure end the local proof without rejecting the boundary itself.
@@ -229,8 +241,10 @@ erased; no fake `mub_` or `rob_` call is needed.
 Explicit expression forms may still be useful for operations that cannot be
 inferred safely, such as `\unsafe(x)`, `\clone(x)`, or explicit freeze. The
 scanner and formatter already recognize these forms, and `scanAndClassify`
-rewrites them to analysis-only placeholders. Their checker semantics are not
-yet implemented and they should not drive the mainline inference milestones.
+rewrites them to analysis-only placeholders. Borrow, freeze, unsafe, new, and
+same-type clone semantics are now implemented in the checker; the mainline
+direction remains inference-first, with explicit forms available as escape
+hatches or leverage points.
 
 ## Capability Side Tables
 
@@ -728,8 +742,9 @@ shapes, field-sensitive places can be represented, the state machine can run
 over real SSA CFGs, and `GWN001` can preserve original `.gown` diagnostics
 while using SSA ordering and CFG merges. The next lifetime slice extended that
 machinery to named `\mub` and `\rob` borrows created through annotated local
-variables. The remaining risk is generalizing it further to explicit
-freeze/clone semantics, loops, complex closures, and unknown
+variables. Later slices added explicit freeze/new/clone/unsafe operations,
+loops, deferred closures, root rebinding, and operand-level moved-use backstops.
+The remaining risk is now broader heap/container/interface precision and unknown
 synchronization/unsafe boundaries. The first freeze inference slice is now
 implemented for sends:
 `ch <- x` where `ch` has element capability `\imm` and `x` is `\iso` is
@@ -741,15 +756,21 @@ that optimized SSA can erase. A move such as `b := a` may not survive as a
 distinct dynamic SSA instruction even though it is semantically meaningful to
 Gown's ownership model. The checker should therefore model assignment moves as
 hybrid source events anchored to SSA debug/source positions, such as
-`DebugRef`s for the right-hand side expression, so they can run in SSA block
-order without pretending assignment is always a normal SSA instruction.
+`DebugRef`s for the assignment target, so they can run in SSA block order
+without pretending assignment is always a normal SSA instruction. This same
+source-event model handles root rebinding: a direct root assignment to `x` can
+restore `x` only after the right-hand side has been proven to produce a valid
+owned `\iso` replacement.
 
 The same parity slice showed that raw SSA value operands are not authoritative
 for source-place uses after assignment. The same SSA value may represent both
 `a` and `b` after `b := a`, so a generic operand scan can falsely report
 `println(b)` as a use of moved `a`. Source-use checks should prefer exact
-`DebugRef` expressions and the AST `PlaceIndex`; SSA values should carry places
-for transfer reasoning, not override source identity in diagnostics.
+`DebugRef` expressions and the AST `PlaceIndex`. The current implementation
+therefore marks multi-place SSA values as ambiguous: exact source debug uses keep
+their precise identity, while operand-level use checks only fire when the SSA
+value has one unique source place. That makes operand checking a sound backstop
+for otherwise hidden uses, not a replacement for source identity.
 
 Named borrow liveness produced a stronger version of that lesson. After
 `var b \mub *T = a`, SSA may reuse one value for both `a` and `b`; transfer
