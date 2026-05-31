@@ -77,7 +77,6 @@ func main() {
 
 	tkt := newTicket("ticket_0")
 
-        tkt = \freeze(tkt)
         demonstrateClone := false
 
         if demonstrateClone {

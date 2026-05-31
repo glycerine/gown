@@ -109,9 +109,9 @@ type Ticket struct {
 }
 ```
 
-If a value has type `\iso *Ticket`, then there is only one owner. If a value
+If a pointer has type `\iso *Ticket`, then there is only one owner. If a pointer
 has type `\imm *Ticket`, then it is deeply immutable and safe to share. If a
-value has type `\mub *Ticket` or `\rob *Ticket`, then it is a local borrow that
+pointer has type `\mub *Ticket` or `\rob *Ticket`, then it is a local borrow that
 must not cross goroutine boundaries.
 
 The four core ownerstamps used to annotate pointers are:
