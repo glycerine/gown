@@ -73,6 +73,7 @@ const gownIntrinsicSource = `package example
 
 type Msg struct{}
 
+func (m *Msg) clone() *Msg { return &Msg{} }
 func (m *Msg) Clone() *Msg { return &Msg{} }
 
 func UseMub(x \iso *Msg) {
@@ -92,6 +93,11 @@ func UseFreeze(x \iso *Msg) {
 
 func UseClone(x \imm *Msg) {
 	z := \clone(x)
+	_ = z
+}
+
+func UseExportedClone(x \imm *Msg) {
+	z := \Clone(x)
 	_ = z
 }
 
@@ -117,6 +123,7 @@ func TestScanAndClassifyIntrinsics(t *testing.T) {
 		IntrinsicRob,
 		IntrinsicFreeze,
 		IntrinsicClone,
+		IntrinsicCloneExported,
 		IntrinsicUnsafe,
 		IntrinsicNew,
 	}
@@ -137,6 +144,9 @@ func TestScanAndClassifyIntrinsics(t *testing.T) {
 		if !strings.Contains(string(analysisSrc), want) {
 			t.Fatalf("analysis source does not contain %q:\n%s", want, analysisSrc)
 		}
+	}
+	if strings.Count(string(analysisSrc), "clone_(x)") != 2 {
+		t.Fatalf("analysis source should contain both clone intrinsic calls:\n%s", analysisSrc)
 	}
 	if bytes.Contains(emitSrc, []byte(`\`)) {
 		t.Fatalf("emit source still contains a Gown backslash token:\n%s", emitSrc)

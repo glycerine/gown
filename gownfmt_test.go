@@ -34,7 +34,7 @@ func Take( x \iso *Msg) \imm *Msg{ var y \mub *Msg; var z \rob *Msg; ch:=make(ch
 
 func TestFormatGownPreservesIntrinsicCalls(t *testing.T) {
 	src := []byte(`package example
-func Borrow(x *int){ b:=\mub(x); c:=\rob(x); d:=\clone(x); e:=\freeze(x); f:=\unsafe(x); _,_,_,_,_=b,c,d,e,f}
+func Borrow(x *int){ b:=\mub(x); c:=\rob(x); d:=\clone(x); e:=\Clone(x); f:=\freeze(x); g:=\unsafe(x); _,_,_,_,_,_=b,c,d,e,f,g}
 `)
 
 	formatted, err := FormatGown(src)
@@ -47,8 +47,9 @@ func Borrow(x *int){ b:=\mub(x); c:=\rob(x); d:=\clone(x); e:=\freeze(x); f:=\un
 		`b := \mub(x)`,
 		`c := \rob(x)`,
 		`d := \clone(x)`,
-		`e := \freeze(x)`,
-		`f := \unsafe(x)`,
+		`e := \Clone(x)`,
+		`f := \freeze(x)`,
+		`g := \unsafe(x)`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatted source missing %q:\n%s", want, got)

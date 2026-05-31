@@ -71,7 +71,7 @@ func intrinsicValueCapability(binding IntrinsicBinding) ValueCapability {
 		value.Cap = CapRob
 	case IntrinsicFreeze:
 		value.Cap = CapImm
-	case IntrinsicNew, IntrinsicClone:
+	case IntrinsicNew, IntrinsicClone, IntrinsicCloneExported:
 		value.Cap = CapIso
 		value.Fresh = true
 	case IntrinsicUnsafe:

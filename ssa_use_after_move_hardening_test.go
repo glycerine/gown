@@ -11,7 +11,7 @@ type payload struct {
 	Data string
 }
 
-func (p *payload) Clone() *payload {
+func (p *payload) clone() *payload {
 	if p == nil {
 		return nil
 	}
@@ -315,7 +315,7 @@ func TestSSAGWN001AllowsRebindFromOtherMovedImmutableChannelField(t *testing.T) 
 	done \imm chan \iso *ticket
 }
 
-func (t *ticket) Clone() *ticket {
+func (t *ticket) clone() *ticket {
 	return &ticket{done: make(chan \iso *ticket)}
 }
 
@@ -338,7 +338,7 @@ func TestSSAGWN001AllowsUseBeforeRebindFromOtherMovedImmutableChannelField(t *te
 	done \imm chan \iso *ticket
 }
 
-func (t *ticket) Clone() *ticket {
+func (t *ticket) clone() *ticket {
 	return &ticket{done: make(chan \iso *ticket)}
 }
 
@@ -366,7 +366,7 @@ type ticket struct {
 	done \imm chan \iso *ticket
 }
 
-func (t *ticket) Clone() *ticket {
+func (t *ticket) clone() *ticket {
 	return &ticket{done: make(chan \iso *ticket)}
 }
 
@@ -608,15 +608,15 @@ func (w *worker) runWorker() {
 
 func main() {}
 
-func (t *ticket) Clone() *ticket {
+func (t *ticket) clone() *ticket {
 	return &ticket{
-		tree: t.tree.Clone(),
+		tree: t.tree.clone(),
 		outcome: t.outcome,
 		done: make(chan *ticket),
 	}
 }
 
-func (t *bigTree) Clone() *bigTree {
+func (t *bigTree) clone() *bigTree {
 	return &bigTree{name: t.name}
 }
 `)

@@ -243,6 +243,7 @@ func TestCapabilityIndexBindsIntrinsicCalls(t *testing.T) {
 		{IntrinsicRob, "r", "x"},
 		{IntrinsicFreeze, "y", "x"},
 		{IntrinsicClone, "z", "x"},
+		{IntrinsicCloneExported, "z", "x"},
 		{IntrinsicUnsafe, "u", "x"},
 		{IntrinsicNew, "p", ""},
 	}

@@ -11,17 +11,28 @@ func checkCloneIntrinsics(ctx *CheckerContext) CheckerErrors {
 	}
 	var errs CheckerErrors
 	for _, binding := range ctx.Caps.IntrinsicBindings {
-		if binding.Kind != IntrinsicClone {
+		if !isCloneIntrinsic(binding.Kind) {
 			continue
 		}
-		if err, ok := checkCloneIntrinsic(ctx.Pkg.TypesInfo, binding); ok {
+		if err, ok := checkCloneIntrinsic(ctx.Pkg.TypesInfo, ctx.Pkg.Types, binding); ok {
 			errs = append(errs, err)
 		}
 	}
 	return errs
 }
 
-func checkCloneIntrinsic(info *types.Info, binding IntrinsicBinding) (CheckerError, bool) {
+func isCloneIntrinsic(kind IntrinsicKind) bool {
+	return kind == IntrinsicClone || kind == IntrinsicCloneExported
+}
+
+func cloneIntrinsicMethodName(kind IntrinsicKind) string {
+	if kind == IntrinsicCloneExported {
+		return "Clone"
+	}
+	return "clone"
+}
+
+func checkCloneIntrinsic(info *types.Info, currentPkg *types.Package, binding IntrinsicBinding) (CheckerError, bool) {
 	argType, ok := cloneArgType(info, binding)
 	if !ok {
 		return cloneIntrinsicError(binding, "cannot clone expression with invalid type"), true
@@ -29,8 +40,9 @@ func checkCloneIntrinsic(info *types.Info, binding IntrinsicBinding) (CheckerErr
 	if !cloneArgIsNamedStructOrPointer(argType) {
 		return cloneIntrinsicError(binding, fmt.Sprintf("cannot clone non-struct type %s", argType)), true
 	}
-	if !hasSameTypeCloneMethod(argType) {
-		return cloneIntrinsicError(binding, fmt.Sprintf("type %s must define Clone() %s", argType, argType)), true
+	methodName := cloneIntrinsicMethodName(binding.Kind)
+	if !hasSameTypeCloneMethod(argType, currentPkg, methodName) {
+		return cloneIntrinsicError(binding, fmt.Sprintf("type %s must define %s() %s", argType, methodName, argType)), true
 	}
 	return CheckerError{}, false
 }
@@ -60,8 +72,12 @@ func cloneArgIsNamedStructOrPointer(argType types.Type) bool {
 	}
 }
 
-func hasSameTypeCloneMethod(argType types.Type) bool {
-	selection := types.NewMethodSet(argType).Lookup(nil, "Clone")
+func hasSameTypeCloneMethod(argType types.Type, currentPkg *types.Package, methodName string) bool {
+	lookupPkg := currentPkg
+	if isExportedName(methodName) {
+		lookupPkg = nil
+	}
+	selection := types.NewMethodSet(argType).Lookup(lookupPkg, methodName)
 	if selection == nil {
 		return false
 	}
@@ -74,6 +90,10 @@ func hasSameTypeCloneMethod(argType types.Type) bool {
 		return false
 	}
 	return types.Identical(sig.Results().At(0).Type(), argType)
+}
+
+func isExportedName(name string) bool {
+	return name != "" && name[0] >= 'A' && name[0] <= 'Z'
 }
 
 func cloneIntrinsicError(binding IntrinsicBinding, message string) CheckerError {

@@ -66,8 +66,8 @@ func collectIntrinsicEmitEdits(pkg *packages.Package, caps *CapabilityIndex, gf 
 				continue
 			}
 			replacement = append([]byte("&"), arg...)
-		case IntrinsicClone:
-			if err, ok := checkCloneIntrinsic(pkg.TypesInfo, binding); ok {
+		case IntrinsicClone, IntrinsicCloneExported:
+			if err, ok := checkCloneIntrinsic(pkg.TypesInfo, pkg.Types, binding); ok {
 				return nil, err
 			}
 			arg := nodeText(pkg, src, binding.Arg)
@@ -75,7 +75,7 @@ func collectIntrinsicEmitEdits(pkg *packages.Package, caps *CapabilityIndex, gf 
 				continue
 			}
 			replacement = append([]byte("("), arg...)
-			replacement = append(replacement, []byte(").Clone()")...)
+			replacement = append(replacement, []byte(")."+cloneIntrinsicMethodName(binding.Kind)+"()")...)
 		default:
 			continue
 		}

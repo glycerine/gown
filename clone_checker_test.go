@@ -8,7 +8,7 @@ type payload struct {
 	Data string
 }
 
-func (p payload) Clone() payload { return p }
+func (p payload) clone() payload { return p }
 
 func main() {
 	var x payload
@@ -23,7 +23,7 @@ type payload struct {
 	Data string
 }
 
-func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+func (p *payload) clone() *payload { return &payload{Data: p.Data} }
 
 func main() {
 	var x *payload
@@ -45,13 +45,58 @@ func main() {
 }
 `
 
+const gownExportedClonePointerTypeSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+
+func main() {
+	var x *payload
+	y := \Clone(x)
+	_ = y
+}
+`
+
+const gownLowerCloneDoesNotUseExportedMethodSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+
+func main() {
+	var x *payload
+	y := \clone(x)
+	_ = y
+}
+`
+
+const gownUpperCloneDoesNotUsePrivateMethodSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func (p *payload) clone() *payload { return &payload{Data: p.Data} }
+
+func main() {
+	var x *payload
+	y := \Clone(x)
+	_ = y
+}
+`
+
 const gownCloneWrongReturnSource = `package example
 
 type payload struct {
 	Data string
 }
 
-func (p *payload) Clone() payload { return payload{Data: p.Data} }
+func (p *payload) clone() payload { return payload{Data: p.Data} }
 
 func main() {
 	var x *payload
@@ -66,7 +111,7 @@ type payload struct {
 	Data string
 }
 
-func (p *payload) Clone(extra bool) *payload { return &payload{Data: p.Data} }
+func (p *payload) clone(extra bool) *payload { return &payload{Data: p.Data} }
 
 func main() {
 	var x *payload
@@ -81,7 +126,7 @@ type payload struct {
 	Data string
 }
 
-func (p *payload) Clone() payload { return payload{Data: p.Data} }
+func (p *payload) clone() payload { return payload{Data: p.Data} }
 
 func main() {
 	var x payload
@@ -94,7 +139,7 @@ const gownCloneNonStructSource = `package example
 
 type count int
 
-func (c count) Clone() count { return c }
+func (c count) clone() count { return c }
 
 func main() {
 	var x count
@@ -109,7 +154,7 @@ type payload struct {
 	Data string
 }
 
-func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+func (p *payload) clone() *payload { return &payload{Data: p.Data} }
 
 func FromIso(ch chan \iso *payload, x \iso *payload) {
 	y := \clone(x)
@@ -154,8 +199,25 @@ func TestClonePointerTypeWithSameTypeCloneSucceeds(t *testing.T) {
 	}
 }
 
+func TestExportedClonePointerTypeWithSameTypeCloneSucceeds(t *testing.T) {
+	err := checkGownSource(t, "exported_clone_pointer.gown", gownExportedClonePointerTypeSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCloneMissingMethodRejected(t *testing.T) {
 	err := checkGownSource(t, "clone_missing.gown", gownCloneMissingMethodSource)
+	requireCheckerCode(t, err, GWN010)
+}
+
+func TestLowerCloneDoesNotUseExportedMethod(t *testing.T) {
+	err := checkGownSource(t, "lower_clone_exported_method.gown", gownLowerCloneDoesNotUseExportedMethodSource)
+	requireCheckerCode(t, err, GWN010)
+}
+
+func TestUpperCloneDoesNotUsePrivateMethod(t *testing.T) {
+	err := checkGownSource(t, "upper_clone_private_method.gown", gownUpperCloneDoesNotUsePrivateMethodSource)
 	requireCheckerCode(t, err, GWN010)
 }
 

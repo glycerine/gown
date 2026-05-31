@@ -51,7 +51,7 @@ type ticket struct {
 	done \imm chan \iso *ticket
 }
 
-func (t *ticket) Clone() *ticket {
+func (t *ticket) clone() *ticket {
 	return &ticket{done: make(chan \iso *ticket)}
 }
 
@@ -190,7 +190,7 @@ func TestEmitCloneLowersToSameTypeCloneMethod(t *testing.T) {
 
 type payload struct{ Data string }
 
-func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+func (p *payload) clone() *payload { return &payload{Data: p.Data} }
 
 func main() {
 	var x *payload
@@ -199,8 +199,26 @@ func main() {
 }
 `)
 
-	requireContains(t, out, "y := (x).Clone()")
+	requireContains(t, out, "y := (x).clone()")
 	requireNotContains(t, out, `\clone`)
+}
+
+func TestEmitExportedCloneLowersToSameTypeCloneMethod(t *testing.T) {
+	out := emitGownSource(t, "exported_clone.gown", `package example
+
+type payload struct{ Data string }
+
+func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+
+func main() {
+	var x *payload
+	y := \Clone(x)
+	_, _ = x, y
+}
+`)
+
+	requireContains(t, out, "y := (x).Clone()")
+	requireNotContains(t, out, `\Clone`)
 }
 
 func TestEmitCloneCallArgumentLowersWithParens(t *testing.T) {
@@ -208,7 +226,7 @@ func TestEmitCloneCallArgumentLowersWithParens(t *testing.T) {
 
 type payload struct{ Data string }
 
-func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+func (p *payload) clone() *payload { return &payload{Data: p.Data} }
 
 func Get() *payload { return &payload{} }
 
@@ -217,7 +235,7 @@ func main(ch chan \iso *payload) {
 }
 `)
 
-	requireContains(t, out, "ch <- (Get()).Clone()")
+	requireContains(t, out, "ch <- (Get()).clone()")
 }
 
 func TestEmitCloneFailsClosedWhenInvalid(t *testing.T) {
@@ -236,7 +254,7 @@ func main() {
 	if err == nil {
 		t.Fatal("expected clone checker error, got nil")
 	}
-	if !strings.Contains(err.Error(), "Clone()") {
+	if !strings.Contains(err.Error(), "clone()") {
 		t.Fatalf("clone checker error = %v", err)
 	}
 }

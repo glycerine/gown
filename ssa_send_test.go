@@ -8,7 +8,7 @@ type payload struct {
 	Data string
 }
 
-func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+func (p *payload) clone() *payload { return &payload{Data: p.Data} }
 
 func main() {
 	var x \imm *payload
@@ -93,7 +93,7 @@ type payload struct {
 	Data string
 }
 
-func (p *payload) Clone() *payload { return &payload{Data: p.Data} }
+func (p *payload) clone() *payload { return &payload{Data: p.Data} }
 
 func main(ch chan \iso *payload) {
 	var x \imm *payload

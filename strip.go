@@ -113,6 +113,11 @@ func scanGownToken(gf *gownFile, emit, analysis, gownSrc []byte, lineStarts []in
 			return end, scanError(gf.path, span, `\clone must be used as a call`)
 		}
 		recordIntrinsic(gf, emit, analysis, span, IntrinsicClone)
+	case "Clone":
+		if !hasCall {
+			return end, scanError(gf.path, span, `\Clone must be used as a call`)
+		}
+		recordIntrinsic(gf, emit, analysis, span, IntrinsicCloneExported)
 	case "freeze":
 		if !hasCall {
 			return end, scanError(gf.path, span, `\freeze must be used as a call`)
@@ -170,7 +175,7 @@ func intrinsicAnalysisName(intrinsic IntrinsicKind) string {
 		return "rob_"
 	case IntrinsicNew:
 		return "new_"
-	case IntrinsicClone:
+	case IntrinsicClone, IntrinsicCloneExported:
 		return "clone_"
 	case IntrinsicFreeze:
 		return "freeze_"

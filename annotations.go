@@ -45,6 +45,7 @@ const (
 	IntrinsicRob
 	IntrinsicNew
 	IntrinsicClone
+	IntrinsicCloneExported
 	IntrinsicFreeze
 	IntrinsicUnsafe
 )

@@ -115,7 +115,7 @@ func bindIntrinsicResultCapability(idx *CapabilityIndex, kind IntrinsicKind, res
 		bindObjectCaps(idx, result, CapMub, CapInvalid)
 	case IntrinsicRob:
 		bindObjectCaps(idx, result, CapRob, CapInvalid)
-	case IntrinsicNew, IntrinsicClone:
+	case IntrinsicNew, IntrinsicClone, IntrinsicCloneExported:
 		bindObjectCaps(idx, result, CapIso, CapInvalid)
 	case IntrinsicFreeze:
 		bindObjectCaps(idx, result, CapImm, CapInvalid)
