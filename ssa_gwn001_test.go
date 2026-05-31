@@ -273,15 +273,23 @@ func TestSSAExplicitFreezeRejectsFieldProjection(t *testing.T) {
 	requireSSAErrorCode(t, errs, GWN011)
 }
 
-func TestSSAGWN010FreezeSelfAssignReportsIsoPointer(t *testing.T) {
+func TestSSAGWN010FreezeSelfAssignReportsAssignmentMismatch(t *testing.T) {
 	err := checkGownSource(t, "freeze_self_assign.gown", gownSSAExplicitFreezeSelfAssignSource)
 	requireCheckerCode(t, err, GWN010)
 	text := err.Error()
-	if !strings.Contains(text, `cannot freeze \iso pointer "x"`) {
-		t.Fatalf("error %q does not contain expected source pointer diagnostic", text)
+	for _, want := range []string{
+		`cannot assign \imm pointer returned by \freeze to \iso pointer "x"`,
+		`\freeze produces \imm, not \iso`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("error %q does not contain %q", text, want)
+		}
 	}
-	if strings.Contains(text, `cannot freeze \imm value "x"`) {
-		t.Fatalf("error still reports frozen result instead of source pointer: %q", text)
+	if strings.Contains(text, `cannot freeze`) {
+		t.Fatalf("error still reports freeze itself instead of assignment mismatch: %q", text)
+	}
+	if strings.Contains(text, `use of moved`) {
+		t.Fatalf("invalid freeze assignment should not cascade into use-after-move errors: %q", text)
 	}
 }
 

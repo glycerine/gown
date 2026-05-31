@@ -476,16 +476,24 @@ func (checker *ssaGWN001Checker) placeCanTransferAsIsoInState(state *SSAFunction
 }
 
 func (checker *ssaGWN001Checker) reportAssignmentOstampMismatch(pos token.Position, assignment ssaAssignment) {
+	message := fmt.Sprintf(
+		"cannot assign %s value of type %s to \\iso root %q: %s",
+		assignment.Value.Cap,
+		assignmentValueTypeString(checker.pkg, assignment.RHS),
+		assignment.Dst.Root.Name(),
+		assignmentValueInvalidReason(checker.caps, assignment),
+	)
+	if assignment.Value.Intrinsic == IntrinsicFreeze {
+		message = fmt.Sprintf(
+			"cannot assign %s pointer returned by \\freeze to \\iso pointer %q: \\freeze produces \\imm, not \\iso",
+			assignment.Value.Cap,
+			assignment.Dst.Root.Name(),
+		)
+	}
 	checker.reportCheckerError(newCheckerErrorAtPosition(
 		GWN010,
 		pos,
-		fmt.Sprintf(
-			"cannot assign %s value of type %s to \\iso root %q: %s",
-			assignment.Value.Cap,
-			assignmentValueTypeString(checker.pkg, assignment.RHS),
-			assignment.Dst.Root.Name(),
-			assignmentValueInvalidReason(checker.caps, assignment),
-		),
+		message,
 	))
 }
 
@@ -574,12 +582,7 @@ func (checker *ssaGWN001Checker) applyExplicitFreezeIntrinsic(binding IntrinsicB
 		))
 		return
 	}
-	if binding.Result == place.Root {
-		checker.reportCheckerError(newCheckerErrorAtPosition(
-			GWN010,
-			pos,
-			fmt.Sprintf("cannot freeze %s pointer %q", sourceCap, place.Root.Name()),
-		))
+	if binding.Result != nil && checker.caps.ObjectCap(binding.Result) != CapImm {
 		return
 	}
 	checker.consumeRootAtInstruction(state, place, instr, "freeze")
@@ -1240,9 +1243,6 @@ func collectSSAAssignments(pkg *packages.Package, caps *OstampIndex) map[ast.Exp
 				}
 				rhs := assign.Rhs[i]
 				value := assignmentValueOstamp(pkg, caps, rhs)
-				if value.Intrinsic == IntrinsicFreeze && value.Source.Root == dst.Root {
-					continue
-				}
 				if value.Place.Root == dst.Root && !value.Fresh {
 					continue
 				}

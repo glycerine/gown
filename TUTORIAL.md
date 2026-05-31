@@ -47,12 +47,15 @@ aiming for provable safety, may be required, particularly
 after a select{} statement that sends an \iso pointer. 
 To my thinking, this is a small inconvenience in exchange for data-race freedom.
 
-(Since the select case is chosen at runtime rather than
+In detail: since the select case is chosen at runtime rather than
 known at compile time, Gown's static analysis must assume 
 that after a select statement an \iso pointer could have
 been sent away. After the select statement, it is therefore
 illegal to reference the \iso, even if it has not been
-sent).
+sent. This may prompt you to \clone the pointer before
+possibly sending i. Fortunately, this is almost always
+the correct approach/habit/recommended practice for
+avoiding data races.
 
 ## introduction
 
