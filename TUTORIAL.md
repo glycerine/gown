@@ -18,9 +18,18 @@ for Go source that statically detects use-after-move
 data-races at compile time. 
 
 Gown is much simpler than Pony. Gown is also 
-much, much simpler than Rust. Rust requires lifetime
-annotations, Gown does not. Pony has six ownership
-forms. Gown has only four ownerstamps.
+vastly simpler than Rust. Rust requires lifetime
+annotations at times, Gown does not. Pony has six ownership
+reference capabilities. Gown has only four. And
+we call them ownerstamps.
+
+Terminology: we use the term "ownerstamp" to evoke the 
+traditional use of postage stamps on the outside of 
+an envelope (pointer). Depending on the destination 
+(country/goroutine/function), you need different stamps.
+Moreover the stamp can change while the envelope stays the same.
+Ownerstamp is easier to say, and says we are talking 
+about Gown specifically.
 
 In one line, the summary of Gown would be: 
 channel sends can now enforce at compile time the former 
