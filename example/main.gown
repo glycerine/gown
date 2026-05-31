@@ -95,8 +95,9 @@ func main() {
             select {
    	        case tkt3 = <-tkt.done:
    	            tkt = tkt3
-                //case <-time.After(time.Second):
-                  //  tkt = <-tkt.done
+                case <-time.After(time.Second):
+                    tkt = <-tkt.done
+                    //tkt3 = tkt
             }
         }
 

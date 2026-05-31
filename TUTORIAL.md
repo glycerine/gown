@@ -1,17 +1,19 @@
-# Go + Ownership = Gown. This is the Gown tutorial
+# Go + Ownership = Gown
 
-The gown command line tools is a Go source 
+Welcome to the gown tutorial. A command line
+program, gown is a Go source 
 pre-processor allows the Go developer
 to describe pointer ownership and data immutability. 
+
 Since gown catches data-races at compile time by
 static analysis, it provides stronger protection than
 the (valuable but incomplete) detection offered by
-the Go race detector. 
+the Go race detector.
 
 ## overview
 
 Inspired a little by Rust, and alot by Pony's 
-capability-ownership system, Gown is a pre-processor 
+capability-ownership system, gown is a pre-processor 
 for Go source that statically detects use-after-move
 data-races at compile time. 
 
