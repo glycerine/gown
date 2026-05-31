@@ -63,7 +63,7 @@ func (checker *ssaStoreChecker) checkReadOnlyStore(store *ssa.Store) {
 	checker.reportCheckerError(newCheckerErrorAtPosition(
 		GWN005,
 		checker.pkg.Fset.Position(store.Pos()),
-		fmt.Sprintf("cannot write through %s value %q", cap, target.Root.Name()),
+		readOnlyWriteMessage(checker.caps, target, cap),
 	))
 }
 

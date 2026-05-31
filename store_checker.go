@@ -3,6 +3,7 @@ package gown
 import (
 	"fmt"
 	"go/ast"
+	"go/types"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -90,8 +91,28 @@ func checkWriteTarget(pkg *packages.Package, caps *CapabilityIndex, expr ast.Exp
 		pkg,
 		GWN005,
 		expr,
-		fmt.Sprintf("cannot write through %s value %q", cap, place.Root.Name()),
+		readOnlyWriteMessage(caps, place, cap),
 	), true
+}
+
+func readOnlyWriteMessage(caps *CapabilityIndex, place Place, effectiveCap Cap) string {
+	if field, fieldCap, ok := readOnlyWriteFieldCause(caps, place); ok {
+		return fmt.Sprintf("cannot assign to %s field %q of %s value %q",
+			fieldCap, field.Name(), caps.ObjectCap(place.Root), place.Root.Name())
+	}
+	return fmt.Sprintf("cannot write through %s value %q", effectiveCap, place.Root.Name())
+}
+
+func readOnlyWriteFieldCause(caps *CapabilityIndex, place Place) (*types.Var, Cap, bool) {
+	if caps == nil || place.Root == nil || len(place.Projection) == 0 {
+		return nil, CapInvalid, false
+	}
+	field := place.Projection[len(place.Projection)-1].Field
+	if field == nil {
+		return nil, CapInvalid, false
+	}
+	fieldCap := caps.ObjectCap(field)
+	return field, fieldCap, fieldCap == CapRob || fieldCap == CapImm
 }
 
 func isProjectedWrite(expr ast.Expr) bool {

@@ -480,6 +480,35 @@ func main() {
 }`, GWN005)
 }
 
+func TestSSAGWN005ReportsImmutableFieldNotImmutableRoot(t *testing.T) {
+	err := checkGownSource(t, hardeningTestName(t), `package example
+
+type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	tkt.done = nil
+}
+`)
+	if err == nil {
+		t.Fatal("expected GWN005, got nil")
+	}
+	text := FormatError(err)
+	if !strings.Contains(text, `cannot assign to \imm field "done" of \iso value "tkt"`) {
+		t.Fatalf("formatted error does not explain immutable field cause:\n%s", text)
+	}
+	if strings.Contains(text, `cannot write through \imm value "tkt"`) {
+		t.Fatalf("formatted error incorrectly describes root as immutable:\n%s", text)
+	}
+}
+
 func TestSSAGWN005RejectsNilAssignmentToImmutableChannelFieldFromSelectReceive(t *testing.T) {
 	requireHardeningCheckerCode(t, `type ticket struct {
 	done \imm chan \iso *ticket

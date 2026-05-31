@@ -184,7 +184,7 @@ An `\iso` value can be sent across a channel whose element type is `\iso`.
 
 ```go
 func main() {
-    ch := make(chan \iso *Buffer)
+    ch := make(chan \iso *Buffer, 1)
 
     b := \new(Buffer{})
     ch <- b

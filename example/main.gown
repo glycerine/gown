@@ -81,7 +81,9 @@ func main() {
         } else {
 	    w.getJob <- tkt
 	    // this should be okay!
-	    fmt.Printf("tkt is: '%p'\n", tkt.done)
+	    fmt.Printf("tkt.done is: '%p'\n", tkt.done)
+            // this should not!
+            tkt.done = nil
             // except to read an \imm channel or rebind it:
    	    //tkt = <-tkt.done // okay
    	    tkt3 := <-tkt.done
