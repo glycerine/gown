@@ -33,7 +33,7 @@ type SSADeferredGroup struct {
 	Effects []SSADeferredEffect
 }
 
-func collectSSADeferredClosureEffects(pkg *packages.Package, caps *CapabilityIndex) map[*types.Func]SSADeferredClosureEffectInfo {
+func collectSSADeferredClosureEffects(pkg *packages.Package, caps *OstampIndex) map[*types.Func]SSADeferredClosureEffectInfo {
 	byFunc := make(map[*types.Func]SSADeferredClosureEffectInfo)
 	if pkg == nil || caps == nil {
 		return byFunc
@@ -66,7 +66,7 @@ func collectSSADeferredClosureEffects(pkg *packages.Package, caps *CapabilityInd
 	return byFunc
 }
 
-func collectDeferredClosureEffects(pkg *packages.Package, caps *CapabilityIndex, info *SSADeferredClosureEffectInfo, stmt *ast.DeferStmt) {
+func collectDeferredClosureEffects(pkg *packages.Package, caps *OstampIndex, info *SSADeferredClosureEffectInfo, stmt *ast.DeferStmt) {
 	if pkg == nil || caps == nil || info == nil || stmt == nil || stmt.Call == nil {
 		return
 	}
@@ -86,7 +86,7 @@ func collectDeferredClosureEffects(pkg *packages.Package, caps *CapabilityIndex,
 	})
 }
 
-func collectDeferredClosureCallEffects(pkg *packages.Package, caps *CapabilityIndex, info *SSADeferredClosureEffectInfo, key sourcePosKey, call *ast.CallExpr) {
+func collectDeferredClosureCallEffects(pkg *packages.Package, caps *OstampIndex, info *SSADeferredClosureEffectInfo, key sourcePosKey, call *ast.CallExpr) {
 	binding, ok := caps.CallBinding(call)
 	if !ok {
 		return

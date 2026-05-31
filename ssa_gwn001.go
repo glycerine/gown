@@ -10,7 +10,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
+func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || ssaPkg == nil || caps == nil {
 		return nil
 	}
@@ -39,7 +39,7 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 
 type ssaGWN001Checker struct {
 	pkg                     *packages.Package
-	caps                    *CapabilityIndex
+	caps                    *OstampIndex
 	places                  *SSAPlaceIndex
 	assignments             map[ast.Expr]ssaAssignment
 	flowAssignments         map[ast.Expr]ssaFlowAssignment
@@ -47,7 +47,7 @@ type ssaGWN001Checker struct {
 	namedBorrows            map[*types.Func]SSANamedBorrowInfo
 	deferEffects            map[*types.Func]SSADeferredClosureEffectInfo
 	returns                 map[sourcePosKey][]Place
-	returnValues            map[sourcePosKey][]ValueCapability
+	returnValues            map[sourcePosKey][]ValueOstamp
 	bindings                *SSABindingIndex
 	activeNamedBorrows      SSANamedBorrowInfo
 	activeDeferEffects      SSADeferredClosureEffectInfo
@@ -58,13 +58,13 @@ type ssaGWN001Checker struct {
 
 type ssaAssignment struct {
 	Dst   Place
-	Value ValueCapability
+	Value ValueOstamp
 	RHS   ast.Expr
 }
 
 type ssaFlowAssignment struct {
 	Dst   Place
-	Value ValueCapability
+	Value ValueOstamp
 }
 
 type ssaImmutableProjectionUseSpan struct {
@@ -412,7 +412,7 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 	pos := checker.pkg.Fset.Position(instr.Pos())
 	assignment = checker.assignmentWithFlowValue(assignment, state)
 	if assignment.Value.Cap != CapIso {
-		checker.reportAssignmentCapabilityMismatch(pos, assignment)
+		checker.reportAssignmentOstampMismatch(pos, assignment)
 		return
 	}
 	if assignment.Value.Fresh {
@@ -422,7 +422,7 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 	}
 	src := assignment.Value.Place
 	if src.Root == nil || !checker.placeCanTransferAsIsoInState(state, src) {
-		checker.reportAssignmentCapabilityMismatch(pos, assignment)
+		checker.reportAssignmentOstampMismatch(pos, assignment)
 		return
 	}
 	if site, frontiered := state.CheckFrontier(src.Key()); frontiered {
@@ -475,7 +475,7 @@ func (checker *ssaGWN001Checker) placeCanTransferAsIsoInState(state *SSAFunction
 	return ok && value.Cap == CapIso
 }
 
-func (checker *ssaGWN001Checker) reportAssignmentCapabilityMismatch(pos token.Position, assignment ssaAssignment) {
+func (checker *ssaGWN001Checker) reportAssignmentOstampMismatch(pos token.Position, assignment ssaAssignment) {
 	checker.reportCheckerError(newCheckerErrorAtPosition(
 		GWN010,
 		pos,
@@ -821,7 +821,7 @@ func (checker *ssaGWN001Checker) applyReturnOwnershipTransfers(instr *ssa.Return
 		switch resultCap {
 		case CapIso:
 			if value.Cap != CapIso {
-				checker.reportReturnCapabilityMismatch(pos, value, resultCap)
+				checker.reportReturnOstampMismatch(pos, value, resultCap)
 				continue
 			}
 			if !value.Fresh && value.Place.Root != nil {
@@ -836,13 +836,13 @@ func (checker *ssaGWN001Checker) applyReturnOwnershipTransfers(instr *ssa.Return
 					checker.consumeRootAtInstruction(state, value.Place, instr, "return freeze")
 				}
 			default:
-				checker.reportReturnCapabilityMismatch(pos, value, resultCap)
+				checker.reportReturnOstampMismatch(pos, value, resultCap)
 			}
 		}
 	}
 }
 
-func (checker *ssaGWN001Checker) reportReturnCapabilityMismatch(pos token.Position, value ValueCapability, resultCap Cap) {
+func (checker *ssaGWN001Checker) reportReturnOstampMismatch(pos token.Position, value ValueOstamp, resultCap Cap) {
 	if value.Cap == CapInvalid {
 		return
 	}
@@ -857,14 +857,14 @@ func (checker *ssaGWN001Checker) reportReturnCapabilityMismatch(pos token.Positi
 	))
 }
 
-func (checker *ssaGWN001Checker) valueCapabilitiesForReturn(instr *ssa.Return) []ValueCapability {
+func (checker *ssaGWN001Checker) valueCapabilitiesForReturn(instr *ssa.Return) []ValueOstamp {
 	key := sourcePositionKey(checker.pkg.Fset.Position(instr.Pos()))
-	values := append([]ValueCapability(nil), checker.returnValues[key]...)
+	values := append([]ValueOstamp(nil), checker.returnValues[key]...)
 	for len(values) < len(instr.Results) {
 		i := len(values)
-		value := ValueCapability{Cap: CapInvalid}
+		value := ValueOstamp{Cap: CapInvalid}
 		if place, ok := checker.places.PlaceForValue(instr.Results[i]); ok && place.Root != nil {
-			value = ValueCapability{
+			value = ValueOstamp{
 				Cap:   checker.capForPlace(place),
 				Place: place,
 			}
@@ -1204,7 +1204,7 @@ func blockPosition(pkg *packages.Package, block *ssa.BasicBlock) token.Position 
 	return token.Position{}
 }
 
-func collectSSAAssignments(pkg *packages.Package, caps *CapabilityIndex) map[ast.Expr]ssaAssignment {
+func collectSSAAssignments(pkg *packages.Package, caps *OstampIndex) map[ast.Expr]ssaAssignment {
 	assignments := make(map[ast.Expr]ssaAssignment)
 	if pkg == nil || caps == nil {
 		return assignments
@@ -1227,7 +1227,7 @@ func collectSSAAssignments(pkg *packages.Package, caps *CapabilityIndex) map[ast
 					continue
 				}
 				rhs := assign.Rhs[i]
-				value := assignmentValueCapability(pkg, caps, rhs)
+				value := assignmentValueOstamp(pkg, caps, rhs)
 				if value.Place.Root == dst.Root && !value.Fresh {
 					continue
 				}
@@ -1239,7 +1239,7 @@ func collectSSAAssignments(pkg *packages.Package, caps *CapabilityIndex) map[ast
 	return assignments
 }
 
-func collectSSAFlowAssignments(pkg *packages.Package, caps *CapabilityIndex) map[ast.Expr]ssaFlowAssignment {
+func collectSSAFlowAssignments(pkg *packages.Package, caps *OstampIndex) map[ast.Expr]ssaFlowAssignment {
 	assignments := make(map[ast.Expr]ssaFlowAssignment)
 	if pkg == nil || caps == nil {
 		return assignments
@@ -1261,7 +1261,7 @@ func collectSSAFlowAssignments(pkg *packages.Package, caps *CapabilityIndex) map
 				if !ok || !flowAssignmentDstAllowed(pkg, caps, dst) {
 					continue
 				}
-				value := ValueCapability{Cap: CapInvalid}
+				value := ValueOstamp{Cap: CapInvalid}
 				if cap := receiveCapForValueExpr(caps, assign.Rhs[i]); cap != CapInvalid {
 					value.Cap = cap
 				}
@@ -1273,7 +1273,7 @@ func collectSSAFlowAssignments(pkg *packages.Package, caps *CapabilityIndex) map
 	return assignments
 }
 
-func flowAssignmentDstAllowed(pkg *packages.Package, caps *CapabilityIndex, dst Place) bool {
+func flowAssignmentDstAllowed(pkg *packages.Package, caps *OstampIndex, dst Place) bool {
 	if pkg == nil || caps == nil || dst.Root == nil || dst.Key().Path != "" {
 		return false
 	}
@@ -1287,7 +1287,7 @@ func flowAssignmentDstAllowed(pkg *packages.Package, caps *CapabilityIndex, dst 
 	return obj.Parent() != pkg.Types.Scope()
 }
 
-func collectSSAImmutableProjectionUseSpans(pkg *packages.Package, caps *CapabilityIndex) []ssaImmutableProjectionUseSpan {
+func collectSSAImmutableProjectionUseSpans(pkg *packages.Package, caps *OstampIndex) []ssaImmutableProjectionUseSpan {
 	var spans []ssaImmutableProjectionUseSpan
 	if pkg == nil || caps == nil {
 		return spans
@@ -1316,14 +1316,14 @@ func collectSSAImmutableProjectionUseSpans(pkg *packages.Package, caps *Capabili
 	return spans
 }
 
-func assignmentValueCapability(pkg *packages.Package, caps *CapabilityIndex, expr ast.Expr) ValueCapability {
-	if value, ok := valueCapabilityForExpr(pkg, caps, expr); ok {
+func assignmentValueOstamp(pkg *packages.Package, caps *OstampIndex, expr ast.Expr) ValueOstamp {
+	if value, ok := valueOstampForExpr(pkg, caps, expr); ok {
 		return value
 	}
 	if cap := receiveCapForValueExpr(caps, expr); cap != CapInvalid {
-		return ValueCapability{Cap: cap, Fresh: cap == CapIso}
+		return ValueOstamp{Cap: cap, Fresh: cap == CapIso}
 	}
-	return ValueCapability{Cap: CapInvalid}
+	return ValueOstamp{Cap: CapInvalid}
 }
 
 func assignmentValueTypeString(pkg *packages.Package, expr ast.Expr) string {
@@ -1342,7 +1342,7 @@ func assignmentValueTypeString(pkg *packages.Package, expr ast.Expr) string {
 	})
 }
 
-func assignmentValueInvalidReason(caps *CapabilityIndex, assignment ssaAssignment) string {
+func assignmentValueInvalidReason(caps *OstampIndex, assignment ssaAssignment) string {
 	expr := unparenExpr(assignment.RHS)
 	if recv, ok := expr.(*ast.UnaryExpr); ok && recv.Op == token.ARROW {
 		place, ok := caps.PlaceForExpr(recv.X)
@@ -1374,7 +1374,7 @@ func placeName(place Place) string {
 	return place.Root.Name() + place.Projection.String()
 }
 
-func collectSSAReturnPlaces(pkg *packages.Package, caps *CapabilityIndex) map[sourcePosKey][]Place {
+func collectSSAReturnPlaces(pkg *packages.Package, caps *OstampIndex) map[sourcePosKey][]Place {
 	returns := make(map[sourcePosKey][]Place)
 	if pkg == nil || caps == nil {
 		return returns
@@ -1399,8 +1399,8 @@ func collectSSAReturnPlaces(pkg *packages.Package, caps *CapabilityIndex) map[so
 	return returns
 }
 
-func collectSSAReturnValues(pkg *packages.Package, caps *CapabilityIndex) map[sourcePosKey][]ValueCapability {
-	returns := make(map[sourcePosKey][]ValueCapability)
+func collectSSAReturnValues(pkg *packages.Package, caps *OstampIndex) map[sourcePosKey][]ValueOstamp {
+	returns := make(map[sourcePosKey][]ValueOstamp)
 	if pkg == nil || caps == nil {
 		return returns
 	}
@@ -1411,12 +1411,12 @@ func collectSSAReturnValues(pkg *packages.Package, caps *CapabilityIndex) map[so
 				return true
 			}
 			key := sourcePositionKey(pkg.Fset.Position(ret.Return))
-			values := make([]ValueCapability, len(ret.Results))
+			values := make([]ValueOstamp, len(ret.Results))
 			for i, result := range ret.Results {
-				if value, ok := valueCapabilityForExpr(pkg, caps, result); ok {
+				if value, ok := valueOstampForExpr(pkg, caps, result); ok {
 					values[i] = value
 				} else {
-					values[i] = ValueCapability{Cap: CapInvalid}
+					values[i] = ValueOstamp{Cap: CapInvalid}
 				}
 			}
 			returns[key] = values
@@ -1426,7 +1426,7 @@ func collectSSAReturnValues(pkg *packages.Package, caps *CapabilityIndex) map[so
 	return returns
 }
 
-func capForSSAPlace(caps *CapabilityIndex, place Place) Cap {
+func capForSSAPlace(caps *OstampIndex, place Place) Cap {
 	return EffectivePlaceCap(caps, place)
 }
 

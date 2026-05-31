@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestFormatGownPreservesCapabilityAnnotations(t *testing.T) {
+func TestFormatGownPreservesOstampAnnotations(t *testing.T) {
 	src := []byte(`package example
 type Msg struct{ Data string }
 func Take( x \iso *Msg) \imm *Msg{ var y \mub *Msg; var z \rob *Msg; ch:=make(chan \iso *Msg); _,_,_=y,z,ch; return x}

@@ -755,7 +755,7 @@ func (graph *annotationGraph) planForcedPropagation(dir string) *ForcedAnnotatio
 		for _, componentSite := range component {
 			seen[componentSite.key] = true
 		}
-		cap, roots, conflicts := graph.componentCapability(component)
+		cap, roots, conflicts := graph.componentOstamp(component)
 		if len(conflicts) > 0 {
 			result.Conflicts = append(result.Conflicts, conflicts...)
 			continue
@@ -810,7 +810,7 @@ func (graph *annotationGraph) connectedComponent(start string) []*annotationSite
 	return component
 }
 
-func (graph *annotationGraph) componentCapability(component []*annotationSite) (Cap, []string, []string) {
+func (graph *annotationGraph) componentOstamp(component []*annotationSite) (Cap, []string, []string) {
 	cap := CapUntracked
 	var roots []string
 	var conflicts []string

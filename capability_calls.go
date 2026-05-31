@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func bindCallCapabilities(pkg *packages.Package, idx *CapabilityIndex, file *ast.File) {
+func bindCallCapabilities(pkg *packages.Package, idx *OstampIndex, file *ast.File) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		fn, ok := n.(*ast.FuncDecl)
 		if !ok {
@@ -21,18 +21,18 @@ func bindCallCapabilities(pkg *packages.Package, idx *CapabilityIndex, file *ast
 	})
 }
 
-func bindFunctionCallCapabilities(pkg *packages.Package, idx *CapabilityIndex, funcName string, body *ast.BlockStmt) {
+func bindFunctionCallCapabilities(pkg *packages.Package, idx *OstampIndex, funcName string, body *ast.BlockStmt) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-		bindCallCapability(pkg, idx, funcName, call)
+		bindCallOstamp(pkg, idx, funcName, call)
 		return true
 	})
 }
 
-func bindCallCapability(pkg *packages.Package, idx *CapabilityIndex, funcName string, call *ast.CallExpr) {
+func bindCallOstamp(pkg *packages.Package, idx *OstampIndex, funcName string, call *ast.CallExpr) {
 	callee := callCallee(pkg, call)
 	if callee == nil {
 		return
@@ -57,7 +57,7 @@ func bindCallCapability(pkg *packages.Package, idx *CapabilityIndex, funcName st
 	})
 }
 
-func callArgPlaces(idx *CapabilityIndex, call *ast.CallExpr) []Place {
+func callArgPlaces(idx *OstampIndex, call *ast.CallExpr) []Place {
 	if idx == nil || call == nil {
 		return nil
 	}
@@ -70,7 +70,7 @@ func callArgPlaces(idx *CapabilityIndex, call *ast.CallExpr) []Place {
 	return places
 }
 
-func (idx *CapabilityIndex) addCallBinding(binding CallBinding) {
+func (idx *OstampIndex) addCallBinding(binding CallBinding) {
 	if idx == nil || binding.Call == nil {
 		return
 	}

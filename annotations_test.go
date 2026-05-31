@@ -24,7 +24,7 @@ func Use(ch chan \iso *Msg, x \mub *Msg) \rob *Msg {
 }
 `
 
-func TestScanAndClassifyCapabilityQualifiers(t *testing.T) {
+func TestScanAndClassifyOstampQualifiers(t *testing.T) {
 	emitSrc, analysisSrc, gf, err := scanAndClassify("qualifiers.gown", []byte(gownAllQualifiersSource))
 	if err != nil {
 		t.Fatal(err)

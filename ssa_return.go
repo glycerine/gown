@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func checkReturnBorrowEscapesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
+func checkReturnBorrowEscapesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || ssaPkg == nil || caps == nil {
 		return nil
 	}
@@ -25,7 +25,7 @@ func checkReturnBorrowEscapesSSA(pkg *packages.Package, ssaPkg *ssa.Package, cap
 
 type ssaReturnChecker struct {
 	pkg      *packages.Package
-	caps     *CapabilityIndex
+	caps     *OstampIndex
 	places   *SSAPlaceIndex
 	errs     CheckerErrors
 	reported map[string]bool

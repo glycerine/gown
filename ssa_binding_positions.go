@@ -21,7 +21,7 @@ type SSABindingIndex struct {
 	Intrinsics map[sourcePosKey]IntrinsicBinding
 }
 
-func NewSSABindingIndex(caps *CapabilityIndex) *SSABindingIndex {
+func NewSSABindingIndex(caps *OstampIndex) *SSABindingIndex {
 	return &SSABindingIndex{
 		Sends:      sendBindingsByPosition(caps),
 		Calls:      callBindingsByPosition(caps),
@@ -29,7 +29,7 @@ func NewSSABindingIndex(caps *CapabilityIndex) *SSABindingIndex {
 	}
 }
 
-func sendBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]SendBinding {
+func sendBindingsByPosition(caps *OstampIndex) map[sourcePosKey]SendBinding {
 	byPos := make(map[sourcePosKey]SendBinding)
 	if caps == nil {
 		return byPos
@@ -40,7 +40,7 @@ func sendBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]SendBinding 
 	return byPos
 }
 
-func callBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]CallBinding {
+func callBindingsByPosition(caps *OstampIndex) map[sourcePosKey]CallBinding {
 	byPos := make(map[sourcePosKey]CallBinding)
 	if caps == nil {
 		return byPos
@@ -56,7 +56,7 @@ func callBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]CallBinding 
 	return byPos
 }
 
-func intrinsicBindingsByPosition(caps *CapabilityIndex) map[sourcePosKey]IntrinsicBinding {
+func intrinsicBindingsByPosition(caps *OstampIndex) map[sourcePosKey]IntrinsicBinding {
 	byPos := make(map[sourcePosKey]IntrinsicBinding)
 	if caps == nil {
 		return byPos

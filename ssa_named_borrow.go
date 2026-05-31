@@ -26,7 +26,7 @@ type SSANamedBorrowLiveness struct {
 
 type objectSet map[types.Object]bool
 
-func collectSSANamedBorrows(pkg *packages.Package, caps *CapabilityIndex) map[*types.Func]SSANamedBorrowInfo {
+func collectSSANamedBorrows(pkg *packages.Package, caps *OstampIndex) map[*types.Func]SSANamedBorrowInfo {
 	byFunc := make(map[*types.Func]SSANamedBorrowInfo)
 	if pkg == nil || caps == nil {
 		return byFunc
@@ -63,7 +63,7 @@ func collectSSANamedBorrows(pkg *packages.Package, caps *CapabilityIndex) map[*t
 	return byFunc
 }
 
-func collectNamedBorrowValueSpec(pkg *packages.Package, caps *CapabilityIndex, info *SSANamedBorrowInfo, spec *ast.ValueSpec) {
+func collectNamedBorrowValueSpec(pkg *packages.Package, caps *OstampIndex, info *SSANamedBorrowInfo, spec *ast.ValueSpec) {
 	if len(spec.Names) == 0 || len(spec.Names) != len(spec.Values) {
 		return
 	}
@@ -73,7 +73,7 @@ func collectNamedBorrowValueSpec(pkg *packages.Package, caps *CapabilityIndex, i
 	}
 }
 
-func collectNamedBorrowAssign(pkg *packages.Package, caps *CapabilityIndex, info *SSANamedBorrowInfo, stmt *ast.AssignStmt) {
+func collectNamedBorrowAssign(pkg *packages.Package, caps *OstampIndex, info *SSANamedBorrowInfo, stmt *ast.AssignStmt) {
 	if len(stmt.Lhs) != len(stmt.Rhs) {
 		return
 	}
@@ -87,7 +87,7 @@ func collectNamedBorrowAssign(pkg *packages.Package, caps *CapabilityIndex, info
 	}
 }
 
-func recordNamedBorrow(info *SSANamedBorrowInfo, caps *CapabilityIndex, obj *types.Var, sourceExpr ast.Expr) {
+func recordNamedBorrow(info *SSANamedBorrowInfo, caps *OstampIndex, obj *types.Var, sourceExpr ast.Expr) {
 	if info == nil || obj == nil || sourceExpr == nil {
 		return
 	}
@@ -114,7 +114,7 @@ func recordNamedBorrow(info *SSANamedBorrowInfo, caps *CapabilityIndex, obj *typ
 	info.Defs[key] = append(info.Defs[key], obj)
 }
 
-func namedBorrowSourcePlace(caps *CapabilityIndex, sourceExpr ast.Expr) (Place, bool) {
+func namedBorrowSourcePlace(caps *OstampIndex, sourceExpr ast.Expr) (Place, bool) {
 	if caps == nil || sourceExpr == nil {
 		return Place{}, false
 	}
@@ -161,7 +161,7 @@ func collectNamedBorrowDeferCaptures(pkg *packages.Package, info *SSANamedBorrow
 	info.DeferredCaptures[sourcePositionKey(pkg.Fset.Position(stmt.Defer))] = captured
 }
 
-func namedBorrowSourceAllowed(caps *CapabilityIndex, borrowCap Cap, source Place) bool {
+func namedBorrowSourceAllowed(caps *OstampIndex, borrowCap Cap, source Place) bool {
 	sourceCap := capForSSAPlace(caps, source)
 	switch borrowCap {
 	case CapMub:
@@ -175,7 +175,7 @@ func namedBorrowSourceAllowed(caps *CapabilityIndex, borrowCap Cap, source Place
 	}
 }
 
-func buildSSANamedBorrowLiveness(fn *ssa.Function, caps *CapabilityIndex, info SSANamedBorrowInfo) *SSANamedBorrowLiveness {
+func buildSSANamedBorrowLiveness(fn *ssa.Function, caps *OstampIndex, info SSANamedBorrowInfo) *SSANamedBorrowLiveness {
 	liveness := &SSANamedBorrowLiveness{
 		LiveAfter: make(map[ssa.Instruction]objectSet),
 	}
@@ -253,7 +253,7 @@ func (liveness *SSANamedBorrowLiveness) LiveAfterInstruction(instr ssa.Instructi
 	return liveness.LiveAfter[instr]
 }
 
-func namedBorrowUses(caps *CapabilityIndex, info SSANamedBorrowInfo, instr ssa.Instruction) objectSet {
+func namedBorrowUses(caps *OstampIndex, info SSANamedBorrowInfo, instr ssa.Instruction) objectSet {
 	uses := make(objectSet)
 	debug, ok := instr.(*ssa.DebugRef)
 	if !ok || debug.IsAddr {

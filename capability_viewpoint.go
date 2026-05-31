@@ -1,6 +1,6 @@
 package gown
 
-func EffectivePlaceCap(caps *CapabilityIndex, place Place) Cap {
+func EffectivePlaceCap(caps *OstampIndex, place Place) Cap {
 	if caps == nil || place.Root == nil {
 		return CapInvalid
 	}
@@ -13,12 +13,12 @@ func EffectivePlaceCap(caps *CapabilityIndex, place Place) Cap {
 		if projection.Field != nil {
 			fieldCap = caps.ObjectCap(projection.Field)
 		}
-		cap = adaptFieldCapability(cap, fieldCap)
+		cap = adaptFieldOstamp(cap, fieldCap)
 	}
 	return cap
 }
 
-func adaptFieldCapability(ownerCap, fieldCap Cap) Cap {
+func adaptFieldOstamp(ownerCap, fieldCap Cap) Cap {
 	switch ownerCap {
 	case CapIso:
 		if capTracked(fieldCap) {
@@ -50,7 +50,7 @@ func adaptFieldCapability(ownerCap, fieldCap Cap) Cap {
 	}
 }
 
-func placeCanTransferAsIso(caps *CapabilityIndex, place Place) bool {
+func placeCanTransferAsIso(caps *OstampIndex, place Place) bool {
 	if capForSSAPlace(caps, place) == CapIso {
 		return true
 	}

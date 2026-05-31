@@ -24,14 +24,14 @@ const (
 		capabilityErasureSends
 )
 
-func checkCapabilityErasure(ctx *CheckerContext) CheckerErrors {
+func checkOstampErasure(ctx *CheckerContext) CheckerErrors {
 	if ctx == nil {
 		return nil
 	}
-	return checkCapabilityErasureInPackage(ctx.Pkg, ctx.Caps, capabilityErasureAll)
+	return checkOstampErasureInPackage(ctx.Pkg, ctx.Caps, capabilityErasureAll)
 }
 
-func checkCapabilityErasureInPackage(pkg *packages.Package, caps *CapabilityIndex, mode capabilityErasureMode) CheckerErrors {
+func checkOstampErasureInPackage(pkg *packages.Package, caps *OstampIndex, mode capabilityErasureMode) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}
@@ -49,7 +49,7 @@ func checkCapabilityErasureInPackage(pkg *packages.Package, caps *CapabilityInde
 
 type capabilityErasureChecker struct {
 	pkg      *packages.Package
-	caps     *CapabilityIndex
+	caps     *OstampIndex
 	mode     capabilityErasureMode
 	errs     CheckerErrors
 	reported map[string]bool
@@ -103,7 +103,7 @@ func (checker *capabilityErasureChecker) checkReturn(ret *ast.ReturnStmt, result
 		if i >= len(resultCaps) || resultCaps[i] != CapUntracked {
 			continue
 		}
-		value, ok := checker.valueCapability(result)
+		value, ok := checker.valueOstamp(result)
 		if !ok || !valueRequiresUnsafeErasure(value) {
 			continue
 		}
@@ -142,7 +142,7 @@ func (checker *capabilityErasureChecker) checkCallArguments(call *ast.CallExpr) 
 		if paramCap != CapUntracked {
 			continue
 		}
-		value, ok := checker.valueCapability(arg)
+		value, ok := checker.valueOstamp(arg)
 		if !ok || !valueRequiresUnsafeErasure(value) {
 			continue
 		}
@@ -163,7 +163,7 @@ func (checker *capabilityErasureChecker) checkCallReceiver(call *ast.CallExpr) {
 	if fn == nil || checker.caps.FuncCap(fn) != nil {
 		return
 	}
-	value, ok := checker.valueCapability(sel.X)
+	value, ok := checker.valueOstamp(sel.X)
 	if !ok || !valueRequiresUnsafeErasure(value) {
 		return
 	}
@@ -232,7 +232,7 @@ func (checker *capabilityErasureChecker) checkValueIntoCap(src ast.Expr, dstCap 
 	if dstCap != CapUntracked {
 		return
 	}
-	value, ok := checker.valueCapability(src)
+	value, ok := checker.valueOstamp(src)
 	if !ok || !valueRequiresUnsafeErasure(value) {
 		return
 	}
@@ -247,7 +247,7 @@ func (checker *capabilityErasureChecker) checkSend(send *ast.SendStmt) {
 	if !ok || ch.Root == nil || chanElemCapForPlace(checker.caps, ch) != CapUntracked {
 		return
 	}
-	value, ok := checker.valueCapability(send.Value)
+	value, ok := checker.valueOstamp(send.Value)
 	if !ok || !valueRequiresUnsafeErasure(value) {
 		return
 	}
@@ -323,8 +323,8 @@ func (checker *capabilityErasureChecker) callParamCaps(call *ast.CallExpr) ([]Ca
 	return params, true
 }
 
-func (checker *capabilityErasureChecker) valueCapability(expr ast.Expr) (ValueCapability, bool) {
-	return valueCapabilityForExpr(checker.pkg, checker.caps, expr)
+func (checker *capabilityErasureChecker) valueOstamp(expr ast.Expr) (ValueOstamp, bool) {
+	return valueOstampForExpr(checker.pkg, checker.caps, expr)
 }
 
 func (checker *capabilityErasureChecker) reportAtNode(code CheckerErrorCode, node ast.Node, message string) {
@@ -386,7 +386,7 @@ func isBlankIdent(expr ast.Expr) bool {
 	return ok && id.Name == "_"
 }
 
-func valueName(value ValueCapability) string {
+func valueName(value ValueOstamp) string {
 	if value.Place.Root != nil {
 		return value.Place.Root.Name()
 	}
@@ -396,7 +396,7 @@ func valueName(value ValueCapability) string {
 	return "<expression>"
 }
 
-func valueRequiresUnsafeErasure(value ValueCapability) bool {
+func valueRequiresUnsafeErasure(value ValueOstamp) bool {
 	if !capTracked(value.Cap) {
 		return false
 	}

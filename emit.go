@@ -20,7 +20,7 @@ type EmitEdit struct {
 
 const generatedNilOwnershipTransferComment = " // gown added: nil out because ownership transferred"
 
-func buildEmitSource(pkg *packages.Package, caps *CapabilityIndex, gf *gownFile, src []byte) ([]byte, error) {
+func buildEmitSource(pkg *packages.Package, caps *OstampIndex, gf *gownFile, src []byte) ([]byte, error) {
 	if pkg == nil || caps == nil || gf == nil {
 		return src, nil
 	}
@@ -54,7 +54,7 @@ func syntaxFileForGownFile(pkg *packages.Package, gf *gownFile) *ast.File {
 	return nil
 }
 
-func collectIntrinsicEmitEdits(pkg *packages.Package, caps *CapabilityIndex, gf *gownFile, src []byte) ([]EmitEdit, error) {
+func collectIntrinsicEmitEdits(pkg *packages.Package, caps *OstampIndex, gf *gownFile, src []byte) ([]EmitEdit, error) {
 	var edits []EmitEdit
 	for _, binding := range caps.IntrinsicBindings {
 		if binding.Call == nil {
@@ -100,7 +100,7 @@ func collectIntrinsicEmitEdits(pkg *packages.Package, caps *CapabilityIndex, gf 
 	return edits, nil
 }
 
-func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file *ast.File, src []byte) []EmitEdit {
+func collectMoveNilEmitEdits(pkg *packages.Package, caps *OstampIndex, file *ast.File, src []byte) []EmitEdit {
 	var edits []EmitEdit
 	nilSuppressions := collectNilSuppressedImmutableProjectionRoots(caps, file)
 	var currentSuppressions map[types.Object]bool
@@ -147,7 +147,7 @@ func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file 
 	return edits
 }
 
-func collectNilSuppressedImmutableProjectionRoots(caps *CapabilityIndex, file *ast.File) map[*ast.FuncDecl]map[types.Object]bool {
+func collectNilSuppressedImmutableProjectionRoots(caps *OstampIndex, file *ast.File) map[*ast.FuncDecl]map[types.Object]bool {
 	out := make(map[*ast.FuncDecl]map[types.Object]bool)
 	if caps == nil || file == nil {
 		return out
@@ -182,7 +182,7 @@ func collectNilSuppressedImmutableProjectionRoots(caps *CapabilityIndex, file *a
 	return out
 }
 
-func nilRootsForStatement(pkg *packages.Package, caps *CapabilityIndex, stmt ast.Stmt, suppressNilRoots map[types.Object]bool) []string {
+func nilRootsForStatement(pkg *packages.Package, caps *OstampIndex, stmt ast.Stmt, suppressNilRoots map[types.Object]bool) []string {
 	seen := make(map[string]bool)
 	var roots []string
 	add := func(place Place) {
@@ -256,7 +256,7 @@ func nilRootsForStatement(pkg *packages.Package, caps *CapabilityIndex, stmt ast
 	return roots
 }
 
-func assignmentMoveSources(caps *CapabilityIndex, lhs, rhs []ast.Expr) []Place {
+func assignmentMoveSources(caps *OstampIndex, lhs, rhs []ast.Expr) []Place {
 	if len(lhs) != len(rhs) {
 		return nil
 	}

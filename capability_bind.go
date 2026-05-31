@@ -10,8 +10,8 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityIndex {
-	idx := newCapabilityIndex()
+func assignCapabilities(pkg *packages.Package, files []*gownFile) *OstampIndex {
+	idx := newOstampIndex()
 	bindObserverDirectives(idx, files)
 	idx.Places = buildPlaceIndex(pkg)
 	qualsByFile := capQualifiersByGeneratedFile(files)
@@ -47,7 +47,7 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityInd
 	return idx
 }
 
-func bindObserverDirectives(idx *CapabilityIndex, files []*gownFile) {
+func bindObserverDirectives(idx *OstampIndex, files []*gownFile) {
 	if idx == nil {
 		return
 	}
@@ -99,7 +99,7 @@ func generatedGoName(gownPath string) string {
 	return base
 }
 
-func bindFuncDeclCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, fn *ast.FuncDecl) {
+func bindFuncDeclCapabilities(pkg *packages.Package, idx *OstampIndex, quals map[int]*CapQualifierAnnotation, fn *ast.FuncDecl) {
 	obj, _ := pkg.TypesInfo.Defs[fn.Name].(*types.Func)
 	if obj == nil {
 		return
@@ -109,7 +109,7 @@ func bindFuncDeclCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals
 		return
 	}
 
-	caps := &FuncCapability{
+	caps := &FuncOstamp{
 		Params:  make([]Cap, sig.Params().Len()),
 		Results: make([]Cap, sig.Results().Len()),
 	}
@@ -124,7 +124,7 @@ func bindFuncDeclCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals
 	}
 }
 
-func bindFieldListCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, fields *ast.FieldList, tuple *types.Tuple, out []Cap) {
+func bindFieldListCapabilities(pkg *packages.Package, idx *OstampIndex, quals map[int]*CapQualifierAnnotation, fields *ast.FieldList, tuple *types.Tuple, out []Cap) {
 	if fields == nil || tuple == nil {
 		return
 	}
@@ -147,7 +147,7 @@ func bindFieldListCapabilities(pkg *packages.Package, idx *CapabilityIndex, qual
 	}
 }
 
-func bindGenDeclCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, decl *ast.GenDecl) {
+func bindGenDeclCapabilities(pkg *packages.Package, idx *OstampIndex, quals map[int]*CapQualifierAnnotation, decl *ast.GenDecl) {
 	for _, spec := range decl.Specs {
 		switch s := spec.(type) {
 		case *ast.ValueSpec:
@@ -173,7 +173,7 @@ func bindGenDeclCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals 
 	}
 }
 
-func bindFuncBodyCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, fn *ast.FuncDecl) {
+func bindFuncBodyCapabilities(pkg *packages.Package, idx *OstampIndex, quals map[int]*CapQualifierAnnotation, fn *ast.FuncDecl) {
 	if fn.Body == nil {
 		return
 	}
@@ -188,7 +188,7 @@ func bindFuncBodyCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals
 	})
 }
 
-func bindValueSpecCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, spec *ast.ValueSpec) {
+func bindValueSpecCapabilities(pkg *packages.Package, idx *OstampIndex, quals map[int]*CapQualifierAnnotation, spec *ast.ValueSpec) {
 	var typeCap Cap = CapInvalid
 	var typeChanElemCap Cap = CapInvalid
 	if spec.Type != nil {
@@ -218,7 +218,7 @@ func bindValueSpecCapabilities(pkg *packages.Package, idx *CapabilityIndex, qual
 	}
 }
 
-func bindAssignStmtCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, stmt *ast.AssignStmt) {
+func bindAssignStmtCapabilities(pkg *packages.Package, idx *OstampIndex, quals map[int]*CapQualifierAnnotation, stmt *ast.AssignStmt) {
 	if stmt.Tok != token.DEFINE && stmt.Tok != token.ASSIGN {
 		return
 	}
@@ -258,7 +258,7 @@ func assignedObject(pkg *packages.Package, expr ast.Expr) types.Object {
 	return pkg.TypesInfo.Uses[name]
 }
 
-func bindObjectCaps(idx *CapabilityIndex, obj types.Object, cap, chanElemCap Cap) {
+func bindObjectCaps(idx *OstampIndex, obj types.Object, cap, chanElemCap Cap) {
 	if obj == nil {
 		return
 	}
@@ -294,7 +294,7 @@ func capQualifierForType(pkg *packages.Package, quals map[int]*CapQualifierAnnot
 	return ann, ann != nil
 }
 
-func recordInvalidChannelElementQualifiers(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, file *ast.File) {
+func recordInvalidChannelElementQualifiers(pkg *packages.Package, idx *OstampIndex, quals map[int]*CapQualifierAnnotation, file *ast.File) {
 	if pkg == nil || idx == nil || len(quals) == 0 || file == nil {
 		return
 	}
@@ -339,7 +339,7 @@ func capsForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotati
 	return CapInvalid, chanElemCapForType(pkg, quals, call.Args[0])
 }
 
-func isoMoveCapForValueExpr(pkg *packages.Package, idx *CapabilityIndex, expr ast.Expr) Cap {
+func isoMoveCapForValueExpr(pkg *packages.Package, idx *OstampIndex, expr ast.Expr) Cap {
 	place, ok := directRootPlace(pkg, expr)
 	if !ok || idx.ObjectCap(place.Root) != CapIso {
 		return CapInvalid
@@ -347,7 +347,7 @@ func isoMoveCapForValueExpr(pkg *packages.Package, idx *CapabilityIndex, expr as
 	return CapIso
 }
 
-func receiveCapForValueExpr(idx *CapabilityIndex, expr ast.Expr) Cap {
+func receiveCapForValueExpr(idx *OstampIndex, expr ast.Expr) Cap {
 	if idx == nil || expr == nil {
 		return CapInvalid
 	}
@@ -367,8 +367,8 @@ func receiveCapForValueExpr(idx *CapabilityIndex, expr ast.Expr) Cap {
 	return cap
 }
 
-func resultCapForValueExpr(pkg *packages.Package, idx *CapabilityIndex, expr ast.Expr) Cap {
-	value, ok := valueCapabilityForExpr(pkg, idx, expr)
+func resultCapForValueExpr(pkg *packages.Package, idx *OstampIndex, expr ast.Expr) Cap {
+	value, ok := valueOstampForExpr(pkg, idx, expr)
 	if !ok || !capTracked(value.Cap) {
 		return CapInvalid
 	}

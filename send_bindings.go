@@ -40,7 +40,7 @@ func (binding SendBinding) ValueKey() PlaceKey {
 	return binding.Value.RegionKey()
 }
 
-func bindSendBindings(pkg *packages.Package, idx *CapabilityIndex) {
+func bindSendBindings(pkg *packages.Package, idx *OstampIndex) {
 	if pkg == nil || idx == nil {
 		return
 	}
@@ -56,14 +56,14 @@ func bindSendBindings(pkg *packages.Package, idx *CapabilityIndex) {
 	}
 }
 
-func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.SendStmt) {
+func bindSendBinding(pkg *packages.Package, idx *OstampIndex, send *ast.SendStmt) {
 	ch, ok := idx.PlaceForExpr(send.Chan)
 	if !ok {
 		return
 	}
-	value, ok := valueCapabilityForExpr(pkg, idx, send.Value)
+	value, ok := valueOstampForExpr(pkg, idx, send.Value)
 	if !ok {
-		value = ValueCapability{Cap: CapUntracked}
+		value = ValueOstamp{Cap: CapUntracked}
 	}
 	pos := pkg.Fset.Position(send.Arrow)
 	idx.addSendBinding(SendBinding{
@@ -82,7 +82,7 @@ func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.Send
 	})
 }
 
-func (idx *CapabilityIndex) addSendBinding(binding SendBinding) {
+func (idx *OstampIndex) addSendBinding(binding SendBinding) {
 	if idx == nil || binding.Stmt == nil {
 		return
 	}

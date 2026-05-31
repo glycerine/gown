@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func checkGWN002SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
+func checkGWN002SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || ssaPkg == nil || caps == nil {
 		return nil
 	}
@@ -26,7 +26,7 @@ func checkGWN002SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 
 type ssaBorrowChecker struct {
 	pkg      *packages.Package
-	caps     *CapabilityIndex
+	caps     *OstampIndex
 	places   *SSAPlaceIndex
 	errs     CheckerErrors
 	reported map[string]bool

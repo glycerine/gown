@@ -16,7 +16,7 @@ type GownPackage struct {
 	path    string // directory containing the package
 	pkg     *packages.Package
 	files   []*gownFile
-	caps    *CapabilityIndex
+	caps    *OstampIndex
 	ssaProg *ssa.Program
 	ssaPkg  *ssa.Package
 }
@@ -30,7 +30,7 @@ type GownAnalysis struct {
 	Path    string
 	Package *packages.Package
 	Files   []*gownFile
-	Caps    *CapabilityIndex
+	Caps    *OstampIndex
 	SSAPkg  *ssa.Package
 }
 

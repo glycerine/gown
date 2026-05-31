@@ -14,7 +14,7 @@ type goCapture struct {
 	Cap   Cap
 }
 
-func goClosureCaptures(pkg *packages.Package, caps *CapabilityIndex, stmt *ast.GoStmt) []goCapture {
+func goClosureCaptures(pkg *packages.Package, caps *OstampIndex, stmt *ast.GoStmt) []goCapture {
 	if pkg == nil || caps == nil || stmt == nil {
 		return nil
 	}

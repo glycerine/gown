@@ -6,7 +6,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-type ValueCapability struct {
+type ValueOstamp struct {
 	Cap         Cap
 	ChanElemCap Cap
 	Place       Place
@@ -15,52 +15,52 @@ type ValueCapability struct {
 	Intrinsic   IntrinsicKind
 }
 
-func (idx *CapabilityIndex) ValueCapability(expr ast.Expr) (ValueCapability, bool) {
-	return valueCapabilityForExpr(nil, idx, expr)
+func (idx *OstampIndex) ValueOstamp(expr ast.Expr) (ValueOstamp, bool) {
+	return valueOstampForExpr(nil, idx, expr)
 }
 
-func valueCapabilityForExpr(pkg *packages.Package, idx *CapabilityIndex, expr ast.Expr) (ValueCapability, bool) {
+func valueOstampForExpr(pkg *packages.Package, idx *OstampIndex, expr ast.Expr) (ValueOstamp, bool) {
 	if idx == nil || expr == nil {
-		return ValueCapability{}, false
+		return ValueOstamp{}, false
 	}
 	expr = unparenExpr(expr)
 	if call, ok := expr.(*ast.CallExpr); ok {
 		if binding, ok := idx.IntrinsicBinding(call); ok {
-			return intrinsicValueCapability(binding), true
+			return intrinsicValueOstamp(binding), true
 		}
-		if value, ok := callResultValueCapability(pkg, idx, call); ok {
+		if value, ok := callResultValueOstamp(pkg, idx, call); ok {
 			return value, true
 		}
 	}
 	if isFreshOwnedValueExpr(expr) {
-		return ValueCapability{Cap: CapIso, Fresh: true}, true
+		return ValueOstamp{Cap: CapIso, Fresh: true}, true
 	}
 	if place, ok := idx.PlaceForExpr(expr); ok {
-		return ValueCapability{
+		return ValueOstamp{
 			Cap:   capForSSAPlace(idx, place),
 			Place: place,
 		}, true
 	}
-	return ValueCapability{}, false
+	return ValueOstamp{}, false
 }
 
-func callResultValueCapability(pkg *packages.Package, idx *CapabilityIndex, call *ast.CallExpr) (ValueCapability, bool) {
+func callResultValueOstamp(pkg *packages.Package, idx *OstampIndex, call *ast.CallExpr) (ValueOstamp, bool) {
 	if pkg == nil || idx == nil || call == nil {
-		return ValueCapability{}, false
+		return ValueOstamp{}, false
 	}
 	callee := callCallee(pkg, call)
 	funcCap := idx.FuncCap(callee)
 	if funcCap == nil || len(funcCap.Results) != 1 || !capTracked(funcCap.Results[0]) {
-		return ValueCapability{}, false
+		return ValueOstamp{}, false
 	}
-	return ValueCapability{
+	return ValueOstamp{
 		Cap:   funcCap.Results[0],
 		Fresh: funcCap.Results[0] == CapIso,
 	}, true
 }
 
-func intrinsicValueCapability(binding IntrinsicBinding) ValueCapability {
-	value := ValueCapability{
+func intrinsicValueOstamp(binding IntrinsicBinding) ValueOstamp {
+	value := ValueOstamp{
 		Source:    binding.ArgPlace,
 		Intrinsic: binding.Kind,
 	}

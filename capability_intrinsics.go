@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func bindIntrinsicCapabilities(pkg *packages.Package, idx *CapabilityIndex, intrinsics map[int]*IntrinsicAnnotation, file *ast.File) {
+func bindIntrinsicCapabilities(pkg *packages.Package, idx *OstampIndex, intrinsics map[int]*IntrinsicAnnotation, file *ast.File) {
 	if pkg == nil || idx == nil || len(intrinsics) == 0 || file == nil {
 		return
 	}
@@ -35,7 +35,7 @@ func bindIntrinsicCapabilities(pkg *packages.Package, idx *CapabilityIndex, intr
 	})
 }
 
-func bindIntrinsicCallsInExpr(pkg *packages.Package, idx *CapabilityIndex, intrinsics map[int]*IntrinsicAnnotation, expr ast.Expr, result types.Object) {
+func bindIntrinsicCallsInExpr(pkg *packages.Package, idx *OstampIndex, intrinsics map[int]*IntrinsicAnnotation, expr ast.Expr, result types.Object) {
 	if expr == nil {
 		return
 	}
@@ -53,7 +53,7 @@ func bindIntrinsicCallsInExpr(pkg *packages.Package, idx *CapabilityIndex, intri
 	})
 }
 
-func bindIntrinsicCall(pkg *packages.Package, idx *CapabilityIndex, intrinsics map[int]*IntrinsicAnnotation, call *ast.CallExpr, result types.Object) {
+func bindIntrinsicCall(pkg *packages.Package, idx *OstampIndex, intrinsics map[int]*IntrinsicAnnotation, call *ast.CallExpr, result types.Object) {
 	if call == nil {
 		return
 	}
@@ -83,10 +83,10 @@ func bindIntrinsicCall(pkg *packages.Package, idx *CapabilityIndex, intrinsics m
 		ArgPlace: argPlace,
 		Result:   result,
 	})
-	bindIntrinsicResultCapability(idx, ann.Intrinsic, result)
+	bindIntrinsicResultOstamp(idx, ann.Intrinsic, result)
 }
 
-func (idx *CapabilityIndex) addIntrinsicBinding(binding IntrinsicBinding) {
+func (idx *OstampIndex) addIntrinsicBinding(binding IntrinsicBinding) {
 	if idx == nil || binding.Call == nil {
 		return
 	}
@@ -106,7 +106,7 @@ func (idx *CapabilityIndex) addIntrinsicBinding(binding IntrinsicBinding) {
 	idx.intrinsicByCall[binding.Call] = len(idx.IntrinsicBindings) - 1
 }
 
-func bindIntrinsicResultCapability(idx *CapabilityIndex, kind IntrinsicKind, result types.Object) {
+func bindIntrinsicResultOstamp(idx *OstampIndex, kind IntrinsicKind, result types.Object) {
 	if idx == nil || result == nil {
 		return
 	}

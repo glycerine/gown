@@ -16,12 +16,12 @@ type moveSite struct {
 
 type gwn001Checker struct {
 	pkg      *packages.Package
-	caps     *CapabilityIndex
+	caps     *OstampIndex
 	consumed map[PlaceKey]moveSite
 	errs     CheckerErrors
 }
 
-func checkGWN001(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
+func checkGWN001(pkg *packages.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}

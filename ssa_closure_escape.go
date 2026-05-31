@@ -9,7 +9,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func checkClosureEscapesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
+func checkClosureEscapesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || ssaPkg == nil || caps == nil {
 		return nil
 	}
@@ -28,7 +28,7 @@ func checkClosureEscapesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Ca
 
 type ssaClosureEscapeChecker struct {
 	pkg      *packages.Package
-	caps     *CapabilityIndex
+	caps     *OstampIndex
 	places   *SSAPlaceIndex
 	errs     CheckerErrors
 	reported map[string]bool
@@ -356,7 +356,7 @@ func sourceFuncLit(expr ast.Expr) (*ast.FuncLit, bool) {
 	return lit, ok
 }
 
-func sourceFuncLitBorrowCaptures(pkg *packages.Package, caps *CapabilityIndex, lit *ast.FuncLit) []goCapture {
+func sourceFuncLitBorrowCaptures(pkg *packages.Package, caps *OstampIndex, lit *ast.FuncLit) []goCapture {
 	if pkg == nil || caps == nil || lit == nil || lit.Body == nil {
 		return nil
 	}

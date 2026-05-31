@@ -8,11 +8,11 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func checkInterfaceErasure(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
-	return checkCapabilityErasureInPackage(pkg, caps, capabilityErasureInterfaces)
+func checkInterfaceErasure(pkg *packages.Package, caps *OstampIndex) CheckerErrors {
+	return checkOstampErasureInPackage(pkg, caps, capabilityErasureInterfaces)
 }
 
-func checkInterfaceAssign(pkg *packages.Package, caps *CapabilityIndex, stmt *ast.AssignStmt) CheckerErrors {
+func checkInterfaceAssign(pkg *packages.Package, caps *OstampIndex, stmt *ast.AssignStmt) CheckerErrors {
 	if len(stmt.Lhs) != len(stmt.Rhs) {
 		return nil
 	}
@@ -28,7 +28,7 @@ func checkInterfaceAssign(pkg *packages.Package, caps *CapabilityIndex, stmt *as
 	return errs
 }
 
-func checkInterfaceValueSpec(pkg *packages.Package, caps *CapabilityIndex, spec *ast.ValueSpec) CheckerErrors {
+func checkInterfaceValueSpec(pkg *packages.Package, caps *OstampIndex, spec *ast.ValueSpec) CheckerErrors {
 	if len(spec.Names) != len(spec.Values) {
 		return nil
 	}
@@ -45,7 +45,7 @@ func checkInterfaceValueSpec(pkg *packages.Package, caps *CapabilityIndex, spec 
 	return errs
 }
 
-func checkInterfaceSource(pkg *packages.Package, caps *CapabilityIndex, src ast.Expr) (CheckerError, bool) {
+func checkInterfaceSource(pkg *packages.Package, caps *OstampIndex, src ast.Expr) (CheckerError, bool) {
 	place, ok := caps.PlaceForExpr(src)
 	if !ok || place.Root == nil {
 		return CheckerError{}, false

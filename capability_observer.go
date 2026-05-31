@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func isObserverCall(pkg *packages.Package, caps *CapabilityIndex, call *ast.CallExpr) bool {
+func isObserverCall(pkg *packages.Package, caps *OstampIndex, call *ast.CallExpr) bool {
 	if caps == nil || call == nil {
 		return false
 	}

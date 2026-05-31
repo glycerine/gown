@@ -34,7 +34,7 @@ func TestEffectivePlaceCapAppliesViewpointMatrix(t *testing.T) {
 		{"untracked preserves declared immutable field", CapUntracked, CapImm, CapImm},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			caps := newCapabilityIndex()
+			caps := newOstampIndex()
 			caps.ObjectCaps[root] = tt.rootCap
 			if tt.fieldCap != CapUntracked {
 				caps.ObjectCaps[field] = tt.fieldCap

@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func checkReturnBorrowEscapes(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
+func checkReturnBorrowEscapes(pkg *packages.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}
@@ -29,7 +29,7 @@ func checkReturnBorrowEscapes(pkg *packages.Package, caps *CapabilityIndex) Chec
 	return errs
 }
 
-func checkReturnBorrowEscape(pkg *packages.Package, caps *CapabilityIndex, result ast.Expr) (CheckerError, bool) {
+func checkReturnBorrowEscape(pkg *packages.Package, caps *OstampIndex, result ast.Expr) (CheckerError, bool) {
 	place, ok := caps.PlaceForExpr(result)
 	if !ok || place.Root == nil {
 		return CheckerError{}, false

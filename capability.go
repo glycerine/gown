@@ -5,10 +5,10 @@ import (
 	"go/types"
 )
 
-type CapabilityIndex struct {
+type OstampIndex struct {
 	ObjectCaps                      map[types.Object]Cap
 	ChanElemCaps                    map[types.Object]Cap
-	Funcs                           map[*types.Func]*FuncCapability
+	Funcs                           map[*types.Func]*FuncOstamp
 	CallBindings                    []CallBinding
 	IntrinsicBindings               []IntrinsicBinding
 	InvalidChannelElementQualifiers []InvalidChannelElementQualifier
@@ -20,7 +20,7 @@ type CapabilityIndex struct {
 	sendBindingByStmt               map[*ast.SendStmt]int
 }
 
-type FuncCapability struct {
+type FuncOstamp struct {
 	Params  []Cap
 	Results []Cap
 }
@@ -59,11 +59,11 @@ type InvalidChannelElementQualifier struct {
 	Col    int
 }
 
-func newCapabilityIndex() *CapabilityIndex {
-	return &CapabilityIndex{
+func newOstampIndex() *OstampIndex {
+	return &OstampIndex{
 		ObjectCaps:        make(map[types.Object]Cap),
 		ChanElemCaps:      make(map[types.Object]Cap),
-		Funcs:             make(map[*types.Func]*FuncCapability),
+		Funcs:             make(map[*types.Func]*FuncOstamp),
 		Observers:         make(map[string]bool),
 		callBindingByCall: make(map[*ast.CallExpr]int),
 		intrinsicByCall:   make(map[*ast.CallExpr]int),
@@ -71,7 +71,7 @@ func newCapabilityIndex() *CapabilityIndex {
 	}
 }
 
-func (idx *CapabilityIndex) ObjectCap(obj types.Object) Cap {
+func (idx *OstampIndex) ObjectCap(obj types.Object) Cap {
 	if idx == nil || obj == nil {
 		return CapUntracked
 	}
@@ -81,7 +81,7 @@ func (idx *CapabilityIndex) ObjectCap(obj types.Object) Cap {
 	return CapUntracked
 }
 
-func (idx *CapabilityIndex) ChanElemCap(obj types.Object) Cap {
+func (idx *OstampIndex) ChanElemCap(obj types.Object) Cap {
 	if idx == nil || obj == nil {
 		return CapUntracked
 	}
@@ -91,7 +91,7 @@ func (idx *CapabilityIndex) ChanElemCap(obj types.Object) Cap {
 	return CapUntracked
 }
 
-func chanElemCapForPlace(idx *CapabilityIndex, place Place) Cap {
+func chanElemCapForPlace(idx *OstampIndex, place Place) Cap {
 	if idx == nil || place.Root == nil {
 		return CapInvalid
 	}
@@ -106,28 +106,28 @@ func chanElemCapForPlace(idx *CapabilityIndex, place Place) Cap {
 	return idx.ChanElemCap(obj)
 }
 
-func (idx *CapabilityIndex) FuncCap(fn *types.Func) *FuncCapability {
+func (idx *OstampIndex) FuncCap(fn *types.Func) *FuncOstamp {
 	if idx == nil || fn == nil {
 		return nil
 	}
 	return idx.Funcs[fn]
 }
 
-func (idx *CapabilityIndex) Observer(target string) bool {
+func (idx *OstampIndex) Observer(target string) bool {
 	if idx == nil || target == "" {
 		return false
 	}
 	return idx.Observers[target]
 }
 
-func (idx *CapabilityIndex) PlaceForExpr(expr ast.Expr) (Place, bool) {
+func (idx *OstampIndex) PlaceForExpr(expr ast.Expr) (Place, bool) {
 	if idx == nil || idx.Places == nil {
 		return Place{}, false
 	}
 	return idx.Places.PlaceForExpr(expr)
 }
 
-func (idx *CapabilityIndex) CallBinding(call *ast.CallExpr) (CallBinding, bool) {
+func (idx *OstampIndex) CallBinding(call *ast.CallExpr) (CallBinding, bool) {
 	if idx == nil || call == nil {
 		return CallBinding{}, false
 	}
@@ -138,7 +138,7 @@ func (idx *CapabilityIndex) CallBinding(call *ast.CallExpr) (CallBinding, bool) 
 	return idx.CallBindings[i], true
 }
 
-func (idx *CapabilityIndex) IntrinsicBinding(call *ast.CallExpr) (IntrinsicBinding, bool) {
+func (idx *OstampIndex) IntrinsicBinding(call *ast.CallExpr) (IntrinsicBinding, bool) {
 	if idx == nil || call == nil {
 		return IntrinsicBinding{}, false
 	}
@@ -149,7 +149,7 @@ func (idx *CapabilityIndex) IntrinsicBinding(call *ast.CallExpr) (IntrinsicBindi
 	return idx.IntrinsicBindings[i], true
 }
 
-func (idx *CapabilityIndex) SendBinding(stmt *ast.SendStmt) (SendBinding, bool) {
+func (idx *OstampIndex) SendBinding(stmt *ast.SendStmt) (SendBinding, bool) {
 	if idx == nil || stmt == nil {
 		return SendBinding{}, false
 	}

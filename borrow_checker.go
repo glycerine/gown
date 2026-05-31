@@ -8,7 +8,7 @@ type callBorrow struct {
 	name string
 }
 
-func checkCallBorrowConflicts(caps *CapabilityIndex) CheckerErrors {
+func checkCallBorrowConflicts(caps *OstampIndex) CheckerErrors {
 	if caps == nil {
 		return nil
 	}

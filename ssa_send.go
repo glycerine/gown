@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-func checkSendCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
+func checkSendCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || ssaPkg == nil || caps == nil {
 		return nil
 	}
@@ -27,7 +27,7 @@ func checkSendCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *
 
 type ssaSendChecker struct {
 	pkg      *packages.Package
-	caps     *CapabilityIndex
+	caps     *OstampIndex
 	places   *SSAPlaceIndex
 	bindings *SSABindingIndex
 	errs     CheckerErrors
@@ -66,7 +66,7 @@ func (checker *ssaSendChecker) checkSend(send *ssa.Send) {
 	valueCap := capForSSAPlace(checker.caps, valuePlace)
 	pos := checker.pkg.Fset.Position(send.Pos())
 
-	if !sendCapabilityAllowed(chCap, valueCap) {
+	if !sendOstampAllowed(chCap, valueCap) {
 		name := valuePlace.Root.Name()
 		checker.reportCheckerError(newCheckerErrorAtPosition(
 			GWN010,
@@ -90,7 +90,7 @@ func (checker *ssaSendChecker) checkBoundSend(binding SendBinding, send *ssa.Sen
 	if binding.ValueIso && (binding.ChanElemCap == CapIso || binding.ChanElemCap == CapImm) {
 		return
 	}
-	if !sendCapabilityAllowed(binding.ChanElemCap, binding.ValueCap) {
+	if !sendOstampAllowed(binding.ChanElemCap, binding.ValueCap) {
 		name := "<unknown>"
 		if binding.Value.Root != nil {
 			name = binding.Value.Root.Name()

@@ -33,7 +33,7 @@ func (span SSASourceSpan) Position(fset *token.FileSet) token.Position {
 	return fset.Position(span.Start)
 }
 
-func buildSSAPlaceIndex(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) *SSAPlaceIndex {
+func buildSSAPlaceIndex(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) *SSAPlaceIndex {
 	idx := &SSAPlaceIndex{
 		ValuePlaces:       make(map[ssa.Value]Place),
 		InstructionPlaces: make(map[ssa.Instruction]Place),
@@ -354,7 +354,7 @@ func fieldAddrField(instr *ssa.FieldAddr) (*types.Var, bool) {
 	return st.Field(instr.Field), true
 }
 
-func capObjectForSSAPlace(caps *CapabilityIndex, place Place) types.Object {
+func capObjectForSSAPlace(caps *OstampIndex, place Place) types.Object {
 	if caps == nil || place.Root == nil {
 		return nil
 	}

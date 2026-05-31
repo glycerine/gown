@@ -8,13 +8,13 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func checkSendCapabilities(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
+func checkSendCapabilities(pkg *packages.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}
 	var errs CheckerErrors
 	for _, binding := range caps.SendBindings {
-		if err, ok := checkSendCapabilityMatch(binding); ok {
+		if err, ok := checkSendOstampMatch(binding); ok {
 			errs = append(errs, err)
 		}
 		if !capSendable(binding.ValueCap) {
@@ -50,11 +50,11 @@ func bindingPosition(binding SendBinding) token.Position {
 	}
 }
 
-func checkSendCapabilityMatch(binding SendBinding) (CheckerError, bool) {
+func checkSendOstampMatch(binding SendBinding) (CheckerError, bool) {
 	if binding.ValueIso && (binding.ChanElemCap == CapIso || binding.ChanElemCap == CapImm) {
 		return CheckerError{}, false
 	}
-	if sendCapabilityAllowed(binding.ChanElemCap, binding.ValueCap) {
+	if sendOstampAllowed(binding.ChanElemCap, binding.ValueCap) {
 		return CheckerError{}, false
 	}
 	name := "<unknown>"
@@ -75,7 +75,7 @@ func capSendable(cap Cap) bool {
 	return cap != CapMub && cap != CapRob
 }
 
-func sendCapabilityAllowed(chanElemCap, valueCap Cap) bool {
+func sendOstampAllowed(chanElemCap, valueCap Cap) bool {
 	if !capTracked(chanElemCap) {
 		return true
 	}

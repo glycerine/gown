@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const gownCapabilityBindingSource = `package example
+const gownOstampBindingSource = `package example
 
 type Msg struct {
 	Data string
@@ -30,7 +30,7 @@ func Use(x \iso *Msg) {
 }
 `
 
-const gownCapabilityObjectSource = `package example
+const gownOstampObjectSource = `package example
 
 type Msg struct {
 	Data string
@@ -55,7 +55,7 @@ func Locals() {
 }
 `
 
-const gownReceiveCapabilitySource = `package example
+const gownReceiveOstampSource = `package example
 
 type Msg struct{}
 
@@ -70,7 +70,7 @@ func Imm(ch chan \imm *Msg) {
 }
 `
 
-const gownFunctionResultCapabilitySource = `package example
+const gownFunctionResultOstampSource = `package example
 
 type Msg struct{}
 
@@ -89,8 +89,8 @@ func Use() {
 }
 `
 
-func TestCapabilityIndexBindsFunctionSignatures(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"caps.gown": gownCapabilityBindingSource})
+func TestOstampIndexBindsFunctionSignatures(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"caps.gown": gownOstampBindingSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {
@@ -107,8 +107,8 @@ func TestCapabilityIndexBindsFunctionSignatures(t *testing.T) {
 	wantResultCap(t, gp, "Frozen", 0, CapImm)
 }
 
-func TestCapabilityIndexBindsAnnotatedCallSites(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"calls.gown": gownCapabilityBindingSource})
+func TestOstampIndexBindsAnnotatedCallSites(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"calls.gown": gownOstampBindingSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {
@@ -157,8 +157,8 @@ func TestCapabilityIndexBindsAnnotatedCallSites(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexBindsChannelElementCaps(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"objects.gown": gownCapabilityObjectSource})
+func TestOstampIndexBindsChannelElementCaps(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"objects.gown": gownOstampObjectSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {
@@ -186,8 +186,8 @@ func TestCapabilityIndexBindsChannelElementCaps(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexBindsStructFields(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"objects.gown": gownCapabilityObjectSource})
+func TestOstampIndexBindsStructFields(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"objects.gown": gownOstampObjectSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {
@@ -210,8 +210,8 @@ func TestCapabilityIndexBindsStructFields(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexBindsLocalVars(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"objects.gown": gownCapabilityObjectSource})
+func TestOstampIndexBindsLocalVars(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"objects.gown": gownOstampObjectSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {
@@ -226,7 +226,7 @@ func TestCapabilityIndexBindsLocalVars(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexBindsIntrinsicCalls(t *testing.T) {
+func TestOstampIndexBindsIntrinsicCalls(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"intrinsics.gown": gownIntrinsicSource})
 
 	gp := NewGownPackage(dir)
@@ -277,7 +277,7 @@ func TestCapabilityIndexBindsIntrinsicCalls(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexInfersNewIntrinsicAsIso(t *testing.T) {
+func TestOstampIndexInfersNewIntrinsicAsIso(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"intrinsics.gown": gownIntrinsicSource})
 
 	gp := NewGownPackage(dir)
@@ -290,7 +290,7 @@ func TestCapabilityIndexInfersNewIntrinsicAsIso(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexInfersCloneIntrinsicAsIso(t *testing.T) {
+func TestOstampIndexInfersCloneIntrinsicAsIso(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"intrinsics.gown": gownIntrinsicSource})
 
 	gp := NewGownPackage(dir)
@@ -306,8 +306,8 @@ func TestCapabilityIndexInfersCloneIntrinsicAsIso(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexInfersIsoReceiveLocal(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"receive.gown": gownReceiveCapabilitySource})
+func TestOstampIndexInfersIsoReceiveLocal(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"receive.gown": gownReceiveOstampSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {
@@ -319,8 +319,8 @@ func TestCapabilityIndexInfersIsoReceiveLocal(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexInfersImmReceiveLocal(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"receive.gown": gownReceiveCapabilitySource})
+func TestOstampIndexInfersImmReceiveLocal(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"receive.gown": gownReceiveOstampSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {
@@ -332,8 +332,8 @@ func TestCapabilityIndexInfersImmReceiveLocal(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexInfersLocalFromFunctionIsoResult(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"results.gown": gownFunctionResultCapabilitySource})
+func TestOstampIndexInfersLocalFromFunctionIsoResult(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"results.gown": gownFunctionResultOstampSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {
@@ -345,8 +345,8 @@ func TestCapabilityIndexInfersLocalFromFunctionIsoResult(t *testing.T) {
 	}
 }
 
-func TestCapabilityIndexInfersLocalFromFunctionImmResult(t *testing.T) {
-	dir := writeGownDir(t, map[string]string{"results.gown": gownFunctionResultCapabilitySource})
+func TestOstampIndexInfersLocalFromFunctionImmResult(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"results.gown": gownFunctionResultOstampSource})
 
 	gp := NewGownPackage(dir)
 	if err := gp.Check(); err != nil {

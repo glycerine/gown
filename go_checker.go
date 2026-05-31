@@ -7,7 +7,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func checkGoBorrowEscapes(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
+func checkGoBorrowEscapes(pkg *packages.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}
@@ -28,7 +28,7 @@ func checkGoBorrowEscapes(pkg *packages.Package, caps *CapabilityIndex) CheckerE
 	return errs
 }
 
-func checkGoCallBorrowEscape(caps *CapabilityIndex, stmt *ast.GoStmt) (CheckerError, bool) {
+func checkGoCallBorrowEscape(caps *OstampIndex, stmt *ast.GoStmt) (CheckerError, bool) {
 	binding, ok := caps.CallBinding(stmt.Call)
 	if !ok {
 		return CheckerError{}, false
@@ -55,7 +55,7 @@ func checkGoCallBorrowEscape(caps *CapabilityIndex, stmt *ast.GoStmt) (CheckerEr
 	return CheckerError{}, false
 }
 
-func checkGoClosureBorrowCaptures(pkg *packages.Package, caps *CapabilityIndex, stmt *ast.GoStmt) CheckerErrors {
+func checkGoClosureBorrowCaptures(pkg *packages.Package, caps *OstampIndex, stmt *ast.GoStmt) CheckerErrors {
 	var errs CheckerErrors
 	pos := pkg.Fset.Position(stmt.Go)
 	for _, capture := range goClosureCaptures(pkg, caps, stmt) {

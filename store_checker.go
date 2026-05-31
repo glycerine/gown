@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func checkReadOnlyWrites(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
+func checkReadOnlyWrites(pkg *packages.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}
@@ -33,7 +33,7 @@ func checkReadOnlyWrites(pkg *packages.Package, caps *CapabilityIndex) CheckerEr
 	return errs
 }
 
-func checkBorrowStoreEscapes(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
+func checkBorrowStoreEscapes(pkg *packages.Package, caps *OstampIndex) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}
@@ -55,7 +55,7 @@ func checkBorrowStoreEscapes(pkg *packages.Package, caps *CapabilityIndex) Check
 	return errs
 }
 
-func checkBorrowStoreEscape(pkg *packages.Package, caps *CapabilityIndex, lhs, rhs ast.Expr) (CheckerError, bool) {
+func checkBorrowStoreEscape(pkg *packages.Package, caps *OstampIndex, lhs, rhs ast.Expr) (CheckerError, bool) {
 	rhsPlace, ok := caps.PlaceForExpr(rhs)
 	if !ok || rhsPlace.Root == nil {
 		return CheckerError{}, false
@@ -75,7 +75,7 @@ func checkBorrowStoreEscape(pkg *packages.Package, caps *CapabilityIndex, lhs, r
 	), true
 }
 
-func checkWriteTarget(pkg *packages.Package, caps *CapabilityIndex, expr ast.Expr) (CheckerError, bool) {
+func checkWriteTarget(pkg *packages.Package, caps *OstampIndex, expr ast.Expr) (CheckerError, bool) {
 	if !isProjectedWrite(expr) {
 		return CheckerError{}, false
 	}
@@ -95,7 +95,7 @@ func checkWriteTarget(pkg *packages.Package, caps *CapabilityIndex, expr ast.Exp
 	), true
 }
 
-func readOnlyWriteMessage(caps *CapabilityIndex, place Place, effectiveCap Cap) string {
+func readOnlyWriteMessage(caps *OstampIndex, place Place, effectiveCap Cap) string {
 	if field, fieldCap, ok := readOnlyWriteFieldCause(caps, place); ok {
 		return fmt.Sprintf("cannot assign to %s field %q of %s value %q",
 			fieldCap, field.Name(), caps.ObjectCap(place.Root), place.Root.Name())
@@ -103,7 +103,7 @@ func readOnlyWriteMessage(caps *CapabilityIndex, place Place, effectiveCap Cap) 
 	return fmt.Sprintf("cannot write through %s value %q", effectiveCap, place.Root.Name())
 }
 
-func readOnlyWriteFieldCause(caps *CapabilityIndex, place Place) (*types.Var, Cap, bool) {
+func readOnlyWriteFieldCause(caps *OstampIndex, place Place) (*types.Var, Cap, bool) {
 	if caps == nil || place.Root == nil || len(place.Projection) == 0 {
 		return nil, CapInvalid, false
 	}

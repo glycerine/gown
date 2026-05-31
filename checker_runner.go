@@ -8,7 +8,7 @@ import (
 type CheckerContext struct {
 	Pkg    *packages.Package
 	SSAPkg *ssa.Package
-	Caps   *CapabilityIndex
+	Caps   *OstampIndex
 }
 
 type CheckerPass func(*CheckerContext) CheckerErrors
@@ -16,7 +16,7 @@ type CheckerPass func(*CheckerContext) CheckerErrors
 var checkerPasses = []CheckerPass{
 	checkCloneIntrinsics,
 	checkChannelElementDeclarations,
-	checkCapabilityErasure,
+	checkOstampErasure,
 	checkMovedUses,
 	checkCallBorrows,
 	checkSends,
@@ -26,7 +26,7 @@ var checkerPasses = []CheckerPass{
 	checkReturns,
 }
 
-func runCheckerPasses(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
+func runCheckerPasses(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) CheckerErrors {
 	ctx := &CheckerContext{Pkg: pkg, SSAPkg: ssaPkg, Caps: caps}
 	var errs CheckerErrors
 	for _, pass := range checkerPasses {
