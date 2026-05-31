@@ -561,7 +561,7 @@ select {
 processItem(y)
 ```
 
-#### Recommended Pattern: Clone at Send Site
+#### Recommended Pattern: clone at Send Site
 
 For code adapted from existing Go, the simplest `select` pattern is to clone at
 the send site rather than sending the original `\iso`:
@@ -658,7 +658,7 @@ they do not exist as Go functions and are fully erased on output.
 | Built-in         | Input         | Output        | Erases to             |
 |------------------|---------------|---------------|-----------------------|
 | `\new(...)`      | struct literal| `\iso *T`     | `&T{...}`             |
-| `\clone(x)`      | `T` or `*T` with same-type `Clone` | fresh `\iso` same type | `(x).Clone()` |
+| `\clone(x)`      | `T` or `*T` with same-type `clone` | fresh `\iso` same type | `(x).clone()` |
 | `\mub(x)`        | `\iso *T`     | `\mub *T`     | plain assignment      |
 | `\rob(x)`        | `\iso *T`     | `\rob *T`     | plain assignment      |
 | `\rob(x)`        | `\imm *T`     | `\rob *T`     | plain assignment      |
@@ -669,11 +669,11 @@ they do not exist as Go functions and are fully erased on output.
 returned pointer is freshly allocated with no existing aliases.
 
 `\clone` performs a trusted user-defined copy and returns a fresh `\iso`. If
-`x` has static type `T`, that exact type must define `Clone() T`; if `x` has
-static type `*T`, that exact type must define `Clone() *T`. In v1, `T` must be
+`x` has static type `T`, that exact type must define `clone() T`; if `x` has
+static type `*T`, that exact type must define `clone() *T`. In v1, `T` must be
 a named struct type. The source may have any capability, including untracked,
 and is not consumed. The returned `\iso` is trusted to share no mutable memory
-with the original. The transpiler emits `(x).Clone()`.
+with the original. The transpiler emits `(x).clone()`.
 
 ---
 
@@ -707,7 +707,7 @@ numbers where possible.
 | `\freeze(x)`               | `dst := x; x = nil`           |
 | `\mub(x)`                  | `b := x`                      |
 | `\rob(x)`                  | `r := x`                      |
-| `\clone(x)`                | `(x).Clone()`                  |
+| `\clone(x)`                | `(x).clone()`                  |
 | `\new(...)`                | `&T{...}`                      |
 | `\unsafe(x)`               | `x`                            |
 
