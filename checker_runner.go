@@ -15,6 +15,7 @@ type CheckerPass func(*CheckerContext) CheckerErrors
 
 var checkerPasses = []CheckerPass{
 	checkCloneIntrinsics,
+	checkChannelElementDeclarations,
 	checkMovedUses,
 	checkCallBorrows,
 	checkSends,

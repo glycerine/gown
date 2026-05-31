@@ -6,16 +6,17 @@ import (
 )
 
 type CapabilityIndex struct {
-	ObjectCaps        map[types.Object]Cap
-	ChanElemCaps      map[types.Object]Cap
-	Funcs             map[*types.Func]*FuncCapability
-	CallBindings      []CallBinding
-	IntrinsicBindings []IntrinsicBinding
-	Places            *PlaceIndex
-	SendBindings      []SendBinding
-	callBindingByCall map[*ast.CallExpr]int
-	intrinsicByCall   map[*ast.CallExpr]int
-	sendBindingByStmt map[*ast.SendStmt]int
+	ObjectCaps                      map[types.Object]Cap
+	ChanElemCaps                    map[types.Object]Cap
+	Funcs                           map[*types.Func]*FuncCapability
+	CallBindings                    []CallBinding
+	IntrinsicBindings               []IntrinsicBinding
+	InvalidChannelElementQualifiers []InvalidChannelElementQualifier
+	Places                          *PlaceIndex
+	SendBindings                    []SendBinding
+	callBindingByCall               map[*ast.CallExpr]int
+	intrinsicByCall                 map[*ast.CallExpr]int
+	sendBindingByStmt               map[*ast.SendStmt]int
 }
 
 type FuncCapability struct {
@@ -47,6 +48,14 @@ type IntrinsicBinding struct {
 	Arg      ast.Expr
 	ArgPlace Place
 	Result   types.Object
+}
+
+type InvalidChannelElementQualifier struct {
+	Cap    Cap
+	Path   string
+	Offset int
+	Line   int
+	Col    int
 }
 
 func newCapabilityIndex() *CapabilityIndex {

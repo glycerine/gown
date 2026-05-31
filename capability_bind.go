@@ -22,6 +22,7 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityInd
 		if len(quals) == 0 {
 			continue
 		}
+		recordInvalidChannelElementQualifiers(pkg, idx, quals, file)
 
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
@@ -256,11 +257,7 @@ func bindObjectCaps(idx *CapabilityIndex, obj types.Object, cap, chanElemCap Cap
 }
 
 func directCapForType(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) Cap {
-	if expr == nil {
-		return CapInvalid
-	}
-	pos := pkg.Fset.Position(expr.Pos()).Offset
-	if ann := quals[pos]; ann != nil {
+	if ann, ok := capQualifierForType(pkg, quals, expr); ok {
 		return ann.Cap
 	}
 	return CapInvalid
@@ -272,6 +269,45 @@ func chanElemCapForType(pkg *packages.Package, quals map[int]*CapQualifierAnnota
 		return CapInvalid
 	}
 	return directCapForType(pkg, quals, ch.Value)
+}
+
+func capQualifierForType(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) (*CapQualifierAnnotation, bool) {
+	if pkg == nil || expr == nil {
+		return nil, false
+	}
+	pos := pkg.Fset.Position(expr.Pos()).Offset
+	ann := quals[pos]
+	return ann, ann != nil
+}
+
+func recordInvalidChannelElementQualifiers(pkg *packages.Package, idx *CapabilityIndex, quals map[int]*CapQualifierAnnotation, file *ast.File) {
+	if pkg == nil || idx == nil || len(quals) == 0 || file == nil {
+		return
+	}
+	path := gownSourcePath(pkg.Fset.Position(file.Pos()).Filename)
+	seen := make(map[int]bool)
+	ast.Inspect(file, func(n ast.Node) bool {
+		ch, ok := n.(*ast.ChanType)
+		if !ok {
+			return true
+		}
+		ann, ok := capQualifierForType(pkg, quals, ch.Value)
+		if !ok || (ann.Cap != CapMub && ann.Cap != CapRob) {
+			return true
+		}
+		if seen[ann.Span.Offset] {
+			return true
+		}
+		seen[ann.Span.Offset] = true
+		idx.InvalidChannelElementQualifiers = append(idx.InvalidChannelElementQualifiers, InvalidChannelElementQualifier{
+			Cap:    ann.Cap,
+			Path:   path,
+			Offset: ann.Span.Offset,
+			Line:   ann.Span.Line,
+			Col:    ann.Span.Col,
+		})
+		return true
+	})
 }
 
 func capsForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) (Cap, Cap) {
