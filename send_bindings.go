@@ -63,7 +63,7 @@ func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.Send
 	}
 	value, ok := valueCapabilityForExpr(pkg, idx, send.Value)
 	if !ok {
-		return
+		value = ValueCapability{Cap: CapUntracked}
 	}
 	pos := pkg.Fset.Position(send.Arrow)
 	idx.addSendBinding(SendBinding{

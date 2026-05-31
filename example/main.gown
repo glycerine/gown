@@ -43,8 +43,8 @@ func newWorker() *worker {
 	}
 }
 
-func helper(tkt \iso *ticket) *ticket {
-   return \freeze(tkt)
+func helper(tkt *ticket) *ticket {
+   return tkt
 }
 
 func (w *worker) runWorker() {
@@ -81,7 +81,7 @@ func main() {
             tkt2 := \Clone(tkt)
   	  w.getJob <- tkt2
 	  // should still be legal to touch tkt now because we only cloned it.
-	  fmt.Printf("tkt is: '%#v'\n", tkt)
+	  fmt.Printf("tkt is: '%#v'\n", \unsafe(tkt))
 	  // but: should be illegal to touch tkt2 now:
 	  //fmt.Printf("tkt2 is: '%#v'\n", tkt2)
   	  tkt = <-tkt2.done
@@ -90,7 +90,7 @@ func main() {
 	       case w.getJob <- tkt:
             }
 	    // this should be okay!
-	    fmt.Printf("tkt.done is: '%p'\n", tkt.done)
+	    fmt.Printf("tkt.done is: '%p'\n", \unsafe(tkt.done))
             // this should not!
             //tkt.done = nil
             // except to read an \imm channel or rebind it:

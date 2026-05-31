@@ -58,8 +58,6 @@ type capabilityErasureChecker struct {
 func (checker *capabilityErasureChecker) checkFile(file *ast.File) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
-		case *ast.FuncLit:
-			return false
 		case *ast.FuncDecl:
 			checker.checkFuncReturns(node)
 		case *ast.CallExpr:
