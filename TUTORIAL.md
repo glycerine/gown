@@ -349,7 +349,7 @@ Unlike `\iso`, sending an `\imm` value does not consume it.
 
 ```go
 func main() {
-    ch := make(chan \imm *Ticket)
+    ch := make(chan \imm *Ticket, 2)
 
     b := \new(Ticket{})
     shared := \freeze(b)
@@ -378,6 +378,7 @@ they are preprocessor constructs.
 | --- | --- | --- |
 | `\new(T{...})` | allocate a fresh isolated value | `&T{...}` |
 | `\clone(x)` | call a trusted same-type `clone` method | `(x).clone()` |
+| `\Clone(x)` | call a trusted same-type `Clone` method | `(x).Clone()` |
 | `\freeze(x)` | consume `\iso`, produce `\imm` | assignment plus consumed source |
 | `\mub(x)` | make an explicit mutable borrow | `x` |
 | `\rob(x)` | make an explicit read-only borrow | `x` |
@@ -397,7 +398,7 @@ func main() {
 ### `\clone`
 
 Use `\clone` when you want a fresh isolated copy while keeping the original
-available.
+available. 
 
 For a value of static type `T`, `T` must have:
 
@@ -436,6 +437,9 @@ func main() {
 
 Gown trusts `clone` to return an independent value. The checker verifies the
 method shape, but it cannot prove that the method body performed a deep copy.
+
+The uppercase `\Clone` version is identical except that it calls
+the exported Clone() method instead.
 
 ### `\freeze`
 
@@ -626,7 +630,7 @@ type BadTicket struct {
 After `BadTicket` moves to another goroutine, the new owner could reassign
 `Done` at the same time the old owner tries to read it. That would be a race on
 the field slot. `\imm chan ...` prevents that by making the field slot
-read-only.
+read-only (while the channel itself is always goroutine safe).
 
 ## struct fields
 
