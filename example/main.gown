@@ -71,7 +71,7 @@ func main() {
         demonstrateClone := false
 
         if demonstrateClone {
-            tkt2 := \clone(tkt)
+            tkt2 := \Clone(tkt)
   	  w.getJob <- tkt2
 	  // should still be legal to touch tkt now because we only cloned it.
 	  fmt.Printf("tkt is: '%#v'\n", tkt)
@@ -80,8 +80,8 @@ func main() {
   	  tkt = <-tkt2.done
         } else {
 	    w.getJob <- tkt
-	    // illegal to touch tkt now that we moved ownership to the worker.
-	    //fmt.Printf("tkt is: '%#v'\n", tkt)
+	    // this should be okay!
+	    fmt.Printf("tkt is: '%p'\n", tkt.done)
             // except to read an \imm channel or rebind it:
    	    //tkt = <-tkt.done // okay
    	    tkt3 := <-tkt.done

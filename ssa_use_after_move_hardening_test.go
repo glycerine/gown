@@ -252,6 +252,44 @@ func main() {
 	}
 }
 
+func TestSSAGWN001MovedImmutableFieldUseReportsActualUseLine(t *testing.T) {
+	err := checkGownSource(t, hardeningTestName(t), `package example
+
+import "fmt"
+
+type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	fmt.Printf("done: %p\n", tkt.done)
+}
+`)
+	if err == nil {
+		t.Fatal("expected GWN001, got nil")
+	}
+	text := FormatError(err)
+	lines := strings.Split(text, "\n")
+	if len(lines) == 0 || !strings.Contains(lines[0], ":16:") || !strings.Contains(lines[0], "GWN001") {
+		t.Fatalf("first formatted line = %q, want primary error at use line 16; full error:\n%s", firstLine(text), text)
+	}
+	useIndex := strings.Index(text, `fmt.Printf("done: %p\n", tkt.done)`)
+	noteIndex := strings.Index(text, "note: moved by send here")
+	sendIndex := strings.Index(text, "work <- tkt")
+	if useIndex < 0 || noteIndex < 0 || sendIndex < 0 {
+		t.Fatalf("formatted error missing use line, send note, or send source:\n%s", text)
+	}
+	if !(useIndex < noteIndex && noteIndex < sendIndex) {
+		t.Fatalf("formatted error should report use first, then move note; got:\n%s", text)
+	}
+}
+
 func TestSSAGWN001AllowsRebindWithIsoReceiveFromMovedImmutableChannelField(t *testing.T) {
 	requireHardeningOK(t, `type ticket struct {
 	done \imm chan \iso *ticket

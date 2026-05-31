@@ -13,6 +13,24 @@ type SSAPlaceIndex struct {
 	ValuePlaces       map[ssa.Value]Place
 	InstructionPlaces map[ssa.Instruction]Place
 	AmbiguousValues   map[ssa.Value]bool
+	ValueSources      map[ssa.Value]SSASourceSpan
+	AmbiguousSources  map[ssa.Value]bool
+}
+
+type SSASourceSpan struct {
+	Start token.Pos
+	End   token.Pos
+}
+
+func (span SSASourceSpan) Valid() bool {
+	return span.Start.IsValid()
+}
+
+func (span SSASourceSpan) Position(fset *token.FileSet) token.Position {
+	if fset == nil || !span.Valid() {
+		return token.Position{}
+	}
+	return fset.Position(span.Start)
 }
 
 func buildSSAPlaceIndex(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) *SSAPlaceIndex {
@@ -20,6 +38,8 @@ func buildSSAPlaceIndex(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capabi
 		ValuePlaces:       make(map[ssa.Value]Place),
 		InstructionPlaces: make(map[ssa.Instruction]Place),
 		AmbiguousValues:   make(map[ssa.Value]bool),
+		ValueSources:      make(map[ssa.Value]SSASourceSpan),
+		AmbiguousSources:  make(map[ssa.Value]bool),
 	}
 	if pkg == nil || ssaPkg == nil {
 		return idx
@@ -100,11 +120,18 @@ func (idx *SSAPlaceIndex) seedFromASTPlaces(pkg *packages.Package, ssaPkg *ssa.P
 			}
 			value, _ := fn.ValueForExpr(expr)
 			if value != nil {
-				idx.setValuePlace(value, place)
+				idx.setValuePlaceWithSource(value, place, sourceSpanForExpr(expr))
 			}
 			return true
 		})
 	}
+}
+
+func sourceSpanForExpr(expr ast.Expr) SSASourceSpan {
+	if expr == nil {
+		return SSASourceSpan{}
+	}
+	return SSASourceSpan{Start: expr.Pos(), End: expr.End()}
 }
 
 func sourceValueSeedSkips(syntax ast.Node) map[ast.Expr]bool {
@@ -185,21 +212,29 @@ func (idx *SSAPlaceIndex) propagateSSAPlaces(ssaPkg *ssa.Package) {
 }
 
 func (idx *SSAPlaceIndex) setValuePlace(value ssa.Value, place Place) {
+	idx.setValuePlaceWithSource(value, place, SSASourceSpan{})
+}
+
+func (idx *SSAPlaceIndex) setValuePlaceWithSource(value ssa.Value, place Place, source SSASourceSpan) {
 	if idx == nil || value == nil || place.Root == nil {
 		return
 	}
 	if existing, ok := idx.ValuePlaces[value]; ok && existing.Key() != place.Key() {
 		if isBareFieldPlace(existing) && !isBareFieldPlace(place) {
 			idx.ValuePlaces[value] = place
+			idx.setValueSource(value, source)
 			return
 		}
 		if !isBareFieldPlace(existing) && isBareFieldPlace(place) {
 			return
 		}
 		idx.AmbiguousValues[value] = true
+		idx.AmbiguousSources[value] = true
+		delete(idx.ValueSources, value)
 		return
 	}
 	idx.ValuePlaces[value] = place
+	idx.setValueSource(value, source)
 }
 
 func (idx *SSAPlaceIndex) forceValuePlace(value ssa.Value, place Place) {
@@ -209,9 +244,40 @@ func (idx *SSAPlaceIndex) forceValuePlace(value ssa.Value, place Place) {
 	idx.ValuePlaces[value] = place
 }
 
+func (idx *SSAPlaceIndex) setValueSource(value ssa.Value, source SSASourceSpan) {
+	if idx == nil || value == nil || !source.Valid() {
+		return
+	}
+	if idx.AmbiguousSources[value] {
+		return
+	}
+	if existing, ok := idx.ValueSources[value]; ok && existing != source {
+		idx.AmbiguousSources[value] = true
+		delete(idx.ValueSources, value)
+		return
+	}
+	idx.ValueSources[value] = source
+}
+
+func (idx *SSAPlaceIndex) SourceForValue(value ssa.Value) (SSASourceSpan, bool) {
+	if idx == nil || value == nil {
+		return SSASourceSpan{}, false
+	}
+	if idx.AmbiguousSources[value] {
+		return SSASourceSpan{}, false
+	}
+	source, ok := idx.ValueSources[value]
+	return source, ok && source.Valid()
+}
+
 func (idx *SSAPlaceIndex) propagateValuePlace(dst ssa.Value, src ssa.Value) {
 	if place, ok := idx.PlaceForValue(src); ok {
 		idx.forceValuePlace(dst, place)
+		if _, hasSource := idx.SourceForValue(dst); !hasSource {
+			if source, ok := idx.SourceForValue(src); ok {
+				idx.setValueSource(dst, source)
+			}
+		}
 		if idx.ValuePlaceAmbiguous(src) {
 			idx.AmbiguousValues[dst] = true
 		}

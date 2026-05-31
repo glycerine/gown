@@ -197,7 +197,7 @@ func (checker *ssaGWN001Checker) checkDebugRefUse(debug *ssa.DebugRef, state *SS
 	if checker.allowsMovedRebindUse(debug.Pos(), place, state) {
 		return
 	}
-	checker.reportUseAfterMove(debug, place, site)
+	checker.reportUseAfterMoveAtPosition(checker.debugRefUsePosition(debug), place, site)
 }
 
 func (checker *ssaGWN001Checker) isAssignmentTargetDebugRef(debug *ssa.DebugRef) bool {
@@ -254,7 +254,7 @@ func (checker *ssaGWN001Checker) checkInstructionOperandUses(instr ssa.Instructi
 		if checker.allowsMovedRebindUse(instr.Pos(), place, state) {
 			continue
 		}
-		checker.reportUseAfterMove(instr, place, site)
+		checker.reportOperandUseAfterMove(instr, value, place, site)
 	}
 }
 
@@ -1089,6 +1089,38 @@ func (checker *ssaGWN001Checker) namedBorrowMoveViolation(moved PlaceKey, instr 
 
 func (checker *ssaGWN001Checker) capForPlace(place Place) Cap {
 	return capForSSAPlace(checker.caps, place)
+}
+
+func (checker *ssaGWN001Checker) debugRefUsePosition(debug *ssa.DebugRef) token.Position {
+	if checker == nil || checker.pkg == nil || debug == nil {
+		return token.Position{}
+	}
+	if debug.Expr != nil && debug.Expr.Pos().IsValid() {
+		return checker.pkg.Fset.Position(debug.Expr.Pos())
+	}
+	return checker.pkg.Fset.Position(debug.Pos())
+}
+
+func (checker *ssaGWN001Checker) reportOperandUseAfterMove(instr ssa.Instruction, value ssa.Value, place Place, site SSAMoveSite) {
+	checker.reportUseAfterMoveAtPosition(checker.operandUsePosition(instr, value), place, site)
+}
+
+func (checker *ssaGWN001Checker) operandUsePosition(instr ssa.Instruction, value ssa.Value) token.Position {
+	if checker == nil || checker.pkg == nil {
+		return token.Position{}
+	}
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	if validSourcePosition(pos) {
+		return pos
+	}
+	if source, ok := checker.places.SourceForValue(value); ok {
+		return source.Position(checker.pkg.Fset)
+	}
+	return pos
+}
+
+func validSourcePosition(pos token.Position) bool {
+	return pos.Filename != "" && pos.Line > 0
 }
 
 func (checker *ssaGWN001Checker) reportUseAfterMove(instr ssa.Instruction, place Place, site SSAMoveSite) {
