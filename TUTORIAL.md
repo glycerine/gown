@@ -53,9 +53,10 @@ that after a select statement an \iso pointer could have
 been sent away. After the select statement, it is therefore
 illegal to reference the \iso, even if it has not been
 sent. This may prompt you to \clone the pointer before
-possibly sending i. Fortunately, this is almost always
-the correct approach/habit/recommended practice for
-avoiding data races.
+possibly sending it. Fortunately, this is almost always
+the correct response/approach/habit/recommended practice for
+avoiding data races. Gown just reminds you to do it,
+and complains if you forget.
 
 ## introduction
 
