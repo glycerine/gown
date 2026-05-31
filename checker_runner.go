@@ -16,6 +16,7 @@ type CheckerPass func(*CheckerContext) CheckerErrors
 var checkerPasses = []CheckerPass{
 	checkCloneIntrinsics,
 	checkChannelElementDeclarations,
+	checkCapabilityErasure,
 	checkMovedUses,
 	checkCallBorrows,
 	checkSends,
@@ -23,8 +24,6 @@ var checkerPasses = []CheckerPass{
 	checkClosureEscapes,
 	checkStores,
 	checkReturns,
-	checkUntrackedCalls,
-	checkInterfaces,
 }
 
 func runCheckerPasses(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {

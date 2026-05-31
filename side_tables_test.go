@@ -355,9 +355,8 @@ func TestSendBindingRecordsNonIsoSendAsNonMove(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"plain_send.gown": gownPlainChannelSendBindingSource})
 
 	gp := NewGownPackage(dir)
-	if err := gp.Check(); err != nil {
-		t.Fatal(err)
-	}
+	err := gp.Check()
+	requireCheckerCode(t, err, GWN010)
 
 	send := findFirstSendStmt(t, gp)
 	binding, ok := gp.caps.SendBinding(send)

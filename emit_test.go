@@ -148,7 +148,7 @@ func TestEmitDoesNotNilAfterReturnFreeze(t *testing.T) {
 
 type payload struct{ Data string }
 
-func helper(x \iso *payload) *payload {
+func helper(x \iso *payload) \imm *payload {
 	return \freeze(x)
 }
 `)

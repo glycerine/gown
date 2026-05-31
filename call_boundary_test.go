@@ -69,23 +69,19 @@ type holder struct {
 func Plain(x *payload) {}
 
 func main() {
-	var h *holder
+	var h \iso *holder
 	Plain(h.Item)
 }
 `
 
-func TestGWN008AllowsIsoPassedToUntrackedUserCallAsFrontier(t *testing.T) {
+func TestGWN008RejectsIsoPassedToUntrackedUserCall(t *testing.T) {
 	err := checkGownSource(t, "iso_plain_call.gown", gownIsoToPlainCallSource)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireCheckerCode(t, err, GWN008)
 }
 
-func TestGWN008AllowsBorrowPassedToUntrackedUserCallAsFrontier(t *testing.T) {
+func TestGWN008RejectsBorrowPassedToUntrackedUserCall(t *testing.T) {
 	err := checkGownSource(t, "mub_plain_call.gown", gownMubToPlainCallSource)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireCheckerCode(t, err, GWN008)
 }
 
 func TestGWN008AllowsUntrackedValuePassedToUntrackedUserCall(t *testing.T) {
@@ -102,9 +98,7 @@ func TestGWN008AllowsTrackedValuePassedToBuiltin(t *testing.T) {
 	}
 }
 
-func TestGWN008AllowsTrackedFieldPassedToUntrackedUserCallAsFrontier(t *testing.T) {
+func TestGWN008RejectsTrackedFieldPassedToUntrackedUserCall(t *testing.T) {
 	err := checkGownSource(t, "field_plain_call.gown", gownTrackedFieldToPlainCallSource)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireCheckerCode(t, err, GWN008)
 }

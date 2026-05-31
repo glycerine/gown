@@ -222,120 +222,116 @@ func main(x any) {
 }
 `
 
-func TestSSAGWN012AllowsUntrackedCallAsProofFrontier(t *testing.T) {
+func TestSSAGWN001IgnoresUntrackedCallBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_untracked_call.gown", gownFrontierUntrackedCallAllowsSource)
 
 	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
 	if len(errs) != 0 {
-		t.Fatalf("SSA GWN001 unexpectedly rejected frontier-only untracked call: %#v", errs)
+		t.Fatalf("SSA GWN001 unexpectedly handled untracked-call boundary: %#v", errs)
 	}
 }
 
-func TestGWN012AllowsUntrackedCallAsProofFrontier(t *testing.T) {
+func TestGWN008RejectsUntrackedCallBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_untracked_call.gown", gownFrontierUntrackedCallAllowsSource)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireCheckerCode(t, err, GWN008)
 }
 
-func TestSSAGWN012RejectsIsoSendAfterUntrackedCallFrontier(t *testing.T) {
+func TestSSAGWN008RejectsIsoSendAfterUntrackedCallBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_untracked_call_send.gown", gownFrontierUntrackedCallThenSendRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
 }
 
-func TestGWN012RejectsIsoSendAfterUntrackedCallFrontier(t *testing.T) {
+func TestGWN008RejectsIsoSendAfterUntrackedCallBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_untracked_call_send.gown", gownFrontierUntrackedCallThenSendRejectsSource)
-	requireCheckerCode(t, err, GWN012)
+	requireCheckerCode(t, err, GWN008)
 }
 
-func TestSSAGWN012RejectsIsoSendAfterBranchFrontier(t *testing.T) {
+func TestSSAGWN008RejectsIsoSendAfterBranchUntrackedCallBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_branch_send.gown", gownFrontierBranchThenSendRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
 }
 
-func TestGWN012RejectsIsoSendAfterBranchFrontier(t *testing.T) {
+func TestGWN008RejectsIsoSendAfterBranchUntrackedCallBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_branch_send.gown", gownFrontierBranchThenSendRejectsSource)
-	requireCheckerCode(t, err, GWN012)
+	requireCheckerCode(t, err, GWN008)
 }
 
-func TestSSAGWN012RejectsIsoCallAfterUntrackedCallFrontier(t *testing.T) {
+func TestSSAGWN008RejectsIsoCallAfterUntrackedCallBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_untracked_call_take.gown", gownFrontierUntrackedCallThenIsoCallRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
 }
 
-func TestGWN012RejectsIsoCallAfterUntrackedCallFrontier(t *testing.T) {
+func TestGWN008RejectsIsoCallAfterUntrackedCallBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_untracked_call_take.gown", gownFrontierUntrackedCallThenIsoCallRejectsSource)
-	requireCheckerCode(t, err, GWN012)
+	requireCheckerCode(t, err, GWN008)
 }
 
-func TestSSAGWN012RejectsBorrowAfterUntrackedCallFrontier(t *testing.T) {
+func TestSSAGWN008RejectsBorrowAfterUntrackedCallBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_untracked_call_read.gown", gownFrontierUntrackedCallThenReadBorrowRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
 }
 
-func TestGWN012RejectsBorrowAfterUntrackedCallFrontier(t *testing.T) {
+func TestGWN008RejectsBorrowAfterUntrackedCallBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_untracked_call_read.gown", gownFrontierUntrackedCallThenReadBorrowRejectsSource)
-	requireCheckerCode(t, err, GWN012)
+	requireCheckerCode(t, err, GWN008)
 }
 
-func TestSSAGWN012AllowsInterfaceErasureAsProofFrontier(t *testing.T) {
+func TestSSAGWN001IgnoresInterfaceErasureBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_interface.gown", gownFrontierInterfaceAllowsSource)
 
 	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
 	if len(errs) != 0 {
-		t.Fatalf("SSA GWN001 unexpectedly rejected frontier-only interface erasure: %#v", errs)
+		t.Fatalf("SSA GWN001 unexpectedly handled interface boundary: %#v", errs)
 	}
 }
 
-func TestGWN012AllowsInterfaceErasureAsProofFrontier(t *testing.T) {
+func TestGWN009RejectsInterfaceErasureBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_interface.gown", gownFrontierInterfaceAllowsSource)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireCheckerCode(t, err, GWN009)
 }
 
-func TestSSAGWN012RejectsIsoSendAfterInterfaceFrontier(t *testing.T) {
+func TestSSAGWN009RejectsIsoSendAfterInterfaceBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_interface_send.gown", gownFrontierInterfaceThenSendRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkInterfaceErasureSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN009)
 }
 
-func TestGWN012RejectsIsoSendAfterInterfaceFrontier(t *testing.T) {
+func TestGWN009RejectsIsoSendAfterInterfaceBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_interface_send.gown", gownFrontierInterfaceThenSendRejectsSource)
-	requireCheckerCode(t, err, GWN012)
+	requireCheckerCode(t, err, GWN009)
 }
 
-func TestSSAGWN012RejectsTrackedReturnAfterFrontier(t *testing.T) {
+func TestSSAGWN008RejectsTrackedReturnAfterUntrackedCallBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_return.gown", gownFrontierReturnTrackedRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
 }
 
-func TestGWN012RejectsTrackedReturnAfterFrontier(t *testing.T) {
+func TestGWN008RejectsTrackedReturnAfterUntrackedCallBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_return.gown", gownFrontierReturnTrackedRejectsSource)
-	requireCheckerCode(t, err, GWN012)
+	requireCheckerCode(t, err, GWN008)
 }
 
-func TestSSAGWN012RejectsTrackedFunctionUntrackedParamFrontier(t *testing.T) {
+func TestSSAGWN008RejectsTrackedFunctionUntrackedParamBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_mixed_call.gown", gownFrontierTrackedFunctionUntrackedParamRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
 }
 
-func TestGWN012RejectsTrackedFunctionUntrackedParamFrontier(t *testing.T) {
+func TestGWN008RejectsTrackedFunctionUntrackedParamBoundary(t *testing.T) {
 	err := checkGownSource(t, "frontier_mixed_call.gown", gownFrontierTrackedFunctionUntrackedParamRejectsSource)
-	requireCheckerCode(t, err, GWN012)
+	requireCheckerCode(t, err, GWN008)
 }
 
 func TestSSAUnsafeCallCreatesExplicitFrontier(t *testing.T) {
@@ -367,11 +363,11 @@ func TestSSAUnsafeDoesNotRequireUntrackedCall(t *testing.T) {
 	}
 }
 
-func TestSSAInterfaceErasureFrontierIncludesFieldProjection(t *testing.T) {
+func TestSSAInterfaceErasureBoundaryIncludesFieldProjection(t *testing.T) {
 	gp := loadGownForSSACheck(t, "interface_field_frontier.gown", gownInterfaceErasureFieldProjectionFrontierSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkInterfaceErasureSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN009)
 }
 
 func TestSSATypeAssertFromInterfaceIsUntracked(t *testing.T) {
@@ -381,20 +377,18 @@ func TestSSATypeAssertFromInterfaceIsUntracked(t *testing.T) {
 	requireSSAErrorCode(t, errs, GWN010)
 }
 
-func TestGWN012ReportsFrontierNoteForUntrackedCall(t *testing.T) {
+func TestGWN008ReportsUntrackedCallBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_note_call.gown", gownFrontierUntrackedCallThenSendRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
-	requireFrontierNote(t, errs[0], "untracked call")
+	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
 }
 
-func TestGWN012ReportsFrontierNoteForInterfaceErasure(t *testing.T) {
+func TestGWN009ReportsInterfaceErasureBoundary(t *testing.T) {
 	gp := loadGownForSSACheck(t, "frontier_note_interface.gown", gownFrontierInterfaceThenSendRejectsSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
-	requireFrontierNote(t, errs[0], "interface erasure")
+	errs := checkInterfaceErasureSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN009)
 }
 
 func TestGWN012ReportsFrontierNoteForUnsafe(t *testing.T) {

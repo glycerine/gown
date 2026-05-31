@@ -610,10 +610,6 @@ func (checker *ssaGWN001Checker) applyBoundCallTransfer(binding CallBinding, sta
 			}
 		case CapMub, CapRob:
 			checker.applyTemporaryBorrow(state, argPlace, paramCap, instr)
-		case CapUntracked:
-			if capTracked(checker.capForPlace(argPlace)) {
-				checker.enterFrontierAtInstruction(state, argPlace, instr, "untracked parameter")
-			}
 		}
 	}
 }
@@ -671,23 +667,7 @@ func (checker *ssaGWN001Checker) applyDeferredInferredBorrowArgs(binding CallBin
 }
 
 func (checker *ssaGWN001Checker) applyUntrackedCallFrontier(call *ssa.CallCommon, state *SSAFunctionState, instr ssa.Instruction) bool {
-	if call == nil || call.StaticCallee() == nil {
-		return false
-	}
-	fn, _ := call.StaticCallee().Object().(*types.Func)
-	if checker.caps.FuncCap(fn) != nil {
-		return false
-	}
-	entered := false
-	for _, arg := range call.Args {
-		place, ok := checker.places.PlaceForValue(arg)
-		if !ok || place.Root == nil || !capTracked(checker.capForPlace(place)) {
-			continue
-		}
-		checker.enterFrontierAtInstruction(state, place, instr, "untracked call")
-		entered = true
-	}
-	return entered
+	return false
 }
 
 func (checker *ssaGWN001Checker) applyDeferredCallCommonTransfer(call *ssa.CallCommon, state *SSAFunctionState, instr ssa.Instruction) {
@@ -742,10 +722,6 @@ func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, s
 			}
 		case CapMub, CapRob:
 			checker.applyTemporaryBorrow(state, argPlace, paramCap, instr)
-		case CapUntracked:
-			if capTracked(checker.capForPlace(argPlace)) {
-				checker.enterFrontierAtInstruction(state, argPlace, instr, "untracked parameter")
-			}
 		}
 	}
 }
@@ -764,14 +740,6 @@ func (checker *ssaGWN001Checker) applyTemporaryBorrow(state *SSAFunctionState, p
 }
 
 func (checker *ssaGWN001Checker) applyInterfaceFrontier(instr *ssa.MakeInterface, state *SSAFunctionState) {
-	if instr == nil {
-		return
-	}
-	place, ok := checker.places.PlaceForValue(instr.X)
-	if !ok || place.Root == nil || !capTracked(checker.capForPlace(place)) {
-		return
-	}
-	checker.enterFrontierAtInstruction(state, place, instr, "interface erasure")
 }
 
 func (checker *ssaGWN001Checker) applyDeferClosureCaptureTransfer(instr *ssa.Defer, state *SSAFunctionState) {

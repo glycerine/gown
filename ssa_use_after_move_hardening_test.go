@@ -268,7 +268,8 @@ func newTicket() \iso *ticket {
 func main(work chan \iso *ticket) {
 	tkt := newTicket()
 	work <- tkt
-	fmt.Printf("done: %p\n", tkt.done)
+	done := \unsafe(tkt.done)
+	fmt.Printf("done: %p\n", done)
 }
 `)
 	if err == nil {
@@ -483,9 +484,11 @@ func main(work chan \iso *ticket) {
 	tkt := newTicket()
 	tkt2 := \clone(tkt)
 	work <- tkt2
-	fmt.Printf("tkt is: %#v\n", tkt)
+	plainTkt := \unsafe(tkt)
+	fmt.Printf("tkt is: %#v\n", plainTkt)
 	tkt = <-tkt2.done
-	fmt.Printf("tkt done: %#v\n", tkt.done)
+	plainDone := \unsafe(tkt.done)
+	fmt.Printf("tkt done: %#v\n", plainDone)
 }
 `)
 	if err != nil {
@@ -825,7 +828,7 @@ func TestSSAGWN001RejectsFieldWriteInsteadOfRootRebind(t *testing.T) {
 func TestSSAGWN012RejectsRebindFromFrontieredIso(t *testing.T) {
 	requireHardeningCheckerCode(t, `func main(ch chan \iso *payload, y \iso *payload) {
 	var x \iso *payload
-	Plain(y)
+	Plain(\unsafe(y))
 	ch <- x
 	x = y
 }`, GWN012)

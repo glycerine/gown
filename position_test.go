@@ -16,11 +16,12 @@ type Msg struct {
 }
 
 func Send(ch chan *Msg, m \iso *Msg) {
-	ch <- m
+	_ = ch
+	_ = m
 }
 
 func Recv(ch chan *Msg) \iso *Msg {
-	return <-ch
+	return \new(Msg{})
 }
 `
 

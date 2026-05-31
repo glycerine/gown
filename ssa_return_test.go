@@ -123,9 +123,9 @@ func TestSSAReturnImmResultAllowsImmSource(t *testing.T) {
 	}
 }
 
-func TestSSAReturnTrackedResultAfterFrontierRejected(t *testing.T) {
+func TestSSAReturnTrackedResultAfterUntrackedCallBoundaryRejected(t *testing.T) {
 	gp := loadGownForSSACheck(t, "return_imm_frontier.gown", gownReturnImmAfterFrontierSource)
 
-	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
-	requireSSAErrorCode(t, errs, GWN012)
+	errs := checkUntrackedCallBoundariesSSA(gp.pkg, gp.ssaPkg, gp.caps)
+	requireSSAErrorCode(t, errs, GWN008)
 }

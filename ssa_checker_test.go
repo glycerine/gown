@@ -180,13 +180,12 @@ func TestGWN001AllowsUseBeforeIsoSend(t *testing.T) {
 	}
 }
 
-func TestGWN001IgnoresPlainChannelSend(t *testing.T) {
+func TestGWN010RejectsIsoSendOnPlainChannel(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"plain_channel.gown": gownPlainChannelSendSource})
 
 	gp := NewGownPackage(dir)
-	if err := gp.Check(); err != nil {
-		t.Fatal(err)
-	}
+	err := gp.Check()
+	requireCheckerCode(t, err, GWN010)
 }
 
 func TestGWN001ReportsDirectUseAfterIsoCall(t *testing.T) {

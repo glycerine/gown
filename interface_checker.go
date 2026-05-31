@@ -9,7 +9,7 @@ import (
 )
 
 func checkInterfaceErasure(pkg *packages.Package, caps *CapabilityIndex) CheckerErrors {
-	return nil
+	return checkCapabilityErasureInPackage(pkg, caps, capabilityErasureInterfaces)
 }
 
 func checkInterfaceAssign(pkg *packages.Package, caps *CapabilityIndex, stmt *ast.AssignStmt) CheckerErrors {

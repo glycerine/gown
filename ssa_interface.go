@@ -6,5 +6,5 @@ import (
 )
 
 func checkInterfaceErasureSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
-	return nil
+	return checkInterfaceErasure(pkg, caps)
 }

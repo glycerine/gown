@@ -6,5 +6,5 @@ import (
 )
 
 func checkUntrackedCallBoundariesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *CapabilityIndex) CheckerErrors {
-	return nil
+	return checkUntrackedCallBoundaries(pkg, caps)
 }
