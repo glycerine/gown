@@ -8,10 +8,12 @@ type SSAFunctionState struct {
 }
 
 type SSAMoveSite struct {
-	Name string
-	Kind string
-	Line int
-	Col  int
+	Name   string
+	Kind   string
+	Path   string
+	Offset int
+	Line   int
+	Col    int
 }
 
 type SSABorrow struct {

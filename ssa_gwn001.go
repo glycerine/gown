@@ -260,7 +260,7 @@ func (checker *ssaGWN001Checker) checkInstructionOperandUses(instr ssa.Instructi
 
 func instructionOperandsHaveSourceDebugRefs(instr ssa.Instruction) bool {
 	switch instr.(type) {
-	case *ssa.Call, *ssa.Defer, *ssa.Go, *ssa.Return, *ssa.Select, *ssa.Send:
+	case *ssa.Call, *ssa.Defer, *ssa.Go, *ssa.Phi, *ssa.Return, *ssa.Select, *ssa.Send:
 		return true
 	default:
 		return false
@@ -404,10 +404,12 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 		return
 	}
 	violation, ok := state.ConsumeRoot(src.Key(), SSAMoveSite{
-		Name: src.Root.Name(),
-		Kind: "assignment",
-		Line: sourceLine(pos),
-		Col:  sourceColumn(pos),
+		Name:   src.Root.Name(),
+		Kind:   "assignment",
+		Path:   gownSourcePath(pos.Filename),
+		Offset: pos.Offset,
+		Line:   sourceLine(pos),
+		Col:    sourceColumn(pos),
 	})
 	if ok {
 		checker.reportViolation(pos, violation)
@@ -972,10 +974,12 @@ func (checker *ssaGWN001Checker) applyDeferredEffectAtExit(effect SSADeferredEff
 			return
 		}
 		violation, ok := state.ConsumeRoot(key, SSAMoveSite{
-			Name: effect.Place.Root.Name(),
-			Kind: "deferred closure",
-			Line: sourceLine(effect.Pos),
-			Col:  sourceColumn(effect.Pos),
+			Name:   effect.Place.Root.Name(),
+			Kind:   "deferred closure",
+			Path:   gownSourcePath(effect.Pos.Filename),
+			Offset: effect.Pos.Offset,
+			Line:   sourceLine(effect.Pos),
+			Col:    sourceColumn(effect.Pos),
 		})
 		if ok {
 			checker.reportViolation(effect.Pos, violation)
@@ -1043,10 +1047,12 @@ func (checker *ssaGWN001Checker) consumeRootAtInstruction(state *SSAFunctionStat
 		return
 	}
 	site := SSAMoveSite{
-		Name: place.Root.Name(),
-		Kind: kind,
-		Line: sourceLine(pos),
-		Col:  sourceColumn(pos),
+		Name:   place.Root.Name(),
+		Kind:   kind,
+		Path:   gownSourcePath(pos.Filename),
+		Offset: pos.Offset,
+		Line:   sourceLine(pos),
+		Col:    sourceColumn(pos),
 	}
 	if key.Path != "" {
 		violation, ok := state.ConsumeRoot(key, site)
@@ -1096,11 +1102,25 @@ func (checker *ssaGWN001Checker) reportUseAfterMoveAtPosition(pos token.Position
 	}
 	message := fmt.Sprintf("use of moved \\iso value %q after %s at %d:%d",
 		name, site.Kind, site.Line, site.Col)
-	checker.reportCheckerError(newCheckerErrorAtPosition(
+	err := newCheckerErrorAtPosition(
 		GWN001,
 		pos,
 		message,
-	))
+	)
+	if site.Line > 0 {
+		path := site.Path
+		if path == "" {
+			path = gownSourcePath(pos.Filename)
+		}
+		err.Notes = []CheckerNote{{
+			Path:    path,
+			Offset:  site.Offset,
+			Line:    site.Line,
+			Col:     site.Col,
+			Message: fmt.Sprintf("moved by %s here", site.Kind),
+		}}
+	}
+	checker.reportCheckerError(err)
 }
 
 func (checker *ssaGWN001Checker) reportViolation(pos token.Position, violation SSAStateViolation) {

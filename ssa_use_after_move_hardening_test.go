@@ -220,6 +220,38 @@ func main(work chan \iso *ticket) {
 }`, GWN001)
 }
 
+func TestSSAGWN001UseAfterAssignmentReportsUseBeforeMoveNote(t *testing.T) {
+	err := checkGownSource(t, hardeningTestName(t), `package example
+
+type payload struct{}
+
+func main() {
+	var x \iso *payload
+	var y \iso *payload
+	x = y
+	println(y)
+	println(x)
+}
+`)
+	if err == nil {
+		t.Fatal("expected GWN001, got nil")
+	}
+	text := FormatError(err)
+	lines := strings.Split(text, "\n")
+	if len(lines) == 0 || !strings.Contains(lines[0], ":9:") || !strings.Contains(lines[0], "GWN001") {
+		t.Fatalf("first formatted line = %q, want primary error at use line 9; full error:\n%s", firstLine(text), text)
+	}
+	useIndex := strings.Index(text, "println(y)")
+	noteIndex := strings.Index(text, "note: moved by assignment here")
+	assignIndex := strings.Index(text, "x = y")
+	if useIndex < 0 || noteIndex < 0 || assignIndex < 0 {
+		t.Fatalf("formatted error missing use line, assignment note, or assignment source:\n%s", text)
+	}
+	if !(useIndex < noteIndex && noteIndex < assignIndex) {
+		t.Fatalf("formatted error should report use first, then move note; got:\n%s", text)
+	}
+}
+
 func TestSSAGWN001AllowsRebindWithIsoReceiveFromMovedImmutableChannelField(t *testing.T) {
 	requireHardeningOK(t, `type ticket struct {
 	done \imm chan \iso *ticket
@@ -233,6 +265,47 @@ func main(work chan \iso *ticket) {
 	tkt := newTicket()
 	work <- tkt
 	tkt = <-tkt.done
+	println(tkt)
+}`)
+}
+
+func TestSSAGWN001AllowsIntermediateRebindWithIsoReceiveFromMovedImmutableChannelField(t *testing.T) {
+	requireHardeningOK(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	tkt3 := <-tkt.done
+	tkt = tkt3
+	println(tkt)
+}`)
+}
+
+func TestSSAGWN001AllowsBranchIntermediateRebindWithIsoReceiveFromMovedImmutableChannelField(t *testing.T) {
+	requireHardeningOK(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket, cond bool) {
+	tkt := newTicket()
+	if cond {
+		work <- tkt
+		tkt = <-tkt.done
+	} else {
+		work <- tkt
+		tkt3 := <-tkt.done
+		tkt = tkt3
+	}
 	println(tkt)
 }`)
 }
@@ -685,4 +758,11 @@ func requireHardeningCheckerCode(t *testing.T, body string, code CheckerErrorCod
 func hardeningTestName(t *testing.T) string {
 	t.Helper()
 	return t.Name() + ".gown"
+}
+
+func firstLine(text string) string {
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		return text[:i]
+	}
+	return text
 }
