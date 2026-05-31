@@ -97,9 +97,11 @@ accessed by its current owner; that there are no aliases.
 >     -- with apologies to Connor MacLeod, Highlander, 1986
 
 Gown lets you write \iso to rule out all other aliases. The goroutine
-with an \iso pointer knows it has the only copy. That goroutine owns 
-that pointer. As a running example, suppose we pass around a *Ticket
-describing a job and the progress made on the job so far.
+with an \iso pointer knows it has exclusive access; there are no other 
+copies of that pointer. The goroutine owns the pointed to value until
+it gives the pointer away. 
+
+As a running example, suppose we pass around a *Ticket describing a job and the progress made on the job so far.
 
 ```go
 type Ticket struct {
@@ -110,7 +112,7 @@ type Ticket struct {
 ```
 
 If a pointer has type `\iso *Ticket`, then there is only one owner. If a pointer
-has type `\imm *Ticket`, then it is deeply immutable and safe to share. If a
+has type `\imm *Ticket`, then its value is deeply immutable and always safe to share across goroutines. If a
 pointer has type `\mub *Ticket` or `\rob *Ticket`, then it is a local borrow that
 must not cross goroutine boundaries.
 
