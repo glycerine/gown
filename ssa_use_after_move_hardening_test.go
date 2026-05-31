@@ -252,13 +252,13 @@ func main() {
 	}
 }
 
-func TestSSAGWN001MovedImmutableFieldUseReportsActualUseLine(t *testing.T) {
+func TestSSAGWN001MovedFieldUseReportsActualUseLine(t *testing.T) {
 	err := checkGownSource(t, hardeningTestName(t), `package example
 
 import "fmt"
 
 type ticket struct {
-	done \imm chan \iso *ticket
+	done chan \iso *ticket
 }
 
 func newTicket() \iso *ticket {
@@ -287,6 +287,30 @@ func main(work chan \iso *ticket) {
 	}
 	if !(useIndex < noteIndex && noteIndex < sendIndex) {
 		t.Fatalf("formatted error should report use first, then move note; got:\n%s", text)
+	}
+}
+
+func TestSSAGWN001AllowsMovedImmutableFieldReadInCall(t *testing.T) {
+	err := checkGownSource(t, hardeningTestName(t), `package example
+
+import "fmt"
+
+type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	fmt.Printf("done: %p\n", tkt.done)
+}
+`)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

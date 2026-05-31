@@ -209,11 +209,14 @@ func (checker *ssaGWN001Checker) isAssignmentTargetDebugRef(debug *ssa.DebugRef)
 }
 
 func (checker *ssaGWN001Checker) allowsMovedRebindUse(pos token.Pos, place Place, state *SSAFunctionState) bool {
-	if checker == nil || state == nil || !pos.IsValid() || place.Root == nil {
+	if checker == nil || state == nil || place.Root == nil {
 		return false
 	}
 	if place.Key().Path != "" && capForSSAPlace(checker.caps, place) == CapImm {
 		return true
+	}
+	if !pos.IsValid() {
+		return false
 	}
 	for _, span := range checker.immutableProjectionUses {
 		if span.Root != place.Root || pos < span.Start || pos >= span.End {
