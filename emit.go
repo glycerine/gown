@@ -201,6 +201,8 @@ func nilRootsForStatement(pkg *packages.Package, caps *CapabilityIndex, stmt ast
 	}
 
 	switch stmt := stmt.(type) {
+	case *ast.ReturnStmt:
+		return nil
 	case *ast.SendStmt:
 		if binding, ok := caps.SendBinding(stmt); ok && binding.IsIsoConsumingTransfer() {
 			add(binding.Value)

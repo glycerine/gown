@@ -19,7 +19,7 @@ type ticket struct {
 	tree \iso *bigTree
 
 	outcome string
-	done \imm chan \mub *ticket
+	done \imm chan \iso *ticket
 }
 
 func newTicket(name string) \iso *ticket {
@@ -43,6 +43,10 @@ func newWorker() *worker {
 	}
 }
 
+func helper(tkt \iso *ticket) *ticket {
+   return \freeze(tkt)
+}
+
 func (w *worker) runWorker() {
 	go func() {
 		for {
@@ -50,7 +54,7 @@ func (w *worker) runWorker() {
 			case tkt := <-w.getJob:
 				fmt.Printf("processing tkt.tree.name: '%v'\n", tkt.tree.name)
 				tkt.outcome = "ok"
-				tkt.done <- tkt
+				tkt.done <- helper(tkt)
                                 // even though we own tkt, it is still
                                 // illegal to change the \imm done field.
                                 // The submitter is depending on hearing 

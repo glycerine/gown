@@ -143,6 +143,22 @@ func main() {
 	requireNotContains(t, out, `\freeze`)
 }
 
+func TestEmitDoesNotNilAfterReturnFreeze(t *testing.T) {
+	out := emitGownSource(t, "return_freeze.gown", `package example
+
+type payload struct{ Data string }
+
+func helper(x \iso *payload) *payload {
+	return \freeze(x)
+}
+`)
+
+	requireContains(t, out, "return x")
+	requireNotContains(t, out, "return x\n\tx = nil")
+	requireNotContains(t, out, generatedNilOwnershipTransferComment)
+	requireNotContains(t, out, `\freeze`)
+}
+
 func TestEmitMubRobUnsafeEraseToPlainAssignment(t *testing.T) {
 	out := emitGownSource(t, "borrow.gown", `package example
 
