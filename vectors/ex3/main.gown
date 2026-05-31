@@ -21,7 +21,8 @@ func main() {
   })
 
   var a \iso *wheel
-  a, j.front = j.front, nil
+  //a, j.front = j.front, nil // GWN011: cannot move field projection
+  \swap(a, j.front)
 
   fmt.Printf("a='%#v'", a)
 }

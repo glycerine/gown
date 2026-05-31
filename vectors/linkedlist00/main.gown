@@ -1,0 +1,139 @@
+package main
+
+import "fmt"
+
+\\\\observer fmt.Printf
+
+// linkedlist00 is a design vector for the proposed \swap intrinsic.
+//
+// The forward links are owning links. The prev field is deliberately plain Go
+// and is written through \unsafe for now: it is a non-owning backlink, and this
+// vector is meant to make that design pressure visible.
+
+type node struct {
+	value int
+	prev  *node
+	next  \iso *node
+}
+
+type list struct {
+	head \iso *node
+}
+
+func newList() \iso *list {
+	return \new(list{})
+}
+
+func newNode(value int) \iso *node {
+	return \new(node{value: value})
+}
+
+func pushFront(l \iso *list, n \iso *node) \iso *list {
+	// Before:
+	//   l.head owns the old head chain.
+	//   n is detached: n.prev == nil and n.next == nil.
+	//
+	// After:
+	//   l.head owns n.
+	//   n.next owns the old head chain.
+	//
+	// This does not need the forbidden overlapping swap \swap(l.head, l.head.next).
+	\swap(n.next, l.head)
+	if n.next != nil {
+		n.next.prev = \unsafe(n)
+	}
+	\swap(l.head, n)
+	return l
+}
+
+func popFront(l \iso *list) (\iso *list, \iso *node) {
+	var out \iso *node
+
+	// Take the head node into out, leaving the list temporarily empty.
+	\swap(out, l.head)
+	if out == nil {
+		return l, out
+	}
+
+	// Move the old second node back into l.head, niling out out.next.
+	// The swap cells are independent roots here: l.head and out.next.
+	\swap(l.head, out.next)
+	if l.head != nil {
+		l.head.prev = nil
+	}
+	out.prev = nil
+	return l, out
+}
+
+func insertAfterHead(l \iso *list, n \iso *node) \iso *list {
+	if l.head == nil {
+		return pushFront(l, n)
+	}
+
+	// Insert n between l.head and l.head.next.
+	//
+	// Again, no overlapping root/field swap is needed:
+	//   n.next       <-> l.head.next
+	//   l.head.next  <-> n
+	\swap(n.next, l.head.next)
+	n.prev = \unsafe(l.head)
+	if n.next != nil {
+		n.next.prev = \unsafe(n)
+	}
+	\swap(l.head.next, n)
+	return l
+}
+
+func removeAfterHead(l \iso *list) (\iso *list, \iso *node) {
+	var out \iso *node
+	if l.head == nil {
+		return l, out
+	}
+
+	// Remove l.head.next into out, then splice out.next back after l.head.
+	\swap(out, l.head.next)
+	if out == nil {
+		return l, out
+	}
+
+	\swap(l.head.next, out.next)
+	if l.head.next != nil {
+		l.head.next.prev = \unsafe(l.head)
+	}
+	out.prev = nil
+	return l, out
+}
+
+func dispose(n \iso *node) {
+	fmt.Printf("dispose node %d\n", n.value)
+}
+
+func main() {
+	l := newList()
+
+	l = pushFront(l, newNode(1))
+	l = pushFront(l, newNode(2))
+	l = insertAfterHead(l, newNode(3))
+
+	var removed \iso *node
+	l, removed = removeAfterHead(l)
+	if removed != nil {
+		dispose(removed)
+	}
+
+	l, removed = popFront(l)
+	if removed != nil {
+		dispose(removed)
+	}
+
+	fmt.Printf("list head = %#v\n", \unsafe(l.head))
+}
+
+func forbiddenOverlap(n \iso *node) \iso *node {
+	// This must remain rejected by \swap validation, even though the types match.
+	// It swaps an owner cell with a field inside the object owned by that same
+	// cell, so the two ownership cells are not independent.
+	//
+	// \swap(n, n.next)
+	return n
+}
