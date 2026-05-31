@@ -2,10 +2,12 @@ package gown
 
 import (
 	"go/token"
+	"go/types"
 	"sort"
 
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 type ssaInventoryFact struct {
@@ -66,8 +68,21 @@ func collectSSAFunctions(ssaPkg *ssa.Package) []*ssa.Function {
 	}
 
 	for _, member := range ssaPkg.Members {
-		if fn, ok := member.(*ssa.Function); ok {
-			collect(fn)
+		switch member := member.(type) {
+		case *ssa.Function:
+			collect(member)
+		case *ssa.Type:
+			if ssaPkg.Prog == nil || types.IsInterface(member.Type()) {
+				continue
+			}
+			for _, method := range typeutil.IntuitiveMethodSet(member.Type(), &ssaPkg.Prog.MethodSets) {
+				if method.Obj() == nil || method.Obj().Pkg() != ssaPkg.Pkg {
+					continue
+				}
+				collect(ssaPkg.Prog.MethodValue(method))
+			}
+		default:
+			continue
 		}
 	}
 

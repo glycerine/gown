@@ -330,6 +330,80 @@ func main() {
 }`, GWN005)
 }
 
+func TestSSAGWN005RejectsNilAssignmentToImmutableChannelField(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main() {
+	tkt := newTicket()
+	tkt.done = nil
+}`, GWN005)
+}
+
+func TestSSAGWN005RejectsNilAssignmentToImmutableChannelFieldFromSelectReceive(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+type worker struct {
+	get chan \iso *ticket
+}
+
+func main(w *worker) {
+	go func() {
+		select {
+		case tkt := <-w.get:
+			tkt.done = nil
+		}
+	}()
+}`, GWN005)
+}
+
+func TestSSAGWN005RejectsNilAssignmentToImmutableChannelFieldBeforeSelfSend(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+type worker struct {
+	get chan \iso *ticket
+}
+
+func (w *worker) runWorker() {
+	go func() {
+		select {
+		case tkt := <-w.get:
+			tkt.done = nil
+			tkt.done <- tkt
+		}
+	}()
+}`, GWN005)
+}
+
+func TestSSAGWN005RejectsNilAssignmentToImmutableChannelFieldAfterSelfSend(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+type worker struct {
+	get chan \iso *ticket
+}
+
+func (w *worker) runWorker() {
+	go func() {
+		select {
+		case tkt := <-w.get:
+			tkt.done <- tkt
+			tkt.done = nil
+		}
+	}()
+}`, GWN005)
+}
+
 func TestSSAGWN001AllowsRebindByMovingOtherIsoAndRejectsOldSource(t *testing.T) {
 	requireHardeningCheckerCode(t, `func main(ch chan \iso *payload) {
 	var x \iso *payload

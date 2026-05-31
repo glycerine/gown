@@ -44,6 +44,8 @@ func (w *worker) runWorker() {
 				fmt.Printf("processing tkt.tree.name: '%v'\n", tkt.tree.name)
 				tkt.outcome = "ok"
 				tkt.done <- tkt
+                                // should be illegal to change \imm done!
+				tkt.done = nil
 			case <-w.end:
 				return
 			}
@@ -57,16 +59,17 @@ func main() {
 	defer close(w.end)
 
 	tkt := newTicket("ticket_0")
-        tkt2 := \clone(tkt)
-	w.getJob <- tkt2
 
-	// should still be legal to touch tkt now because we cloned it.
-	fmt.Printf("tkt is: '%#v'\n", tkt)
-
+        //tkt2 := \clone(tkt)
+	//w.getJob <- tkt2
+	// should still be legal to touch tkt now because we only cloned it.
+	//fmt.Printf("tkt is: '%#v'\n", tkt)
 	// but: should be illegal to touch tkt2 now:
 	//fmt.Printf("tkt2 is: '%#v'\n", tkt2)
 
-	tkt = <-tkt2.done
+	w.getJob <- tkt
+
+	tkt = <-tkt.done
 	fmt.Printf("tkt.tree.name = '%v'\n", tkt.tree.name)
 	fmt.Printf("got <-tkt.done: tkt.outcome = '%v'\n", tkt.outcome)
 }

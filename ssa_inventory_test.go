@@ -123,6 +123,23 @@ func main(ch chan string, x string) {
 }
 `
 
+const gownSSAMethodInventorySource = `package example
+
+type worker struct {
+	get chan string
+}
+
+func (w *worker) runWorker() {
+	go func() {
+		select {
+		case x := <-w.get:
+			println(x)
+		default:
+		}
+	}()
+}
+`
+
 func TestSSAInventoryRecordsDeferInstruction(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"defer.gown": gownSSADeferInventorySource})
 	gp := NewGownPackage(dir)
@@ -144,6 +161,21 @@ func TestSSAInventoryRecordsSelectInstruction(t *testing.T) {
 	facts := collectSSAInventoryFacts(gp.pkg, gp.ssaPkg)
 	if !ssaInventoryHas(facts, "main", "Select") {
 		t.Fatalf("SSA inventory missing Select in main; facts:\n%s", formatSSAInventoryFacts(facts))
+	}
+}
+
+func TestSSAInventoryRecordsMethodBodiesAndClosures(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"method.gown": gownSSAMethodInventorySource})
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+	facts := collectSSAInventoryFacts(gp.pkg, gp.ssaPkg)
+	if !ssaInventoryHas(facts, "runWorker", "Go") {
+		t.Fatalf("SSA inventory missing Go in method body; facts:\n%s", formatSSAInventoryFacts(facts))
+	}
+	if !ssaInventoryHas(facts, "runWorker$1", "Select") {
+		t.Fatalf("SSA inventory missing Select in method closure; facts:\n%s", formatSSAInventoryFacts(facts))
 	}
 }
 
