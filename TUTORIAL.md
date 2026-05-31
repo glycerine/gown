@@ -1,8 +1,12 @@
-# Go + Ownership = Gown. the Gown tutorial
+# Go + Ownership = Gown. This is the Gown tutorial
 
-The Gown pre-processor allows the Go developer
-to describe pointer ownership and data immutability, and thus
-catches data-races in Go code at compile time.
+The gown command line tools is a Go source 
+pre-processor allows the Go developer
+to describe pointer ownership and data immutability. 
+Since gown catches data-races at compile time by
+static analysis, it provides stronger protection than
+the (valuable but incomplete) detection offered by
+the Go race detector. 
 
 ## overview
 
