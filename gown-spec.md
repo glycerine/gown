@@ -411,15 +411,37 @@ goroutine-local by definition and sending them on a channel would violate that
 constraint. Declaring a `chan \mub *T` or `chan \rob *T` is a checker error.
 
 ```go
-var work chan \iso *Request      // ownership-transfer channel
-var broadcast chan \imm *Config  // shared-immutable channel
-var plain chan *Request          // untracked channel — no capability checking
+var work chan \iso *Request       // ownership-transfer channel
+var broadcast chan \imm *Config   // shared-immutable channel
+var plain chan *Request           // untracked channel — no capability checking
+var done \imm chan \iso *Request  // stable channel handle carrying \iso values
 ```
 
-The channel variable itself requires no capability annotation. Channels are
-concurrency-safe by construction in Go — the runtime mediates all sends and
+The channel variable itself usually requires no capability annotation. Channels
+are concurrency-safe by construction in Go — the runtime mediates all sends and
 receives — so a channel value may be freely shared across goroutines without
 capability tracking.
+
+When a channel handle is stored in a field that must be read after the
+containing `\iso` object has moved, the field itself must be declared `\imm`.
+This means the channel handle slot is stable: it may be read and shared, but
+not reassigned. It does not make channel operations read-only; sends and
+receives are still allowed because the Go channel runtime synchronizes the
+channel's internal state.
+
+```go
+type Ticket struct {
+    Done \imm chan \iso *Ticket
+}
+
+worker <- t
+t = <-t.Done        // legal: Done is a stable \imm channel handle
+```
+
+Without the `\imm` on `Done`, reading `t.Done` after `t` has moved would be a
+use-after-move error. The new owner could reassign the field concurrently,
+which would be an ordinary race on the field slot even though the old and new
+channel handles themselves are safe.
 
 #### Send Compatibility
 
@@ -587,6 +609,22 @@ propagates `\imm` — deep immutability is unconditional. The untracked row cann
 produce `\iso` or `\mub` — accessing such a field through an untracked pointer
 is a checker error unless the field is `\rob` or `\imm`.
 
+An effective `\imm` field projection may be read even after the outer `\iso`
+root has moved. This is sound because the field slot is immutable and therefore
+the new owner cannot race by changing that slot. Other fields of the moved root
+remain unavailable.
+
+```go
+type Ticket struct {
+    Done    \imm chan \iso *Ticket
+    Outcome string
+}
+
+out <- t
+next := <-t.Done     // legal: stable immutable projection
+_ = t.Outcome        // error: ordinary field read after move
+```
+
 ---
 
 ## 8. The `\unsafe` Escape Hatch
@@ -700,12 +738,14 @@ func Inspect(c \rob *Config) string
 type Pipeline struct {
     Config  \imm *Config
     Buffer  \iso *Buffer
+    Done    \imm chan \iso *Request // stable channel handle, \iso elements
     Name    string          // untracked, no annotation needed
 }
 
 // Channel types
 var ch chan \iso *Request
 var broadcast chan \imm *Config
+var done \imm chan \iso *Request
 
 // Variables (annotation optional; inferred from RHS)
 var x \iso *Config = NewConfig()
@@ -718,6 +758,8 @@ x := NewConfig()             // infers \iso from return type
 - **Function parameters:** annotated at the parameter type position
 - **Struct fields:** annotated at the field type position
 - **Channel element types:** annotated inside the `chan` type
+- **Stable channel handles:** annotated before the `chan` type, usually as
+  `\imm chan ...`
 - **Local variables:** inferred; annotation is allowed but not required
 - **Interface method signatures:** annotated at each parameter and return type
 

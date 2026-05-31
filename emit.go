@@ -91,7 +91,7 @@ func collectIntrinsicEmitEdits(pkg *packages.Package, caps *CapabilityIndex, gf 
 
 func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file *ast.File, src []byte) []EmitEdit {
 	var edits []EmitEdit
-	nilSuppressions := collectNilSuppressedRebindRoots(caps, file)
+	nilSuppressions := collectNilSuppressedImmutableProjectionRoots(caps, file)
 	var currentSuppressions map[types.Object]bool
 	ast.Inspect(file, func(n ast.Node) bool {
 		if fn, ok := n.(*ast.FuncDecl); ok {
@@ -132,7 +132,7 @@ func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file 
 	return edits
 }
 
-func collectNilSuppressedRebindRoots(caps *CapabilityIndex, file *ast.File) map[*ast.FuncDecl]map[types.Object]bool {
+func collectNilSuppressedImmutableProjectionRoots(caps *CapabilityIndex, file *ast.File) map[*ast.FuncDecl]map[types.Object]bool {
 	out := make(map[*ast.FuncDecl]map[types.Object]bool)
 	if caps == nil || file == nil {
 		return out
@@ -146,20 +146,21 @@ func collectNilSuppressedRebindRoots(caps *CapabilityIndex, file *ast.File) map[
 			if _, ok := n.(*ast.FuncLit); ok {
 				return false
 			}
-			assign, ok := n.(*ast.AssignStmt)
-			if !ok || len(assign.Lhs) != len(assign.Rhs) {
+			expr, ok := n.(ast.Expr)
+			if !ok {
 				return true
 			}
-			for i := range assign.Lhs {
-				dst, _, ok := isoRootRebindReceive(caps, assign.Lhs[i], assign.Rhs[i])
-				if !ok {
-					continue
-				}
-				if out[fn] == nil {
-					out[fn] = make(map[types.Object]bool)
-				}
-				out[fn][dst.Root] = true
+			place, ok := caps.PlaceForExpr(expr)
+			if !ok || place.Root == nil || place.Key().Path == "" {
+				return true
 			}
+			if capForSSAPlace(caps, place) != CapImm {
+				return true
+			}
+			if out[fn] == nil {
+				out[fn] = make(map[types.Object]bool)
+			}
+			out[fn][place.Root] = true
 			return true
 		})
 	}

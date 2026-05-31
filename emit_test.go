@@ -25,7 +25,7 @@ func TestEmitDoesNotNilBeforeOwnChannelFieldReceiveRebind(t *testing.T) {
 	out := emitGownSource(t, "receive_rebind.gown", `package example
 
 type ticket struct {
-	done chan \iso *ticket
+	done \imm chan \iso *ticket
 }
 
 func newTicket() \iso *ticket {
@@ -42,6 +42,34 @@ func main(work chan \iso *ticket) {
 
 	requireNotContains(t, out, "tkt = nil\n\ttkt = <-tkt.done")
 	requireContains(t, out, "work <- tkt\n\ttkt = <-tkt.done")
+}
+
+func TestEmitDoesNotNilBeforeOtherMovedImmutableChannelFieldReceiveRebind(t *testing.T) {
+	out := emitGownSource(t, "receive_other_rebind.gown", `package example
+
+type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func (t *ticket) Clone() *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	tkt2 := \clone(tkt)
+	work <- tkt2
+	tkt = <-tkt2.done
+	_ = tkt
+}
+`)
+
+	requireNotContains(t, out, "tkt2 = nil\n\ttkt = <-tkt2.done")
+	requireContains(t, out, "work <- tkt2\n\ttkt = <-tkt2.done")
 }
 
 func TestEmitNilAfterIsoCall(t *testing.T) {

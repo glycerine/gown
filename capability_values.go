@@ -2,7 +2,6 @@ package gown
 
 import (
 	"go/ast"
-	"go/token"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -81,28 +80,6 @@ func intrinsicValueCapability(binding IntrinsicBinding) ValueCapability {
 		value.Cap = CapInvalid
 	}
 	return value
-}
-
-func isoRootRebindReceive(caps *CapabilityIndex, lhs, rhs ast.Expr) (Place, Place, bool) {
-	if caps == nil || lhs == nil || rhs == nil {
-		return Place{}, Place{}, false
-	}
-	dst, ok := caps.PlaceForExpr(lhs)
-	if !ok || dst.Root == nil || dst.Key().Path != "" || EffectivePlaceCap(caps, dst) != CapIso {
-		return Place{}, Place{}, false
-	}
-	recv, ok := unparenExpr(rhs).(*ast.UnaryExpr)
-	if !ok || recv.Op != token.ARROW {
-		return Place{}, Place{}, false
-	}
-	ch, ok := caps.PlaceForExpr(recv.X)
-	if !ok || ch.Root == nil || ch.Root != dst.Root || len(ch.Projection) == 0 {
-		return Place{}, Place{}, false
-	}
-	if chanElemCapForPlace(caps, ch) != CapIso {
-		return Place{}, Place{}, false
-	}
-	return dst, ch, true
 }
 
 func unparenExpr(expr ast.Expr) ast.Expr {

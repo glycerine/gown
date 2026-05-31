@@ -203,8 +203,8 @@ func TestSSAGWN001AllowsRebindWithIsoReceiveAfterSend(t *testing.T) {
 }`)
 }
 
-func TestSSAGWN001AllowsRebindWithIsoReceiveFromMovedRootChannelField(t *testing.T) {
-	requireHardeningOK(t, `type ticket struct {
+func TestSSAGWN001RejectsRebindWithIsoReceiveFromMovedMutableChannelField(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
 	done chan \iso *ticket
 }
 
@@ -217,7 +217,117 @@ func main(work chan \iso *ticket) {
 	work <- tkt
 	tkt = <-tkt.done
 	println(tkt)
+}`, GWN001)
+}
+
+func TestSSAGWN001AllowsRebindWithIsoReceiveFromMovedImmutableChannelField(t *testing.T) {
+	requireHardeningOK(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	tkt = <-tkt.done
+	println(tkt)
 }`)
+}
+
+func TestSSAGWN001AllowsRebindFromOtherMovedImmutableChannelField(t *testing.T) {
+	requireHardeningOK(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func (t *ticket) Clone() *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	tkt2 := \clone(tkt)
+	work <- tkt2
+	tkt = <-tkt2.done
+	println(tkt)
+	println(tkt.done)
+}`)
+}
+
+func TestSSAGWN001AllowsUseBeforeRebindFromOtherMovedImmutableChannelField(t *testing.T) {
+	requireHardeningOK(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func (t *ticket) Clone() *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	tkt2 := \clone(tkt)
+	work <- tkt2
+	println(tkt)
+	tkt = <-tkt2.done
+	println(tkt)
+	println(tkt.done)
+}`)
+}
+
+func TestSSAGWN001AllowsUntrackedUseBeforeRebindFromOtherMovedImmutableChannelField(t *testing.T) {
+	err := checkGownSource(t, hardeningTestName(t), `package example
+
+import "fmt"
+
+type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func (t *ticket) Clone() *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	tkt2 := \clone(tkt)
+	work <- tkt2
+	fmt.Printf("tkt is: %#v\n", tkt)
+	tkt = <-tkt2.done
+	fmt.Printf("tkt done: %#v\n", tkt.done)
+}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSAGWN005RejectsReassignImmutableChannelField(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main() {
+	tkt := newTicket()
+	tkt.done = make(chan \iso *ticket)
+}`, GWN005)
 }
 
 func TestSSAGWN001AllowsRebindByMovingOtherIsoAndRejectsOldSource(t *testing.T) {

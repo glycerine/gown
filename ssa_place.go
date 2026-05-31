@@ -2,6 +2,7 @@ package gown
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/packages"
@@ -174,7 +175,9 @@ func (idx *SSAPlaceIndex) propagateSSAPlaces(ssaPkg *ssa.Package) {
 						idx.InstructionPlaces[instr] = place
 					}
 				case *ssa.UnOp:
-					idx.propagateValuePlace(instr, instr.X)
+					if instr.Op == token.MUL {
+						idx.propagateValuePlace(instr, instr.X)
+					}
 				}
 			}
 		}

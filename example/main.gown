@@ -12,7 +12,7 @@ type ticket struct {
 	tree \iso *bigTree
 
 	outcome string
-	done    chan \iso *ticket
+	done \imm chan \iso *ticket
 }
 
 func newTicket(name string) \iso *ticket {

@@ -17,17 +17,17 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 	places := buildSSAPlaceIndex(pkg, ssaPkg, caps)
 	assignments := collectSSAAssignments(pkg, caps)
 	checker := &ssaGWN001Checker{
-		pkg:             pkg,
-		caps:            caps,
-		places:          places,
-		assignments:     assignments,
-		movedRebindUses: collectSSAMovedRebindUseSpans(assignments, caps),
-		namedBorrows:    collectSSANamedBorrows(pkg, caps),
-		deferEffects:    collectSSADeferredClosureEffects(pkg, caps),
-		returns:         collectSSAReturnPlaces(pkg, caps),
-		returnValues:    collectSSAReturnValues(pkg, caps),
-		bindings:        NewSSABindingIndex(caps),
-		reported:        make(map[string]bool),
+		pkg:                     pkg,
+		caps:                    caps,
+		places:                  places,
+		assignments:             assignments,
+		immutableProjectionUses: collectSSAImmutableProjectionUseSpans(pkg, caps),
+		namedBorrows:            collectSSANamedBorrows(pkg, caps),
+		deferEffects:            collectSSADeferredClosureEffects(pkg, caps),
+		returns:                 collectSSAReturnPlaces(pkg, caps),
+		returnValues:            collectSSAReturnValues(pkg, caps),
+		bindings:                NewSSABindingIndex(caps),
+		reported:                make(map[string]bool),
 	}
 	for _, fn := range collectSSAFunctions(ssaPkg) {
 		checker.checkFunction(fn)
@@ -36,21 +36,21 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 }
 
 type ssaGWN001Checker struct {
-	pkg                 *packages.Package
-	caps                *CapabilityIndex
-	places              *SSAPlaceIndex
-	assignments         map[ast.Expr]ssaAssignment
-	movedRebindUses     []ssaMovedRebindUseSpan
-	namedBorrows        map[*types.Func]SSANamedBorrowInfo
-	deferEffects        map[*types.Func]SSADeferredClosureEffectInfo
-	returns             map[sourcePosKey][]Place
-	returnValues        map[sourcePosKey][]ValueCapability
-	bindings            *SSABindingIndex
-	activeNamedBorrows  SSANamedBorrowInfo
-	activeDeferEffects  SSADeferredClosureEffectInfo
-	namedBorrowLiveness *SSANamedBorrowLiveness
-	errs                CheckerErrors
-	reported            map[string]bool
+	pkg                     *packages.Package
+	caps                    *CapabilityIndex
+	places                  *SSAPlaceIndex
+	assignments             map[ast.Expr]ssaAssignment
+	immutableProjectionUses []ssaImmutableProjectionUseSpan
+	namedBorrows            map[*types.Func]SSANamedBorrowInfo
+	deferEffects            map[*types.Func]SSADeferredClosureEffectInfo
+	returns                 map[sourcePosKey][]Place
+	returnValues            map[sourcePosKey][]ValueCapability
+	bindings                *SSABindingIndex
+	activeNamedBorrows      SSANamedBorrowInfo
+	activeDeferEffects      SSADeferredClosureEffectInfo
+	namedBorrowLiveness     *SSANamedBorrowLiveness
+	errs                    CheckerErrors
+	reported                map[string]bool
 }
 
 type ssaAssignment struct {
@@ -59,7 +59,7 @@ type ssaAssignment struct {
 	RHS   ast.Expr
 }
 
-type ssaMovedRebindUseSpan struct {
+type ssaImmutableProjectionUseSpan struct {
 	Root  types.Object
 	Start token.Pos
 	End   token.Pos
@@ -212,7 +212,10 @@ func (checker *ssaGWN001Checker) allowsMovedRebindUse(pos token.Pos, place Place
 	if checker == nil || state == nil || !pos.IsValid() || place.Root == nil {
 		return false
 	}
-	for _, span := range checker.movedRebindUses {
+	if place.Key().Path != "" && capForSSAPlace(checker.caps, place) == CapImm {
+		return true
+	}
+	for _, span := range checker.immutableProjectionUses {
 		if span.Root != place.Root || pos < span.Start || pos >= span.End {
 			continue
 		}
@@ -1160,17 +1163,30 @@ func collectSSAAssignments(pkg *packages.Package, caps *CapabilityIndex) map[ast
 	return assignments
 }
 
-func collectSSAMovedRebindUseSpans(assignments map[ast.Expr]ssaAssignment, caps *CapabilityIndex) []ssaMovedRebindUseSpan {
-	var spans []ssaMovedRebindUseSpan
-	for lhs, assignment := range assignments {
-		dst, _, ok := isoRootRebindReceive(caps, lhs, assignment.RHS)
-		if !ok {
-			continue
-		}
-		spans = append(spans, ssaMovedRebindUseSpan{
-			Root:  dst.Root,
-			Start: assignment.RHS.Pos(),
-			End:   assignment.RHS.End(),
+func collectSSAImmutableProjectionUseSpans(pkg *packages.Package, caps *CapabilityIndex) []ssaImmutableProjectionUseSpan {
+	var spans []ssaImmutableProjectionUseSpan
+	if pkg == nil || caps == nil {
+		return spans
+	}
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			expr, ok := n.(ast.Expr)
+			if !ok {
+				return true
+			}
+			place, ok := caps.PlaceForExpr(expr)
+			if !ok || place.Root == nil || place.Key().Path == "" {
+				return true
+			}
+			if capForSSAPlace(caps, place) != CapImm {
+				return true
+			}
+			spans = append(spans, ssaImmutableProjectionUseSpan{
+				Root:  place.Root,
+				Start: expr.Pos(),
+				End:   expr.End(),
+			})
+			return true
 		})
 	}
 	return spans
