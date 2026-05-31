@@ -110,7 +110,7 @@ func (checker *ostampErasureChecker) checkReturn(ret *ast.ReturnStmt, resultCaps
 		checker.reportAtNode(
 			GWN010,
 			result,
-			fmt.Sprintf("cannot return %s value %q as untracked result; use \\unsafe(...) to leave ownerstamp checking", value.Cap, valueName(value)),
+			fmt.Sprintf("cannot return %s value %q as untracked result", value.Cap, valueName(value)),
 		)
 	}
 }
@@ -149,7 +149,7 @@ func (checker *ostampErasureChecker) checkCallArguments(call *ast.CallExpr) {
 		checker.reportAtNode(
 			GWN008,
 			arg,
-			fmt.Sprintf("cannot pass %s value %q to untracked parameter; use \\unsafe(...) to leave ownerstamp checking", value.Cap, valueName(value)),
+			fmt.Sprintf("cannot pass %s value %q to untracked parameter", value.Cap, valueName(value)),
 		)
 	}
 }
@@ -170,7 +170,7 @@ func (checker *ostampErasureChecker) checkCallReceiver(call *ast.CallExpr) {
 	checker.reportAtNode(
 		GWN008,
 		sel.X,
-		fmt.Sprintf("cannot call untracked method with %s receiver %q; use \\unsafe(...) to leave ownerstamp checking", value.Cap, valueName(value)),
+		fmt.Sprintf("cannot call untracked method with %s receiver %q", value.Cap, valueName(value)),
 	)
 }
 
@@ -207,7 +207,7 @@ func (checker *ostampErasureChecker) checkValueIntoDestination(src ast.Expr, dst
 		return
 	}
 	if checker.mode&ostampErasureInterfaces != 0 && isInterfaceExpr(checker.pkg, dst) {
-		checker.checkValueIntoCap(src, CapUntracked, GWN009, dst, "cannot erase %s value %q into interface; use \\unsafe(...) to leave ownerstamp checking")
+		checker.checkValueIntoCap(src, CapUntracked, GWN009, dst, "cannot erase %s value %q into interface")
 	}
 }
 
@@ -220,10 +220,10 @@ func (checker *ostampErasureChecker) checkValueIntoObject(src ast.Expr, obj type
 		return
 	}
 	code := GWN010
-	message := "cannot store %s value %q in untracked destination; use \\unsafe(...) to leave ownerstamp checking"
+	message := "cannot store %s value %q in untracked destination"
 	if v, ok := obj.(*types.Var); ok && isInterfaceType(v.Type()) {
 		code = GWN009
-		message = "cannot erase %s value %q into interface; use \\unsafe(...) to leave ownerstamp checking"
+		message = "cannot erase %s value %q into interface"
 	}
 	checker.checkValueIntoCap(src, dstCap, code, dst, message)
 }
@@ -254,7 +254,7 @@ func (checker *ostampErasureChecker) checkSend(send *ast.SendStmt) {
 	checker.reportAtNode(
 		GWN010,
 		send.Value,
-		fmt.Sprintf("cannot send %s value %q on untracked channel; use \\unsafe(...) to leave ownerstamp checking", value.Cap, valueName(value)),
+		fmt.Sprintf("cannot send %s value %q on untracked channel", value.Cap, valueName(value)),
 	)
 }
 
@@ -280,10 +280,10 @@ func (checker *ostampErasureChecker) checkCompositeLit(lit *ast.CompositeLit) {
 			continue
 		}
 		code := GWN010
-		message := "cannot store %s value %q in untracked field " + name.Name + "; use \\unsafe(...) to leave ownerstamp checking"
+		message := "cannot store %s value %q in untracked field " + name.Name + ""
 		if isInterfaceType(field.Type()) {
 			code = GWN009
-			message = "cannot erase %s value %q into interface field " + name.Name + "; use \\unsafe(...) to leave ownerstamp checking"
+			message = "cannot erase %s value %q into interface field " + name.Name
 		}
 		checker.checkValueIntoCap(kv.Value, CapUntracked, code, kv.Value, message)
 	}
