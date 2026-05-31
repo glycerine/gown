@@ -78,22 +78,25 @@ and then Gown emits ordinary `.go` files with the annotations erased.
 This tutorial is an introduction and starting point. For the 
 full specification, see `gown-spec.md`. The human readable proofs
 of soundness are in the theory-proof.md and theory-proof-gemini-v2.md
-files, which are backed by `Gown.lean`, mechanincal formal proof.
+files, which are backed by `Gown.lean`, a mechine-checked formal proof.
 
 ### the core idea
 
-In ordinary Go, a pointer can be copied and thus there can be multiple
-aliases of the same pointer outstanding at once. This makes it hard
-to be sure that pointer you just sent to another goroutine will not be
-mutated by one goroutine while another is reading it.
+In ordinary Go, any pointer can be copied and shared with any goroutine.
+Thus there can be multiple aliases of the same pointer outstanding at 
+once. If you want to be sure only a single goroutine is accessing
+that pointer, the compiler does not help you. In regular Go, one goroutine can be
+mutating the pointed-to value, while another is reading it. We
+want to be able to forbid this and prove some memory will only be
+accessed by its current owner; that there are no aliases.
 
 >  "There can be only one." 
 >     -- with apologies to Connor MacLeod, Highlander, 1986
 
 Gown lets you write \iso to rule out all other aliases. The goroutine
 with an \iso pointer knows it has the only copy. That goroutine owns 
-that pointer. Suppose we pass around a *Ticket describing a job 
-and the progress made on the job so far.
+that pointer. As a running example, suppose we pass around a *Ticket
+describing a job and the progress made on the job so far.
 
 ```go
 type Ticket struct {
