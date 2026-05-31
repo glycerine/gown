@@ -70,8 +70,8 @@ aliases of the same pointer outstanding at once. This makes it hard
 to be sure that pointer you just sent to another goroutine will not be
 mutated by one goroutine while another is reading it.
 
-  "There can be only one." 
-     -- Connor MacLeod, Highlander, 1989
+>  "There can be only one." 
+>     -- with apologies to Connor MacLeod, Highlander, 1986
 
 Gown lets you write \iso to rule out all other aliases. The goroutine
 with an \iso pointer knows it has the only copy. That goroutine owns 
