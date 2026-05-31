@@ -6,6 +6,10 @@ import (
 
 type bigTree struct {
 	name string
+
+        // Pretend this is the root of a big tree full of state.
+        // We just skip showing all the other stuff.
+        // ...
 }
 
 type ticket struct {
@@ -64,10 +68,11 @@ func main() {
 
 	tkt := newTicket("ticket_0")
 
-        const demonstrateClone = false
+        demonstrateClone := false
+
         if demonstrateClone {
-          tkt2 := \clone(tkt)
-	  w.getJob <- tkt2
+            tkt2 := \clone(tkt)
+  	  w.getJob <- tkt2
 	  // should still be legal to touch tkt now because we only cloned it.
 	  fmt.Printf("tkt is: '%#v'\n", tkt)
 	  // but: should be illegal to touch tkt2 now:

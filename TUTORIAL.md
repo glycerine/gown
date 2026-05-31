@@ -358,7 +358,7 @@ they are preprocessor constructs.
 | Operation | Meaning | Output idea |
 | --- | --- | --- |
 | `\new(T{...})` | allocate a fresh isolated value | `&T{...}` |
-| `\clone(x)` | call a trusted same-type `Clone` method | `(x).Clone()` |
+| `\clone(x)` | call a trusted same-type `clone` method | `(x).clone()` |
 | `\freeze(x)` | consume `\iso`, produce `\imm` | assignment plus consumed source |
 | `\mub(x)` | make an explicit mutable borrow | `x` |
 | `\rob(x)` | make an explicit read-only borrow | `x` |
@@ -383,19 +383,19 @@ available.
 For a value of static type `T`, `T` must have:
 
 ```go
-Clone() T
+clone() T
 ```
 
 For a value of static type `*T`, `*T` must have:
 
 ```go
-Clone() *T
+clone() *T
 ```
 
 Example:
 
 ```go
-func (b *Buffer) Clone() *Buffer {
+func (b *Buffer) clone() *Buffer {
     cp := *b
     cp.Data = append([]byte{}, b.Data...)
     return &cp
@@ -415,7 +415,7 @@ func main() {
 }
 ```
 
-Gown trusts `Clone` to return an independent value. The checker verifies the
+Gown trusts `clone` to return an independent value. The checker verifies the
 method shape, but it cannot prove that the method body performed a deep copy.
 
 ### `\freeze`
@@ -661,80 +661,129 @@ hit first.
 | `GWN010` | invalid capability conversion, channel mismatch, or clone shape | adjust the annotation or method signature |
 | `GWN012` | tried to use a value as tracked after a proof frontier | keep it tracked or use an explicit unsafe boundary |
 
-## a small complete example
+## a complete example
 
-This example uses ownership transfer for work items and immutable sharing for
-configuration.
+This example uses ownership transfer to issue tickets to a worker
+goroutine.
+
+The pattern of having an \imm channel field is useful. The worker
+cannot accidentally change the reply channel that the supervisor
+is expecting to hear back on. The supervisor (main) can
+receive on the \imm channel tkt.done even though it gave away ownership
+of the parent \iso ticket.
 
 ```go
 package main
 
-type Config struct {
-    Prefix string
+import (
+    "fmt"
+)
+
+type bigTree struct {
+    name string
+
+    // Pretend this is the root of a big tree full of state.
+    // We just skip showing all the other stuff.
+    // ...
 }
 
-type Request struct {
-    Body []byte
+func (t *bigTree) clone() *bigTree {
+   return &bigTree {
+       name: t.name,
+   }
 }
 
-func (r *Request) Clone() *Request {
-    cp := *r
-    cp.Body = append([]byte{}, r.Body...)
-    return &cp
+type ticket struct {
+    tree \iso *bigTree
+
+    outcome string
+    done \imm chan \iso *ticket
 }
 
-func Normalize(r \mub *Request) {
-    r.Body = append([]byte("normalized:"), r.Body...)
+func (t *ticket) clone() *ticket {
+    return &ticket{
+        tree: t.tree.clone(),
+        outcome: t.outcome,
+        done: make(chan *ticket),
+    }
 }
 
-func Size(r \rob *Request) int {
-    return len(r.Body)
+func newTicket(name string) \iso *ticket {
+    return &ticket{
+        tree: &bigTree{
+            name: name,
+        },
+        done: make(chan \iso *ticket),
+    }
 }
 
-func Handle(cfg \imm *Config, r \iso *Request) {
-    Normalize(r)
-    _ = cfg.Prefix
-    _ = Size(r)
-
-    // r is still owned here because Normalize and Size borrowed it.
-    Finish(r)
+type worker struct {
+    getJob chan \iso *ticket
+    end    chan struct{}
 }
 
-func Finish(r \iso *Request) {
-    _ = r.Body
+func newWorker() *worker {
+    return &worker{
+        getJob: make(chan \iso *ticket),
+        end:    make(chan struct{}),
+    }
 }
 
+func (w *worker) runBackgrounWorkerGoro() {
+    go func() {
+        for {
+            select {
+            case tkt := <-w.getJob:
+                fmt.Printf("processing tkt.tree.name: '%v'\n", tkt.tree.name)
+                tkt.outcome = "ok"
+                tkt.done <- tkt
+                // even though we own tkt, it is still
+                // illegal to change the \imm done field.
+                // The submitter is depending on hearing 
+                // back on that particular channel
+                //tkt.done = nil // GWN005: cannot write through \imm value "tkt"
+                //tkt.done = make(chan \iso *ticket) // ditto; same GWN005 error
+            case <-w.end:
+                return
+            }
+        }
+    }()
+}
+
+// main "supervises" a worker goroutine, issuing a job tickets to it
+// and waiting for the worker to send back the ticket on the done channel.
 func main() {
-    work := make(chan \iso *Request, 2)
+    w := newWorker()
+    w.runBackgrounWorkerGoro()
+    defer close(w.end) // tell the worker to exit when we do.
 
-    cfgIso := \new(Config{Prefix: "demo"})
-    cfg := \freeze(cfgIso)
+    tkt := newTicket("ticket_0")
 
-    template := \new(Request{Body: []byte("hello")})
+    demonstrateClone := false
 
-    work <- \clone(template)
-    work <- \clone(template)
+    if demonstrateClone {
+        tkt2 := \clone(tkt)
+        w.getJob <- tkt2
+        // still be legal to touch tkt now because we only cloned it.
+        fmt.Printf("tkt is: '%#v'\n", tkt)
+        // but it is illegal to touch tkt2 now, since the worker now owns it.
+        //fmt.Printf("tkt2 is: '%#v'\n", tkt2)
+        tkt = <-tkt2.done
+    } else {
+        w.getJob <- tkt
+        // illegal to touch tkt now that we moved ownership to the worker.
+        //fmt.Printf("tkt is: '%#v'\n", tkt)
+        // except to read an \imm channel or rebind it:
+        //tkt = <-tkt.done // okay
+        // also okay:
+        tkt3 := <-tkt.done 
+        tkt = tkt3
+    }
 
-    first := <-work
-    Handle(cfg, first)
-
-    second := <-work
-    Handle(cfg, second)
-
-    // template was never consumed by the clone sends.
-    Finish(template)
+    fmt.Printf("tkt.tree.name = '%v'\n", tkt.tree.name)
+    fmt.Printf("got <-tkt.done: tkt.outcome = '%v'\n", tkt.outcome)
 }
 ```
-
-What happened here:
-
-- `cfgIso` started as mutable unique data.
-- `cfg := \freeze(cfgIso)` made the config immutable and shareable.
-- `template` stayed locally owned.
-- `\clone(template)` created fresh isolated requests for the channel.
-- `Normalize` borrowed each request mutably.
-- `Size` borrowed each request read-only.
-- `Finish` consumed each request.
 
 ## exercises
 
@@ -748,7 +797,7 @@ Try these changes in small `.gown` files:
    parameter and see the checker reject it.
 4. Freeze an `\iso *Buffer` into `\imm *Buffer`, send it twice on a channel, and
    confirm the sender still has the immutable value.
-5. Add a valid `Clone() *Buffer` method, then send `\clone(b)` while continuing
+5. Add a valid `clone() *Buffer` method, then send `\clone(b)` while continuing
    to use `b`.
 6. Try to send a `\mub *Buffer` on a channel and explain why Gown rejects it.
 7. Add a `Done \imm chan \iso *Ticket` reply channel to a ticket type, send the
