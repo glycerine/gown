@@ -6,6 +6,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 Gown is a source code preprocessor for Go. The input is Go source with additional ownerstamp annotations. An ownerstamp is Gown's term for an ownership marking on a pointer such as `\iso`, `\mub`, `\rob`, or `\imm`. Gown accepts `.gown` files, rejects invalid ownership with a type error, or emits plain `.go` files with ownerstamps erased and code additions that assign nil to \iso pointers that have been consumed. The core guarantee is race freedom: if all source passes the Gown checker, no execution has a data race (except through explicit `\unsafe`).
 
+Note: Internally, ownerstamps were formerly referred by the now deprecated term "capability". Inside the gown implementation there are still many references to "cap" and "caps", which refer to ownerstamps. Do not update all of these type and variable names--that is too much churn. Also cap is nice and short. All external user-facing documentation has been updated. The TUTORIAL.md explains the meaning of ownerstamp.
+
 ## Build and Test
 
 ```bash

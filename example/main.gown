@@ -43,9 +43,11 @@ func newWorker() *worker {
 	}
 }
 
-func helper(tkt *ticket) *ticket {
+func helper(tkt \iso *ticket) \iso *ticket {
    return tkt
 }
+
+\\\\observer fmt.Printf
 
 func (w *worker) runWorker() {
 	go func() {
@@ -81,7 +83,7 @@ func main() {
             tkt2 := \Clone(tkt)
   	  w.getJob <- tkt2
 	  // should still be legal to touch tkt now because we only cloned it.
-	  fmt.Printf("tkt is: '%#v'\n", \unsafe(tkt))
+	  fmt.Printf("tkt is: '%#v'\n", tkt)
 	  // but: should be illegal to touch tkt2 now:
 	  //fmt.Printf("tkt2 is: '%#v'\n", tkt2)
   	  tkt = <-tkt2.done
