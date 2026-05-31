@@ -1,0 +1,7 @@
+$ gown .
+
+/Users/jaten/go/src/github.com/glycerine/gown/example/main.gown:64:6: GWN010: cannot assign invalid value to \iso root "tkt"
+     tkt = <-tkt.done
+     ^
+
+

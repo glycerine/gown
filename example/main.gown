@@ -1,0 +1,67 @@
+package main
+
+import (
+	"fmt"
+)
+
+type bigTree struct {
+     name string
+}
+
+type ticket struct {
+	tree \iso *bigTree
+
+        outcome string
+	done chan \iso *ticket
+}
+
+func newTicket(name string) \iso *ticket {
+     return &ticket{
+        tree: &bigTree{
+            name: name,
+        },
+        done:make(chan \iso *ticket),
+     }
+}
+
+type worker struct {
+	getJob chan \iso *ticket
+        end chan struct{}
+}
+func newWorker() *worker {
+     return &worker{
+       getJob:make(chan \iso *ticket),
+       end:make(chan struct{}),
+     }
+}
+
+func (w *worker) runWorker() {
+	go func() {
+		for {
+			select {
+                        case tkt := <-w.getJob: 
+                           fmt.Printf("processing tkt.tree.name: '%v'\n", tkt.tree.name)
+                           tkt.outcome = "ok"
+                           tkt.done <- tkt
+                        case <-w.end:
+                           return
+                        }
+		}
+	}()
+}
+
+func main() {
+     w := newWorker()
+     w.runWorker()
+     defer close(w.end)
+
+     tkt := newTicket("ticket_0")
+     w.getJob <- tkt
+
+     // should be illegal to touch tkt now:
+     //     fmt.Printf("tkt is: '%#v'\n", tkt)
+
+     tkt = <-tkt.done
+     fmt.Printf("tkt.tree.name = '%v'\n", tkt.tree.name)
+     fmt.Printf("got <-tkt.done: tkt.outcome = '%v'\n", tkt.outcome)
+}
