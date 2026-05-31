@@ -268,8 +268,7 @@ func newTicket() \iso *ticket {
 func main(work chan \iso *ticket) {
 	tkt := newTicket()
 	work <- tkt
-	done := \unsafe(tkt.done)
-	fmt.Printf("done: %p\n", done)
+	fmt.Printf("done: %p\n", tkt.done)
 }
 `)
 	if err == nil {
@@ -307,7 +306,8 @@ func newTicket() \iso *ticket {
 func main(work chan \iso *ticket) {
 	tkt := newTicket()
 	work <- tkt
-	fmt.Printf("done: %p\n", tkt.done)
+	done := \unsafe(tkt.done)
+	fmt.Printf("done: %p\n", done)
 }
 `)
 	if err != nil {

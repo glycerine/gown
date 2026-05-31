@@ -458,7 +458,8 @@ Freezing consumes the original `\iso`.
 ### `\unsafe`
 
 Use `\unsafe` only at an explicit checked-to-unchecked boundary, such as a call
-to ordinary Go code that Gown cannot analyze.
+to ordinary Go code that Gown cannot analyze. Once a value has a capability,
+Gown will not let it silently become plain Go again.
 
 ```go
 func LegacyUse(b *Ticket) {
@@ -681,8 +682,10 @@ hit first.
 | `GWN002` | a live borrow blocks a move or freeze | shorten the borrow lifetime |
 | `GWN003` | tried to send `\mub` or `\rob` across a channel | send `\iso` or `\imm` instead |
 | `GWN005` | wrote through `\rob` or `\imm` | use `\mub` or keep unique `\iso` ownership |
+| `GWN008` | passed a tracked value to untracked Go | add annotations or use `\unsafe` deliberately |
+| `GWN009` | erased a tracked value into an interface | avoid the interface boundary or use `\unsafe` deliberately |
 | `GWN010` | invalid capability conversion, channel mismatch, or clone shape | adjust the annotation or method signature |
-| `GWN012` | tried to use a value as tracked after a proof frontier | keep it tracked or use an explicit unsafe boundary |
+| `GWN012` | tried to use a value as tracked after explicit `\unsafe` | keep it tracked or stop using it as capability-proven |
 
 ## a complete example
 

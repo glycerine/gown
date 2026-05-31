@@ -49,7 +49,7 @@ is made explicit at call sites.
    completely. The output should be readable and unsurprising to a Go programmer.
 
 6. **One explicit escape hatch.** `\unsafe` is the only way to cross the
-   checked/unchecked boundary with an `\iso` or `\imm`. It is greppable,
+   checked/unchecked boundary with a capability-tracked value. It is greppable,
    auditable, and semantically equivalent to Go's own `unsafe` bargain.
 
 7. **Backslash-prefix syntax.** All Gown annotations begin with `\`. This
@@ -629,14 +629,19 @@ _ = t.Outcome        // error: ordinary field read after move
 
 ## 8. The `\unsafe` Escape Hatch
 
-Passing an `\iso` or `\imm` to an unannotated function (stdlib, external
+Passing a capability-tracked value to an unannotated function (stdlib, external
 library, legacy code) requires an explicit `\unsafe` annotation at the call
-site.
+site. The same rule applies when returning, assigning, storing, sending, or
+erasing a tracked value into an untracked Go location: once a value is in the
+capability-typed universe, it can leave only through `\unsafe`.
 
 ```go
 json.Marshal(\unsafe(cfg))   // cfg : \iso *Config
                              // programmer asserts callee does not alias
 ```
+
+Compiler built-ins such as `println` are treated as non-retaining operations,
+not as ordinary untracked callees.
 
 `\unsafe` erases to its argument in the transpiled output. In the current
 checker it is conservative: the boundary itself is allowed, but it ends the
@@ -688,9 +693,9 @@ type Handler interface {
 }
 ```
 
-Storing a capability-typed value in an `any` (empty interface) is treated as an
-`\unsafe` boundary — the capability is lost. A future version of the spec may
-introduce capability-parameterized interfaces.
+Storing a capability-typed value in an `any` (empty interface) is a checker
+error unless the value is explicitly wrapped in `\unsafe`. A future version of
+the spec may introduce capability-parameterized interfaces.
 
 ---
 
@@ -779,11 +784,11 @@ and where possible a suggested fix.
 | GWN005  | Write through a read-only or immutable viewpoint                         |
 | GWN006  | `\mub`/`\rob` borrow or borrowing closure stored into an escaping location |
 | GWN007  | Returned borrow or returned closure capturing a non-shareable tracked value |
-| GWN008  | Historical hard-boundary closure diagnostic; ordinary value boundaries now use `GWN012` frontiers |
-| GWN009  | Historical interface-erasure hard boundary; ordinary value boundaries now use `GWN012` frontiers |
-| GWN010  | Channel/value capability mismatch or invalid capability coercion         |
+| GWN008  | Capability-tracked value passed to an untracked call/parameter without `\unsafe` |
+| GWN009  | Capability-tracked value erased into an interface without `\unsafe`      |
+| GWN010  | Channel/value mismatch, invalid coercion, or tracked value stored/returned/sent to untracked Go without `\unsafe` |
 | GWN011  | Attempted ownership move from a field projection                         |
-| GWN012  | Capability proof frontier violation, with a note at the earlier frontier |
+| GWN012  | Capability proof frontier violation after explicit `\unsafe`, with a note at the earlier frontier |
 
 ---
 

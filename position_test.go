@@ -103,8 +103,8 @@ func TestPositionPrecision(t *testing.T) {
 		t.Fatalf("matched %d of %d annotations to AST positions", matched, len(gf.iso))
 	}
 
-	if gf.iso[0].line != 7 || gf.iso[1].line != 11 {
-		t.Errorf("lines: got %d,%d want 7,11", gf.iso[0].line, gf.iso[1].line)
+	if gf.iso[0].line != 7 || gf.iso[1].line != 12 {
+		t.Errorf("lines: got %d,%d want 7,12", gf.iso[0].line, gf.iso[1].line)
 	}
 	if gf.iso[0].funcName != "Send" || gf.iso[1].funcName != "Recv" {
 		t.Errorf("funcNames: got %q,%q want Send,Recv", gf.iso[0].funcName, gf.iso[1].funcName)

@@ -49,10 +49,10 @@ Implemented:
   moved `\iso` use, conflicting inferred call borrows, non-sendable sends,
   channel/value capability mismatch, inferred freeze-on-send to `chan \imm`,
   goroutine borrow escapes, escaping closures that capture non-shareable
-  tracked values, read-only writes, borrow stores, and returned borrows. They
-  also track proof frontiers when capability-tracked values reach untracked
-  calls, untracked parameters, explicit `\unsafe`, stores, map updates, or
-  interface erasure, then reject later operations that require the old proof.
+  tracked values, read-only writes, borrow stores, returned borrows, and
+  implicit capability erasure into untracked Go. Explicit `\unsafe` is the only
+  allowed checked-to-unchecked boundary and remains a proof frontier for later
+  capability-required operations.
 - Expression-level `\mub`, `\rob`, `\freeze`, `\new`, `\clone`, and
   `\unsafe` are bound into side tables. Borrow/freeze/unsafe intrinsics have
   checker transfer semantics; `\new` and `\clone` produce source-less `\iso`
@@ -103,8 +103,8 @@ What is solid:
 
 - `checker_runner.go` routes all current checker families through SSA-backed
   implementations first: moved-use/dataflow, call-borrow conflicts, sends,
-  goroutine escapes, closure escapes, stores, returns, untracked-call
-  frontiers, and interface-erasure frontiers.
+  goroutine escapes, closure escapes, stores, returns, capability erasure, and
+  explicit `\unsafe` frontiers.
 - `ssa_gwn001.go` is the real lifetime engine. It runs a forward worklist over
   SSA basic blocks, tracks consumed roots, proof frontiers, active borrows, and
   deferred effects, merges state conservatively at CFG joins, and reuses the
@@ -132,10 +132,10 @@ What is solid:
   `x = \clone(y)`, `x = <-isoChan`, or `x = y` where `y` is a valid `\iso`
   source restores `x`; moving `y` consumes `y`. Rebinding from untracked,
   borrowed, frontiered, or already moved values is rejected.
-- Proof frontiers are implemented as `GWN012` inside the SSA moved-use engine:
-  untracked calls, untracked parameters in otherwise annotated calls, and
-  interface erasure end the local proof without rejecting the boundary itself.
-  Later capability-required operations reject the value.
+- Proof frontiers are implemented as `GWN012` inside the SSA moved-use engine
+  for explicit `\unsafe`. Ordinary untracked calls, untracked parameters,
+  untracked returns/stores/sends, and interface erasure are now rejected
+  immediately by the capability-erasure checker.
 - Closure escape checking is partly source-flow-sensitive. It tracks local
   function-valued variables, assignment replacement, branch joins, returned
   closures, stored closures, and closures passed to untracked calls.
@@ -152,7 +152,8 @@ What remains to finish the SSA borrow checker:
   or broader clone contracts.
 - Refine heap/container/interface precision. The current model is sound and
   conservative: escaping `\iso` stores become frontiers, borrow stores hard
-  error, map stores frontier, and interface erasure frontiers. More precision
+  error, map stores frontier, and interface erasure is a hard boundary error
+  without explicit `\unsafe`. More precision
   needs a boundary policy that understands owned fields, containers, and
   interface round trips.
 - Decide whether package-local function summaries are worth implementing
@@ -427,8 +428,8 @@ Required transfer handlers:
 
 - `Call`: apply inferred borrow/move/share behavior from callee signature
   metadata. When a capability-tracked value flows to an untracked callee or
-  untracked parameter, record a proof frontier rather than failing immediately.
-  Later operations that require a proven capability must reject the value.
+  untracked parameter, reject the boundary immediately unless the value is
+  explicitly wrapped in `\unsafe`.
 - `Send`: validate channel element capability; consume `\iso` sends; reject
   non-sendable `\mub` and `\rob`. Ownership moves are root-only: sending
   `x.f` as an owned move is rejected rather than silently clearing or rewriting
@@ -581,15 +582,17 @@ Completed checker slices:
 - `GWN005`: writes through `\rob`/`\imm`.
 - `GWN006`: storing borrows into escaping locations.
 - `GWN007`: returning borrows.
-- `GWN008`/`GWN009`: historical hard-boundary checks for untracked calls and
-  interface erasure. The active AST and SSA boundary passes now return no hard
-  errors for ordinary tracked values; proof frontier tracking in `GWN001`
-  records the boundary and later reports `GWN012` if code tries to use the
-  value as proven capability again. The closure-escape checker still reports
-  `GWN008` when a closure capturing a non-shareable tracked value is passed to
-  an untracked call.
+- `GWN008`: capability-tracked values passed to untracked calls or untracked
+  parameters without explicit `\unsafe`. The closure-escape checker also
+  reports `GWN008` when a closure capturing a non-shareable tracked value is
+  passed to an untracked call.
+- `GWN009`: capability-tracked values erased into interfaces without explicit
+  `\unsafe`.
+- `GWN010`: channel/value mismatch, invalid coercion, and tracked values
+  returned, assigned, stored, or sent to untracked Go without explicit
+  `\unsafe`.
 - `GWN012`: using a value as a proven capability after its proof has ended at
-  an untracked call, untracked parameter, or interface-erasure frontier.
+  an explicit `\unsafe` frontier.
 
 Important limitation:
 
@@ -825,13 +828,13 @@ deferred closure that eventually performs a root `\iso` move is rejected as a
 possible repeated move, while repeated deferred read-only effects are allowed.
 This is conservative but matches Go's runtime defer stack semantics.
 
-Incremental annotation needs a different rule for unannotated code than the
-original hard-boundary design. Unannotated values and functions are outside the
-proof by default. Passing `a \iso *T` to `Plain(a)` or erasing it into `any`
-therefore records a proof frontier instead of reporting an immediate error.
-The checker marks the source place as no longer proven; ordinary unannotated
-uses may continue, but later operations that require the original proof, such
-as sending `a` on `chan \iso *T`, calling `Take(a)` where `Take` requires
+Incremental annotation now uses an explicit boundary rule for unannotated code.
+Unannotated values and functions are outside the proof by default. Passing
+`a \iso *T` to `Plain(a)` or erasing it into `any` is rejected immediately
+unless the value is wrapped in `\unsafe`. An explicit `\unsafe(a)` marks the
+source place as no longer proven; ordinary unannotated uses may continue, but
+later operations that require the original proof, such as sending `a` on
+`chan \iso *T`, calling `Take(a)` where `Take` requires
 `\iso`, borrowing `a` for a `\rob`/`\mub` parameter, or returning it as a
 tracked result, are rejected with `GWN012`. Frontier facts merge
 conservatively across branches: if any predecessor can end the proof for `a`,
@@ -858,10 +861,10 @@ liveness, deferred named borrow snapshots, deferred inferred borrow arguments,
 deferred closure borrow captures, deferred closure inferred borrow effects,
 deferred closure iso-consuming effects with LIFO exit ordering, deferred
 closure body CFG precision for branches, sends, calls, and ordinary reads,
-repeated deferred closure `\iso` move rejection, and projected field-move
-rejection. It also tracks proof frontiers for untracked calls, untracked
-parameters of partially annotated calls, and interface erasure, rejecting later
-capability-required operations with `GWN012`. It
+repeated deferred closure `\iso` move rejection, projected field-move
+rejection, and explicit `\unsafe` frontiers. Ordinary untracked calls,
+untracked parameters of partially annotated calls, and interface erasure are
+hard capability-erasure errors now, not delayed `GWN012` frontiers. It
 also includes SSA-backed checks for inferred call-borrow conflicts, send
 capability checks, goroutine borrow escapes, escaping closures that capture
 non-shareable tracked values, read-only writes, borrow stores, and returned
