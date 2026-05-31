@@ -698,12 +698,18 @@ is expecting to hear back on. The supervisor (main) can
 receive on the \imm channel tkt.done even though it gave away ownership
 of the parent \iso ticket.
 
+The '\\\\observer' line declares that fmt.Printf promises to
+look but not modify its arguments. This is an ergonomic addition
+to avoid having to annotate all logging/debug/xdump helpers.
+
 ```go
 package main
 
 import (
     "fmt"
 )
+
+\\\\observer fmt.Printf
 
 type bigTree struct {
     name string
