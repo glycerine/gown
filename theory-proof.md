@@ -680,6 +680,46 @@ preserving the Isolation Invariant.
 
 ∎
 
+### 7.4 Stable Immutable Projections After Move
+
+**Claim.** Reading an effective `\imm` field projection after the outer `\iso`
+root has moved preserves race freedom.
+
+**Rule.** If a field projection `x.f` has effective capability `\imm`, then
+the checker may allow reads of `x.f` even after the root `x` has been consumed.
+All non-`\imm` projections of `x` remain unavailable after the move.
+
+This rule is especially useful for stable channel handles:
+
+```go
+type Ticket struct {
+    Done \imm chan \iso *Ticket
+}
+
+work <- t
+t = <-t.Done
+```
+
+Here the old owner reads the `Done` field after `t` has moved. This is sound
+because the field slot itself is immutable: no goroutine may reassign
+`Done`, including the new owner of `t`. Therefore the old owner's read of the
+field slot cannot race with a write to that slot.
+
+If the field value is a channel, sends and receives through that channel are
+ordinary Go channel operations. The Go memory model already synchronizes the
+channel's internal state. The capability system still checks the values sent
+through the channel; the `\imm` on the field stabilizes only the channel handle
+stored in the field.
+
+**Proof.** By viewpoint adaptation, an effective `\imm` projection is governed
+by the Immutability Invariant. The checker rejects writes through `\imm`, so no
+write can race with the post-move read of the field slot. The read introduces
+no mutable capability to the moved object. All mutable or otherwise non-stable
+projections remain rejected by the ordinary use-after-move rule. Therefore the
+Isolation and Immutability invariants are preserved.
+
+∎
+
 ---
 
 ## 8. `\clone` Correctness
@@ -1017,10 +1057,19 @@ receiver are distinct goroutines.
 but every capability the sender held at that location. The receiver gains
 `\iso` (for `send_iso`, `spawn_iso`) or `\imm` (for `send_iso_imm`).
 
+The implementation refines this root-level statement for immutable field
+projections: after the root moves, the sender may still read an effective
+`\imm` projection such as a stable `\imm chan ...` field. This does not
+contradict the postcondition for mutable ownership of ℓ. The projection is
+governed by the Immutability Invariant, carries no write authority to the moved
+object, and its field slot cannot be reassigned by the new owner.
+
 **Checker obligation (most critical):**
 1. Verify x has `\iso`.
 2. Consume x (map to ⊥).
-3. **Verify that no borrow derived from x is live.** This includes:
+3. Reject all later uses of x and its projections except effective `\imm`
+   projection reads.
+4. **Verify that no borrow derived from x is live.** This includes:
    - Direct borrows: variables bound by `\mub(x)` or `\rob(x)`.
    - Sub-object borrows: variables bound by accessing fields through x,
      e.g., `y = \mub(x.f)`. These alias sub-locations of x's object graph.

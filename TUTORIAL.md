@@ -203,7 +203,7 @@ func worker(ch chan \iso *Buffer) {
 ## `\mub`: mutable borrow
 
 Use `\mub` when a function needs to mutate a value temporarily, but should not
-take ownership of it.
+take ownership of it. For example, a function that receives a \mub parameter could not send it to another goroutine over an \iso channel. In this example, AppendByte can mutate b, but not give it away. We know after AppendByte returns that main still has ownership of b. 
 
 ```go
 func AppendByte(b \mub *Buffer, x byte) {
@@ -253,7 +253,7 @@ matches normal single-goroutine Go pointer use.
 ## `\rob`: read-only borrow
 
 Use `\rob` when a function should be allowed to inspect a value but not mutate
-it.
+it. It allows you to write functions that can process any kind of data, be it immutable or mutable or isolated.
 
 ```go
 func Len(b \rob *Buffer) int {
@@ -558,6 +558,57 @@ func publishCopies(ch chan \iso *Buffer, template \rob *Buffer) {
 
 The channel receives fresh `\iso` values. The template is not consumed.
 
+### stable reply channels
+
+Sometimes an owned value needs to carry a reply channel with it. The worker gets
+ownership of the value, does some work, and then sends the value back.
+
+The reply channel field should be declared `\imm`:
+
+```go
+type Ticket struct {
+    Data string
+    Done \imm chan \iso *Ticket
+}
+
+func NewTicket(data string) \iso *Ticket {
+    return &Ticket{
+        Data: data,
+        Done: make(chan \iso *Ticket),
+    }
+}
+```
+
+The `\imm` annotation says the channel handle stored in `Done` is stable. The
+field may be read even after the parent ticket has moved, because nobody is
+allowed to replace the channel handle.
+
+```go
+func main(work chan \iso *Ticket) {
+    t := NewTicket("demo")
+
+    work <- t
+
+    // t moved into work, but t.Done is a stable immutable field.
+    t = <-t.Done
+
+    println(t.Data)
+}
+```
+
+Without `\imm`, this would be unsafe:
+
+```go
+type BadTicket struct {
+    Done chan \iso *BadTicket
+}
+```
+
+After `BadTicket` moves to another goroutine, the new owner could reassign
+`Done` at the same time the old owner tries to read it. That would be a race on
+the field slot. `\imm chan ...` prevents that by making the field slot
+read-only.
+
 ## struct fields
 
 Struct fields may also carry capability annotations.
@@ -566,6 +617,7 @@ Struct fields may also carry capability annotations.
 type Job struct {
     Input  \iso *Buffer
     Config \imm *Buffer
+    Done   \imm chan \iso *Job
 }
 ```
 
@@ -591,6 +643,8 @@ For beginners, it is enough to remember:
 - Put capabilities on fields that store tracked pointers.
 - Read-only or immutable access through the outer object makes reachable fields
   read-only too.
+- Use `\imm chan ...` for stable channel fields that must be read after the
+  parent object moves.
 - Be careful moving ownership out of fields; prefer explicit helper functions.
 
 ## common errors
@@ -697,6 +751,8 @@ Try these changes in small `.gown` files:
 5. Add a valid `Clone() *Buffer` method, then send `\clone(b)` while continuing
    to use `b`.
 6. Try to send a `\mub *Buffer` on a channel and explain why Gown rejects it.
+7. Add a `Done \imm chan \iso *Ticket` reply channel to a ticket type, send the
+   ticket to a worker, and receive the ticket back from `Done`.
 
 ## quick reference
 
@@ -707,6 +763,9 @@ Use `\mub` when code needs temporary local mutation without taking ownership.
 Use `\rob` when code needs temporary local read-only access.
 
 Use `\imm` when data should be deeply immutable and freely shareable.
+
+Use `\imm chan \iso *T` when a struct field stores a stable reply channel whose
+handle must be read after the parent value moves.
 
 Use `\new` to create fresh isolated values.
 

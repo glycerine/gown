@@ -538,6 +538,10 @@ theorem deep_imm (c₁ c₂ : Cap) :
     viewpoint imm (viewpoint (viewpoint imm c₁) c₂) = imm := by simp [viewpoint]
 theorem deep_rob (c₁ c₂ : Cap) :
     viewpoint rob (viewpoint (viewpoint rob c₁) c₂) = rob := by simp [viewpoint]
+theorem stable_imm_field_from_iso :
+    viewpoint iso imm = imm := by rfl
+theorem stable_imm_field_from_mub :
+    viewpoint mub imm = imm := by rfl
 
 /-
   SUMMARY
@@ -551,6 +555,7 @@ theorem deep_rob (c₁ c₂ : Cap) :
   • iso_multi / multi_race_free: induction over traces
   • capSel soundness: iso consumed, imm retained
   • viewpoint soundness
+  • stable \imm fields keep immutable viewpoint through \iso/\mub owners
 
   Key invariants:
   • Iso: mutable capability ⟹ exclusive goroutine access
