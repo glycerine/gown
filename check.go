@@ -72,12 +72,12 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 
 	gownNames := make(map[string]bool)
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".gown") {
+		if !e.IsDir() && isGownSourceFileName(e.Name()) {
 			gownNames[e.Name()] = true
 		}
 	}
 	for path := range opts.GownOverlay {
-		if strings.HasSuffix(path, ".gown") && samePackagePath(gp.path, path) {
+		if isGownSourceFileName(filepath.Base(path)) && samePackagePath(gp.path, path) {
 			gownNames[filepath.Base(path)] = true
 		}
 	}
@@ -294,4 +294,15 @@ func lookupGownOverlay(overlay map[string][]byte, path string) ([]byte, bool) {
 		return src, true
 	}
 	return nil, false
+}
+
+func isGownSourceFileName(name string) bool {
+	if !strings.HasSuffix(name, ".gown") {
+		return false
+	}
+	base := filepath.Base(name)
+	if strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_") {
+		return false
+	}
+	return true
 }

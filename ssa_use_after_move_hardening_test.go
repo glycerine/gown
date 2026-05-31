@@ -404,6 +404,152 @@ func (w *worker) runWorker() {
 }`, GWN005)
 }
 
+func TestSSAGWN005RejectsMakeAssignmentToImmutableChannelFieldAfterSelfSend(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+type worker struct {
+	get chan \iso *ticket
+}
+
+func (w *worker) runWorker() {
+	go func() {
+		select {
+		case tkt := <-w.get:
+			tkt.done <- tkt
+			tkt.done = make(chan \iso *ticket)
+		}
+	}()
+}`, GWN005)
+}
+
+func TestSSAGWN005RejectsMakeAssignmentToImmutableChannelFieldInWorkerLoop(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+type worker struct {
+	get chan \iso *ticket
+	end chan struct{}
+}
+
+func (w *worker) runWorker() {
+	go func() {
+		for {
+			select {
+			case tkt := <-w.get:
+				tkt.done <- tkt
+				tkt.done = make(chan \iso *ticket)
+			case <-w.end:
+				return
+			}
+		}
+	}()
+}`, GWN005)
+}
+
+func TestSSAGWN005RejectsMakeAssignmentToImmutableChannelFieldAfterOtherFieldStores(t *testing.T) {
+	err := checkGownSource(t, hardeningTestName(t), `package example
+
+import "fmt"
+
+type bigTree struct {
+	name string
+}
+
+type ticket struct {
+	tree \iso *bigTree
+	outcome string
+	done \imm chan \iso *ticket
+}
+
+type worker struct {
+	get chan \iso *ticket
+	end chan struct{}
+}
+
+func (w *worker) runWorker() {
+	go func() {
+		for {
+			select {
+			case tkt := <-w.get:
+				fmt.Printf("processing: %v\n", tkt.tree.name)
+				tkt.outcome = "ok"
+				tkt.done <- tkt
+				tkt.done = make(chan \iso *ticket)
+			case <-w.end:
+				return
+			}
+		}
+	}()
+}
+`)
+	requireCheckerCode(t, err, GWN005)
+}
+
+func TestSSAGWN005RejectsExampleWorkerImmutableChannelReassign(t *testing.T) {
+	err := checkGownSource(t, hardeningTestName(t), `package main
+
+import (
+	"fmt"
+)
+
+type bigTree struct {
+	name string
+}
+
+type ticket struct {
+	tree \iso *bigTree
+	outcome string
+	done \imm chan \iso *ticket
+}
+
+func newTicket(name string) \iso *ticket {
+	return &ticket{
+		tree: &bigTree{name: name},
+		done: make(chan \iso *ticket),
+	}
+}
+
+type worker struct {
+	getJob chan \iso *ticket
+	end    chan struct{}
+}
+
+func (w *worker) runWorker() {
+	go func() {
+		for {
+			select {
+			case tkt := <-w.getJob:
+				fmt.Printf("processing: %v\n", tkt.tree.name)
+				tkt.outcome = "ok"
+				tkt.done <- tkt
+				tkt.done = make(chan \iso *ticket)
+			case <-w.end:
+				return
+			}
+		}
+	}()
+}
+
+func main() {}
+
+func (t *ticket) Clone() *ticket {
+	return &ticket{
+		tree: t.tree.Clone(),
+		outcome: t.outcome,
+		done: make(chan *ticket),
+	}
+}
+
+func (t *bigTree) Clone() *bigTree {
+	return &bigTree{name: t.name}
+}
+`)
+	requireCheckerCode(t, err, GWN005)
+}
+
 func TestSSAGWN001AllowsRebindByMovingOtherIsoAndRejectsOldSource(t *testing.T) {
 	requireHardeningCheckerCode(t, `func main(ch chan \iso *payload) {
 	var x \iso *payload

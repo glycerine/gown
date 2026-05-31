@@ -44,8 +44,12 @@ func (w *worker) runWorker() {
 				fmt.Printf("processing tkt.tree.name: '%v'\n", tkt.tree.name)
 				tkt.outcome = "ok"
 				tkt.done <- tkt
-                                // should be illegal to change \imm done!
-				tkt.done = nil
+                                // even though we own tkt, it is still
+                                // illegal to change the \imm done field.
+                                // The submitter is depending on hearing 
+                                // back on that particular channel
+                                //tkt.done = nil // GWN005: cannot write through \imm value "tkt"
+				//tkt.done = make(chan \iso *ticket) // GWN005: cannot write through \imm value "tkt"
 			case <-w.end:
 				return
 			}
@@ -60,16 +64,25 @@ func main() {
 
 	tkt := newTicket("ticket_0")
 
-        //tkt2 := \clone(tkt)
-	//w.getJob <- tkt2
-	// should still be legal to touch tkt now because we only cloned it.
-	//fmt.Printf("tkt is: '%#v'\n", tkt)
-	// but: should be illegal to touch tkt2 now:
-	//fmt.Printf("tkt2 is: '%#v'\n", tkt2)
+        const demonstrateClone = false
+        if demonstrateClone {
+          tkt2 := \clone(tkt)
+	  w.getJob <- tkt2
+	  // should still be legal to touch tkt now because we only cloned it.
+	  fmt.Printf("tkt is: '%#v'\n", tkt)
+	  // but: should be illegal to touch tkt2 now:
+	  //fmt.Printf("tkt2 is: '%#v'\n", tkt2)
+  	  tkt = <-tkt2.done
+        } else {
+	    w.getJob <- tkt
+	    // illegal to touch tkt now that we moved ownership to the worker.
+	    //fmt.Printf("tkt is: '%#v'\n", tkt)
+            // except to read an \imm channel or rebind it:
+   	    //tkt = <-tkt.done // okay
+   	    tkt3 := <-tkt.done
+   	    tkt = tkt3
+        }
 
-	w.getJob <- tkt
-
-	tkt = <-tkt.done
 	fmt.Printf("tkt.tree.name = '%v'\n", tkt.tree.name)
 	fmt.Printf("got <-tkt.done: tkt.outcome = '%v'\n", tkt.outcome)
 }
