@@ -29,7 +29,6 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *OstampIndex {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
 				bindFuncDeclCapabilities(pkg, idx, quals, d)
-				bindFuncBodyCapabilities(pkg, idx, quals, d)
 			case *ast.GenDecl:
 				bindGenDeclCapabilities(pkg, idx, quals, d)
 			}
@@ -38,8 +37,21 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *OstampIndex {
 
 	for _, file := range pkg.Syntax {
 		fileKey := filepath.Base(pkg.Fset.Position(file.Pos()).Filename)
-		bindCallCapabilities(pkg, idx, file)
 		bindIntrinsicCapabilities(pkg, idx, intrinsicsByFile[fileKey], file)
+	}
+
+	for _, file := range pkg.Syntax {
+		fileKey := filepath.Base(pkg.Fset.Position(file.Pos()).Filename)
+		quals := qualsByFile[fileKey]
+		for _, decl := range file.Decls {
+			if d, ok := decl.(*ast.FuncDecl); ok {
+				bindFuncBodyCapabilities(pkg, idx, quals, d)
+			}
+		}
+	}
+
+	for _, file := range pkg.Syntax {
+		bindCallCapabilities(pkg, idx, file)
 	}
 
 	bindSendBindings(pkg, idx)
@@ -325,9 +337,6 @@ func recordInvalidChannelElementQualifiers(pkg *packages.Package, idx *OstampInd
 }
 
 func capsForValueExpr(pkg *packages.Package, quals map[int]*CapQualifierAnnotation, expr ast.Expr) (Cap, Cap) {
-	if isFreshOwnedValueExpr(expr) {
-		return CapIso, CapInvalid
-	}
 	call, ok := expr.(*ast.CallExpr)
 	if !ok {
 		return directCapForType(pkg, quals, expr), chanElemCapForType(pkg, quals, expr)

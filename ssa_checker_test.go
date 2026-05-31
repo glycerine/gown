@@ -121,7 +121,7 @@ type payload struct {
 
 func main() {
 	ch := make(chan \iso *payload)
-	a := &payload{}
+	a := \new(payload{})
 	b := a
 	ch <- b
 	println(a)

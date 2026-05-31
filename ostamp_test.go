@@ -89,6 +89,27 @@ func Use() {
 }
 `
 
+const gownIntrinsicIsoMoveInferenceSource = `package example
+
+type Msg struct{}
+
+func Use() {
+	j := \new(Msg{})
+	a := j
+	_ = a
+}
+`
+
+const gownPlainFreshAllocationUntrackedSource = `package example
+
+type Msg struct{}
+
+func Use() {
+	x := &Msg{}
+	_ = x
+}
+`
+
 func TestOstampIndexBindsFunctionSignatures(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"caps.gown": gownOstampBindingSource})
 
@@ -355,6 +376,35 @@ func TestOstampIndexInfersLocalFromFunctionImmResult(t *testing.T) {
 
 	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Use", "y")); got != CapImm {
 		t.Fatalf("imm result local cap = %v, want %v", got, CapImm)
+	}
+}
+
+func TestOstampIndexInfersIsoMoveFromIntrinsicResult(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"intrinsic_move.gown": gownIntrinsicIsoMoveInferenceSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Use", "j")); got != CapIso {
+		t.Fatalf("intrinsic source local cap = %v, want %v", got, CapIso)
+	}
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Use", "a")); got != CapIso {
+		t.Fatalf("moved local cap = %v, want %v", got, CapIso)
+	}
+}
+
+func TestOstampIndexLeavesPlainFreshAllocationUntracked(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"plain_fresh.gown": gownPlainFreshAllocationUntrackedSource})
+
+	gp := NewGownPackage(dir)
+	if err := gp.Check(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Use", "x")); got != CapUntracked {
+		t.Fatalf("plain fresh local cap = %v, want %v", got, CapUntracked)
 	}
 }
 

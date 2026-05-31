@@ -61,9 +61,15 @@ func bindSendBinding(pkg *packages.Package, idx *OstampIndex, send *ast.SendStmt
 	if !ok {
 		return
 	}
+	chanElemCap := chanElemCapForPlace(idx, ch)
 	value, ok := valueOstampForExpr(pkg, idx, send.Value)
 	if !ok {
 		value = ValueOstamp{Cap: CapUntracked}
+	}
+	if chanElemCap == CapIso || chanElemCap == CapImm {
+		if value.Cap == CapUntracked && isFreshOwnedValueExpr(send.Value) {
+			value = ValueOstamp{Cap: CapIso, Fresh: true}
+		}
 	}
 	pos := pkg.Fset.Position(send.Arrow)
 	idx.addSendBinding(SendBinding{
@@ -73,7 +79,7 @@ func bindSendBinding(pkg *packages.Package, idx *OstampIndex, send *ast.SendStmt
 		ValueFresh:  value.Fresh,
 		ValueSource: value.Source,
 		ValueIso:    placeCanTransferAsIso(idx, value.Place) || value.Cap == CapIso,
-		ChanElemCap: chanElemCapForPlace(idx, ch),
+		ChanElemCap: chanElemCap,
 		ValueCap:    value.Cap,
 		Offset:      pos.Offset,
 		Line:        pos.Line,

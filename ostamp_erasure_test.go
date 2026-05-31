@@ -43,6 +43,55 @@ func main() {
 }
 `
 
+const gownIsoMoveFromIntrinsicResultToShortDeclSource = `package example
+
+type payload struct{}
+
+func main() {
+	j := \new(payload{})
+	a := j
+	_ = a
+}
+`
+
+const gownPlainFreshAllocationToPlainChannelSource = `package example
+
+type payload struct{}
+
+func main(ch chan *payload) {
+	ch <- &payload{}
+}
+`
+
+const gownFreshAllocationToIsoContextsSource = `package example
+
+type payload struct{}
+
+func main(ch chan \iso *payload) {
+	var x \iso *payload = &payload{}
+	ch <- &payload{}
+	_ = x
+}
+`
+
+const gownFreshAllocationToOstampFieldsSource = `package example
+
+type payload struct{}
+
+type holder struct {
+	Item \iso *payload
+	Done \imm chan \iso *payload
+}
+
+func main() {
+	h := \new(holder{
+		Item: &payload{},
+		Done: make(chan \iso *payload),
+	})
+	_ = h
+}
+`
+
 const gownSelectReceivedIsoToPlainHelperSource = `package example
 
 type ticket struct{}
@@ -217,6 +266,34 @@ func TestGWN010RejectsTrackedValueToExplicitPlainLocal(t *testing.T) {
 
 func TestGWN010AllowsUnsafeTrackedValueToExplicitPlainLocal(t *testing.T) {
 	err := checkGownSource(t, "unsafe_tracked_plain_local.gown", gownUnsafeTrackedToExplicitPlainLocalSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOstampErasureAllowsIsoMoveFromIntrinsicResultToShortDecl(t *testing.T) {
+	err := checkGownSource(t, "intrinsic_move_short_decl.gown", gownIsoMoveFromIntrinsicResultToShortDeclSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOstampErasureAllowsPlainFreshAllocationToPlainChannel(t *testing.T) {
+	err := checkGownSource(t, "plain_fresh_channel.gown", gownPlainFreshAllocationToPlainChannelSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOstampErasureAllowsFreshAllocationInIsoContexts(t *testing.T) {
+	err := checkGownSource(t, "fresh_iso_contexts.gown", gownFreshAllocationToIsoContextsSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOstampErasureAllowsFreshAllocationInOstampFields(t *testing.T) {
+	err := checkGownSource(t, "fresh_ostamp_fields.gown", gownFreshAllocationToOstampFieldsSource)
 	if err != nil {
 		t.Fatal(err)
 	}

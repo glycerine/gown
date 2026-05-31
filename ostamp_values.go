@@ -32,9 +32,6 @@ func valueOstampForExpr(pkg *packages.Package, idx *OstampIndex, expr ast.Expr) 
 			return value, true
 		}
 	}
-	if isFreshOwnedValueExpr(expr) {
-		return ValueOstamp{Cap: CapIso, Fresh: true}, true
-	}
 	if place, ok := idx.PlaceForExpr(expr); ok {
 		return ValueOstamp{
 			Cap:   capForSSAPlace(idx, place),

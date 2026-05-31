@@ -1335,6 +1335,9 @@ func assignmentValueOstamp(pkg *packages.Package, caps *OstampIndex, expr ast.Ex
 	if value, ok := valueOstampForExpr(pkg, caps, expr); ok {
 		return value
 	}
+	if isFreshOwnedValueExpr(expr) {
+		return ValueOstamp{Cap: CapIso, Fresh: true}
+	}
 	if cap := receiveCapForValueExpr(caps, expr); cap != CapInvalid {
 		return ValueOstamp{Cap: cap, Fresh: cap == CapIso}
 	}
