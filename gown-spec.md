@@ -653,6 +653,25 @@ presence is auditable via grep. It carries the same social contract as Go's
 
 The race freedom guarantee holds for all code that does not use `\unsafe`.
 
+For repeated non-retaining observer calls, a source file may declare a trusted
+observer target with a line directive:
+
+```go
+\\\\observer fmt.Printf
+\\\\observer debugTicket
+```
+
+Arguments passed to matching observer calls do not require per-argument
+`\unsafe` wrappers. The directive must appear on its own line, names either a
+function or selector, and may include an optional trailing `()`. It applies only
+to argument checking for the call itself; checked return values, sends, stores,
+and other capability boundaries are still enforced normally. The transpiler
+preserves byte and line alignment by emitting the directive as a comment:
+
+```go
+//\\observer fmt.Printf
+```
+
 ---
 
 ## 9. Built-ins

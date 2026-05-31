@@ -8,6 +8,7 @@ type gownFile struct {
 	capQualifiers []*CapQualifierAnnotation
 	intrinsics    []*IntrinsicAnnotation
 	unsafeUses    []*UnsafeBoundaryAnnotation
+	observers     []*ObserverAnnotation
 	iso           []*isoAnnotation
 	create        []*createAnew
 	boundary      []*boundaryCrossing

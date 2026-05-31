@@ -207,6 +207,55 @@ func Use(x \iso *Msg) {
 	}
 }
 
+func TestScanAndClassifyObserverDirective(t *testing.T) {
+	src := `package example
+
+\\\\observer fmt.Printf()
+
+func main() {}
+`
+
+	emitSrc, analysisSrc, gf, err := scanAndClassify("observer.gown", []byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gf.observers) != 1 {
+		t.Fatalf("expected 1 observer directive, got %d", len(gf.observers))
+	}
+	if gf.observers[0].Target != "fmt.Printf" {
+		t.Fatalf("observer target = %q, want fmt.Printf", gf.observers[0].Target)
+	}
+	if len(gf.annotations) != 1 || gf.annotations[0].Kind != AnnotationObserverDirective {
+		t.Fatalf("annotations = %#v, want one observer directive", gf.annotations)
+	}
+	if !strings.Contains(string(emitSrc), observerDirectiveComment+" fmt.Printf()") {
+		t.Fatalf("emit source does not contain observer comment:\n%s", emitSrc)
+	}
+	if !strings.Contains(string(analysisSrc), observerDirectiveComment+" fmt.Printf()") {
+		t.Fatalf("analysis source does not contain observer comment:\n%s", analysisSrc)
+	}
+	if len(emitSrc) != len(src) || len(analysisSrc) != len(src) {
+		t.Fatalf("observer source view changed byte count: emit=%d analysis=%d original=%d", len(emitSrc), len(analysisSrc), len(src))
+	}
+}
+
+func TestScanAndClassifyRejectsSingleSlashObserverDirective(t *testing.T) {
+	src := `package example
+
+\observer fmt.Printf()
+
+func main() {}
+`
+
+	_, _, _, err := scanAndClassify("observer.gown", []byte(src))
+	if err == nil {
+		t.Fatal("expected single-slash observer directive to be rejected")
+	}
+	if !strings.Contains(err.Error(), observerDirectiveLexeme) {
+		t.Fatalf("error %q does not mention required observer spelling %q", err, observerDirectiveLexeme)
+	}
+}
+
 func TestScanAndClassifyIgnoresCommentsAndStrings(t *testing.T) {
 	src := `package example
 

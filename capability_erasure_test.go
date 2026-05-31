@@ -113,6 +113,50 @@ func (w *worker) runWorker() {
 }
 `
 
+const gownObserverFmtPrintfTrackedArgumentSource = `package example
+
+import "fmt"
+
+\\\\observer fmt.Printf()
+
+type payload struct{}
+
+func main() {
+	var x \iso *payload
+	fmt.Printf("x = %p\n", x)
+}
+`
+
+const gownObserverDebugTicketTrackedArgumentSource = `package example
+
+\\\\observer debugTicket
+
+type ticket struct{}
+
+func debugTicket(tkt *ticket) {}
+
+func main(in chan \iso *ticket) {
+	tkt := <-in
+	debugTicket(tkt)
+}
+`
+
+const gownObserverHelperStillRejectsPlainResultToIsoChannelSource = `package example
+
+\\\\observer helper
+
+type ticket struct{}
+
+func helper(tkt *ticket) *ticket {
+	return tkt
+}
+
+func main(in chan \iso *ticket, done chan \iso *ticket) {
+	tkt := <-in
+	done <- helper(tkt)
+}
+`
+
 func TestGWN010RejectsFreezeReturnToPlainResult(t *testing.T) {
 	err := checkGownSource(t, "return_freeze_plain.gown", gownReturnFreezeToPlainResultSource)
 	requireCheckerCode(t, err, GWN010)
@@ -144,6 +188,25 @@ func TestGWN008AndGWN010RejectPlainHelperBetweenIsoReceiveAndSend(t *testing.T) 
 func TestGWN008AndGWN010RejectPlainHelperBetweenIsoSelectReceiveAndSendInClosure(t *testing.T) {
 	err := checkGownSource(t, "plain_helper_select_closure.gown", gownPlainHelperBetweenIsoSelectReceiveAndSendInClosureSource)
 	requireCheckerCode(t, err, GWN008)
+	requireCheckerCode(t, err, GWN010)
+}
+
+func TestObserverAllowsFmtPrintfTrackedArgument(t *testing.T) {
+	err := checkGownSource(t, "observer_fmt_printf.gown", gownObserverFmtPrintfTrackedArgumentSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestObserverAllowsDebugTicketTrackedArgument(t *testing.T) {
+	err := checkGownSource(t, "observer_debug_ticket.gown", gownObserverDebugTicketTrackedArgumentSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestObserverHelperStillRejectsPlainResultToIsoChannel(t *testing.T) {
+	err := checkGownSource(t, "observer_helper_result.gown", gownObserverHelperStillRejectsPlainResultToIsoChannelSource)
 	requireCheckerCode(t, err, GWN010)
 }
 

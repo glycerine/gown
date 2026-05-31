@@ -12,6 +12,7 @@ type CapabilityIndex struct {
 	CallBindings                    []CallBinding
 	IntrinsicBindings               []IntrinsicBinding
 	InvalidChannelElementQualifiers []InvalidChannelElementQualifier
+	Observers                       map[string]bool
 	Places                          *PlaceIndex
 	SendBindings                    []SendBinding
 	callBindingByCall               map[*ast.CallExpr]int
@@ -63,6 +64,7 @@ func newCapabilityIndex() *CapabilityIndex {
 		ObjectCaps:        make(map[types.Object]Cap),
 		ChanElemCaps:      make(map[types.Object]Cap),
 		Funcs:             make(map[*types.Func]*FuncCapability),
+		Observers:         make(map[string]bool),
 		callBindingByCall: make(map[*ast.CallExpr]int),
 		intrinsicByCall:   make(map[*ast.CallExpr]int),
 		sendBindingByStmt: make(map[*ast.SendStmt]int),
@@ -109,6 +111,13 @@ func (idx *CapabilityIndex) FuncCap(fn *types.Func) *FuncCapability {
 		return nil
 	}
 	return idx.Funcs[fn]
+}
+
+func (idx *CapabilityIndex) Observer(target string) bool {
+	if idx == nil || target == "" {
+		return false
+	}
+	return idx.Observers[target]
 }
 
 func (idx *CapabilityIndex) PlaceForExpr(expr ast.Expr) (Place, bool) {

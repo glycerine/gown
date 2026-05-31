@@ -92,7 +92,7 @@ func main() {
         // still be legal to touch tkt now because we only cloned it.
         fmt.Printf("tkt is: '%#v'\n", tkt)
         // but it is illegal to touch tkt2 now, since the worker now owns it.
-        //fmt.Printf("tkt2 is: '%#v'\n", tkt2)
+        //fmt.Printf("tkt2 is: '%#v'\n", \unsafe(tkt2))
         tkt = <-tkt2.done
     } else {
         w.getJob <- tkt

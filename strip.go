@@ -1,6 +1,15 @@
 package gown
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"strings"
+)
+
+const (
+	observerDirectiveLexeme  = `\\\\observer`
+	observerDirectiveComment = `//\\observer`
+)
 
 // scanAndStrip finds Gown annotations, records their positions, and returns
 // the emit source view. It is kept as a compatibility wrapper for existing
@@ -59,6 +68,10 @@ func scanAndClassify(path string, gownSrc []byte) (emitSrc, analysisSrc []byte, 
 }
 
 func scanGownToken(gf *gownFile, emit, analysis, gownSrc []byte, lineStarts []int, offset int) (int, error) {
+	if bytes.HasPrefix(gownSrc[offset:], []byte(observerDirectiveLexeme)) {
+		return scanObserverDirective(gf, emit, analysis, gownSrc, lineStarts, offset)
+	}
+
 	end := offset + 1
 	if end >= len(gownSrc) || !isIdentStart(gownSrc[end]) {
 		return offset + 1, fmt.Errorf("%s:%d:%d: invalid Gown token",
@@ -128,10 +141,37 @@ func scanGownToken(gf *gownFile, emit, analysis, gownSrc []byte, lineStarts []in
 			return end, scanError(gf.path, span, `\unsafe must be used as a call`)
 		}
 		recordIntrinsic(gf, emit, analysis, span, IntrinsicUnsafe)
+	case "observer":
+		return end, scanError(gf.path, span, fmt.Sprintf(`observer directive must be spelled %s`, observerDirectiveLexeme))
 	default:
 		return end, scanError(gf.path, span, fmt.Sprintf("unknown Gown token %q", lexeme))
 	}
 	return end, nil
+}
+
+func scanObserverDirective(gf *gownFile, emit, analysis, gownSrc []byte, lineStarts []int, offset int) (int, error) {
+	end := offset + len(observerDirectiveLexeme)
+	lc := lineColFromStarts(lineStarts, offset)
+	span := SourceSpan{
+		Offset: offset,
+		End:    end,
+		Line:   lc.line,
+		Col:    lc.col,
+		Lexeme: observerDirectiveLexeme,
+	}
+	lineStart, lineEnd := sourceLineRange(gownSrc, offset)
+	if !linePrefixWhitespace(gownSrc[lineStart:offset]) {
+		return end, scanError(gf.path, span, fmt.Sprintf(`%s must appear on its own line`, observerDirectiveLexeme))
+	}
+	if end < lineEnd && gownSrc[end] != ' ' && gownSrc[end] != '\t' {
+		return end, scanError(gf.path, span, fmt.Sprintf(`%s target must be separated by whitespace`, observerDirectiveLexeme))
+	}
+	target := parseObserverTarget(gownSrc[end:lineEnd])
+	if target == "" {
+		return end, scanError(gf.path, span, fmt.Sprintf(`%s requires a target`, observerDirectiveLexeme))
+	}
+	recordObserverDirective(gf, emit, analysis, span, target)
+	return lineEnd, nil
 }
 
 func recordCapQualifier(gf *gownFile, emit, analysis []byte, span SourceSpan, cap Cap) {
@@ -167,6 +207,14 @@ func recordIntrinsic(gf *gownFile, emit, analysis []byte, span SourceSpan, intri
 	copy(analysis[span.Offset:span.End], []byte(intrinsicAnalysisName(intrinsic)))
 }
 
+func recordObserverDirective(gf *gownFile, emit, analysis []byte, span SourceSpan, target string) {
+	token := &AnnotationToken{Span: span, Kind: AnnotationObserverDirective}
+	gf.annotations = append(gf.annotations, token)
+	gf.observers = append(gf.observers, &ObserverAnnotation{Span: span, Target: target})
+	copy(emit[span.Offset:span.End], observerDirectiveComment)
+	copy(analysis[span.Offset:span.End], observerDirectiveComment)
+}
+
 func intrinsicAnalysisName(intrinsic IntrinsicKind) string {
 	switch intrinsic {
 	case IntrinsicMub:
@@ -187,7 +235,11 @@ func intrinsicAnalysisName(intrinsic IntrinsicKind) string {
 }
 
 func replaceWithSpaces(src []byte, span SourceSpan) {
-	for i := span.Offset; i < span.End; i++ {
+	replaceRangeWithSpaces(src, span.Offset, span.End)
+}
+
+func replaceRangeWithSpaces(src []byte, start, end int) {
+	for i := start; i < end; i++ {
 		src[i] = ' '
 	}
 }
@@ -253,6 +305,36 @@ func firstNonSpaceOffset(src []byte, offset int) int {
 		}
 	}
 	return 0
+}
+
+func sourceLineRange(src []byte, offset int) (int, int) {
+	start := offset
+	for start > 0 && src[start-1] != '\n' {
+		start--
+	}
+	end := offset
+	for end < len(src) && src[end] != '\n' {
+		end++
+	}
+	return start, end
+}
+
+func linePrefixWhitespace(prefix []byte) bool {
+	for _, b := range prefix {
+		if b != ' ' && b != '\t' {
+			return false
+		}
+	}
+	return true
+}
+
+func parseObserverTarget(src []byte) string {
+	if idx := bytes.Index(src, []byte("//")); idx >= 0 {
+		src = src[:idx]
+	}
+	target := strings.TrimSpace(string(src))
+	target = strings.TrimSuffix(target, "()")
+	return strings.TrimSpace(target)
 }
 
 func skipLineComment(src []byte, offset int) int {

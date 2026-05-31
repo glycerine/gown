@@ -181,6 +181,25 @@ func main() {
 	requireNotContains(t, out, `\unsafe`)
 }
 
+func TestEmitObserverDirectiveAsComment(t *testing.T) {
+	out := emitGownSource(t, "observer.gown", `package example
+
+import "fmt"
+
+\\\\observer fmt.Printf
+
+type payload struct{}
+
+func main() {
+	var x \iso *payload
+	fmt.Printf("x = %p\n", x)
+}
+`)
+
+	requireContains(t, out, `//\\observer fmt.Printf`)
+	requireNotContains(t, out, observerDirectiveLexeme)
+}
+
 func TestEmitNewLowersToAddressOfComposite(t *testing.T) {
 	out := emitGownSource(t, "new.gown", `package example
 

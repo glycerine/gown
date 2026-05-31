@@ -12,6 +12,7 @@ import (
 
 func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityIndex {
 	idx := newCapabilityIndex()
+	bindObserverDirectives(idx, files)
 	idx.Places = buildPlaceIndex(pkg)
 	qualsByFile := capQualifiersByGeneratedFile(files)
 	intrinsicsByFile := intrinsicsByGeneratedFile(files)
@@ -44,6 +45,19 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *CapabilityInd
 	bindSendBindings(pkg, idx)
 
 	return idx
+}
+
+func bindObserverDirectives(idx *CapabilityIndex, files []*gownFile) {
+	if idx == nil {
+		return
+	}
+	for _, gf := range files {
+		for _, observer := range gf.observers {
+			if observer.Target != "" {
+				idx.Observers[observer.Target] = true
+			}
+		}
+	}
 }
 
 func capQualifiersByGeneratedFile(files []*gownFile) map[string]map[int]*CapQualifierAnnotation {

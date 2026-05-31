@@ -35,6 +35,7 @@ const (
 	AnnotationCapQualifier
 	AnnotationIntrinsic
 	AnnotationUnsafeBoundary
+	AnnotationObserverDirective
 )
 
 type IntrinsicKind uint8
@@ -78,6 +79,11 @@ type UnsafeBoundaryAnnotation struct {
 	Span SourceSpan
 }
 
+type ObserverAnnotation struct {
+	Span   SourceSpan
+	Target string
+}
+
 type GownSourceViews struct {
 	EmitSrc       []byte
 	AnalysisSrc   []byte
@@ -85,6 +91,7 @@ type GownSourceViews struct {
 	CapQualifiers []*CapQualifierAnnotation
 	Intrinsics    []*IntrinsicAnnotation
 	UnsafeUses    []*UnsafeBoundaryAnnotation
+	Observers     []*ObserverAnnotation
 }
 
 func ClassifyGownSource(path string, src []byte) (*GownSourceViews, error) {
@@ -99,5 +106,6 @@ func ClassifyGownSource(path string, src []byte) (*GownSourceViews, error) {
 		CapQualifiers: gf.capQualifiers,
 		Intrinsics:    gf.intrinsics,
 		UnsafeUses:    gf.unsafeUses,
+		Observers:     gf.observers,
 	}, nil
 }
