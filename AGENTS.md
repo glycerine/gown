@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What is Gown
 
-Gown is a capability-typed preprocessor for Go. It accepts `.gown` files (Go source augmented with backslash-prefixed capability annotations like `\iso`, `\mub`, `\rob`, `\imm`) and either rejects them with a type error or emits plain `.go` files with annotations erased and code additions that assign nil to \iso pointers that have been consumed. The core guarantee is race freedom: if all source passes the Gown checker, no execution has a data race (except through explicit `\unsafe`).
+Gown is an ownerstamp-typed preprocessor for Go. An ownerstamp is Gown's term for an ownership annotation such as `\iso`, `\mub`, `\rob`, or `\imm`. It accepts `.gown` files, rejects invalid ownership with a type error, or emits plain `.go` files with ownerstamps erased and code additions that assign nil to \iso pointers that have been consumed. The core guarantee is race freedom: if all source passes the Gown checker, no execution has a data race (except through explicit `\unsafe`).
 
 ## Build and Test
 
@@ -46,9 +46,9 @@ gown [-check] vectors/iso0/
 | `isoAnnotation` | `strip.go` | One annotation: byte offset, line, col, function name, enclosing block scope |
 | `region` | `strip.go` | Byte range `[beg, endx)` representing a block scope |
 
-### The four capabilities
+### The four ownerstamps
 
-| Capability | Meaning | Mutable | Sendable cross-goroutine |
+| Ownerstamp | Meaning | Mutable | Sendable cross-goroutine |
 |------------|---------|---------|--------------------------|
 | `\iso` | Isolated, uniquely owned | Yes | Yes (move semantics) |
 | `\mub` | Mutable borrow | Yes | No |
@@ -59,7 +59,7 @@ All annotations use the `\` prefix so they cause a Go compiler error if they lea
 
 ## Specification and Proofs
 
-- `gown-spec.md` — full language specification (capabilities, type rules, coercions, borrowing, channel semantics)
+- `gown-spec.md` — full language specification (ownerstamps, type rules, coercions, borrowing, channel semantics)
 - `theory-proof.md` — formal proof of the Race Freedom Theorem
 - `Gown.lean` — Lean 4 formalization of the type system
 

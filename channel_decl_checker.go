@@ -14,7 +14,7 @@ func checkChannelElementDeclarations(ctx *CheckerContext) CheckerErrors {
 			qualifier.Offset,
 			qualifier.Line,
 			qualifier.Col,
-			fmt.Sprintf("channel element capability must be \\iso or \\imm, not %s", qualifier.Cap),
+			fmt.Sprintf("channel element ownerstamp must be \\iso or \\imm, not %s", qualifier.Cap),
 		))
 	}
 	return errs

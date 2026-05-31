@@ -6,15 +6,15 @@ as a fast orientation checkpoint for future work.
 ## Project Goal
 
 Gown is a source-to-source preprocessor for Go. It accepts `.gown` files, which
-are Go source plus backslash-prefixed capability annotations, and emits plain
-`.go` files after capability checking.
+are Go source plus backslash-prefixed ownerstamps, and emits plain
+`.go` files after ownerstamp checking.
 
 The intended guarantee is race freedom: if all relevant source passes the Gown
 checker and does not use `\unsafe`, then no execution has a data race.
 
-The intended capabilities are:
+The intended ownerstamps are:
 
-| Capability | Meaning | Mutable | Cross-goroutine |
+| Ownerstamp | Meaning | Mutable | Cross-goroutine |
 | --- | --- | --- | --- |
 | `\iso` | isolated unique owner | yes | yes, by move |
 | `\mub` | mutable borrow | yes | no |
@@ -22,14 +22,14 @@ The intended capabilities are:
 | `\imm` | deeply immutable shared value | no | yes, by copy/share |
 
 The specs make untracked Go pointers opt-in/legacy: they behave as plain Go and
-are outside the guarantee. Passing capability values to unchecked code must be
+are outside the guarantee. Passing ownerstamped values to unchecked code must be
 an explicit `\unsafe` boundary in the full design.
 
 ## Design Scope From Markdown
 
 Primary docs:
 
-- `gown-spec.md` is the normative draft spec. It covers the four capabilities,
+- `gown-spec.md` is the normative draft spec. It covers the four ownerstamps,
   channel send/receive rules, goroutine capture rules, freeze, borrow coercion,
   assignment/move semantics, viewpoint adaptation, `select`, `\unsafe`,
   built-ins, interfaces, transpiler output, syntax, errors, and out-of-scope
@@ -53,7 +53,7 @@ Important design obligations extracted from the proof/critique docs:
 
 - Sending, spawning, freezing, or moving an `\iso` is only sound if no live
   borrows or aliases into its owned region remain in the sender.
-- The checker needs explicit borrow/region tracking, not just capability labels.
+- The checker needs explicit borrow/region tracking, not just ownerstamp labels.
   Critique docs propose either region sets or SSA-level borrow state.
 - Field-derived and transitive borrows matter. A borrow of `x.f` must pin the
   same ownership region as `x` or a conservative approximation of it.
@@ -64,7 +64,7 @@ Important design obligations extracted from the proof/critique docs:
   atomics are soundness hazards unless rejected, modeled, or wrapped in
   `\unsafe`.
 - The safest implementation direction in the notes is an SSA-based checker:
-  build SSA, annotate values with capability plus abstract location/region,
+  build SSA, annotate values with ownerstamp plus abstract location/region,
   compute liveness, update borrow state at last use, reject escaping borrows,
   and require the active region to contain only the root `\iso` at transfer or
   freeze points.
@@ -72,7 +72,7 @@ Important design obligations extracted from the proof/critique docs:
 ## Current Go Implementation
 
 The implementation is currently an early front end and inventory engine, not a
-full capability checker.
+full ownerstamp checker.
 
 Pipeline in `check.go`:
 
@@ -108,7 +108,7 @@ Key files:
 
 What is not implemented yet:
 
-- No actual rejection of capability errors such as use-after-move, invalid
+- No actual rejection of ownerstamp errors such as use-after-move, invalid
   send, write through immutable/read-only, escaping borrow, or untracked
   boundary without `\unsafe`.
 - No parsing/checking for `\mub`, `\rob`, `\imm`, `\freeze`, `\clone`,
@@ -164,9 +164,9 @@ runs `gown vectors/iso0/`.
 
 1. Decide the checker core: SSA-based region/borrow state is the strongest fit
    for the critique notes and the proof contract.
-2. Extend the scanner/parser strategy beyond `\iso` so all capability keywords
+2. Extend the scanner/parser strategy beyond `\iso` so all ownerstamp keywords
    and built-ins can be represented before erasure.
-3. Implement capability metadata for signatures, locals, channel element types,
+3. Implement ownerstamp metadata for signatures, locals, channel element types,
    and struct fields.
 4. Add the first negative checker errors: `\iso` consumed on send/move and
    use-after-consume (`GWN001`) is the most obvious end-to-end slice.
@@ -178,7 +178,7 @@ runs `gown vectors/iso0/`.
 
 The repository currently has a solid Go parser/type-loader scaffold and good
 position-preservation tests. The project-wide design is much bigger: it aims
-for a capability and ownership checker whose proof depends on exact tracking of
+for an ownerstamp and ownership checker whose proof depends on exact tracking of
 regions, borrows, liveness, and unsafe boundaries. Treat the present Go code as
 the foundation for finding relevant program points, not as a checker that
 already enforces the proof.

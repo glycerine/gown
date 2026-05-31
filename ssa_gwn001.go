@@ -1359,7 +1359,7 @@ func assignmentValueInvalidReason(caps *CapabilityIndex, assignment ssaAssignmen
 	}
 	switch assignment.Value.Cap {
 	case CapInvalid:
-		return "expression is not known to produce a tracked capability value"
+		return "expression is not known to produce an ownerstamp-tracked value"
 	case CapUntracked:
 		return "\\iso root rebinding requires a fresh or moved \\iso value; this expression is untracked"
 	default:

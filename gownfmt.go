@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-// FormatGown formats Gown source while preserving capability annotations.
+// FormatGown formats Gown source while preserving ownerstamps.
 func FormatGown(src []byte) ([]byte, error) {
 	return formatGownNamed("", src)
 }

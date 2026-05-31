@@ -1,5 +1,5 @@
 # Gown Language Specification
-## A Capability-Typed Preprocessor for Go
+## An Ownerstamp-Typed Preprocessor for Go
 
 **Version:** 0.4 (Draft)
 **File extension:** `.gown`
@@ -9,10 +9,12 @@
 
 ## 1. Overview
 
-Gown is a source-to-source preprocessor that adds a four-capability ownership
-type system to Go. It accepts `.gown` files — valid Go augmented with capability
-annotations — and either rejects them with a structured error, or emits
-equivalent plain `.go` files with annotations erased.
+Gown is a source-to-source preprocessor that adds a four-ownerstamp ownership
+type system to Go. An ownerstamp is Gown's term of art for an ownership
+annotation: one of `\iso`, `\mub`, `\rob`, or `\imm`. Gown accepts `.gown`
+files — valid Go augmented with ownerstamps — and either rejects them with a
+structured error, or emits equivalent plain `.go` files with ownerstamps
+erased.
 
 The core guarantee is:
 
@@ -29,37 +31,37 @@ is made explicit at call sites.
 
 ## 2. Design Principles
 
-1. **Minimal capability set.** Four capabilities — `\iso`, `\mub`, `\rob`,
+1. **Minimal ownerstamp set.** Four ownerstamps — `\iso`, `\mub`, `\rob`,
    `\imm` — are necessary and sufficient for a formal race freedom proof with
    ergonomic read-only borrowing. No others are added.
 
 2. **Opt-in, not total.** Unannotated pointers behave exactly as in Go today.
    Existing code compiles and runs unchanged.
 
-3. **`\mub` is the tracked default.** Within capability-annotated code,
-   `\mub` is the most natural, least restrictive capability. It is what you
+3. **`\mub` is the tracked default.** Within ownerstamped code,
+   `\mub` is the most natural, least restrictive ownerstamp. It is what you
    reach for first when annotating existing Go code. Untracked pointers remain
    the default for unannotated code.
 
 4. **Annotations on signatures and fields only.** Local variables infer their
-   capability from assignment context. Only function signatures and struct field
+   ownerstamp from assignment context. Only function signatures and struct field
    declarations require explicit annotation.
 
-5. **The transpiled output is idiomatic Go.** Capability annotations erase
+5. **The transpiled output is idiomatic Go.** Ownerstamps erase
    completely. The output should be readable and unsurprising to a Go programmer.
 
 6. **One explicit escape hatch.** `\unsafe` is the only way to cross the
-   checked/unchecked boundary with a capability-tracked value. It is greppable,
+   checked/unchecked boundary with an ownerstamp-tracked value. It is greppable,
    auditable, and semantically equivalent to Go's own `unsafe` bargain.
 
-7. **Backslash-prefix syntax.** All Gown annotations begin with `\`. This
+7. **Backslash-prefix syntax.** All Gown ownerstamps begin with `\`. This
    prevents collision with Go's namespace, makes annotations visually distinct,
-   and guarantees that any annotation leaking to the `.go` output causes a Go
+   and guarantees that any ownerstamp leaking to the `.go` output causes a Go
    compiler error — fail-fast, no silent miscompilation.
 
 ---
 
-## 3. Capabilities
+## 3. Ownerstamps
 
 ### 3.1 `\iso` — Isolated, Uniquely Owned
 
@@ -73,15 +75,15 @@ after which the sender's reference is consumed (set to `nil`).
   The send is a *move*, not a copy.
 - **Mutable:** Yes.
 - **Field access:** Fields accessed through `\iso` yield their declared
-  capability (see §7, Viewpoint Adaptation).
+  ownerstamp (see §7, Viewpoint Adaptation).
 
 ### 3.2 `\mub` — Mutable Borrow
 
 A `\mub` pointer is a mutable, non-owning, goroutine-local alias. It is the
-tracked default — the most natural capability within annotated code, representing
+tracked default — the most natural ownerstamp within ownerstamped code, representing
 an ordinary mutable pointer that is confined to one goroutine. Most `\mub`
 pointers are derived from an `\iso`, but `\mub` may also be the declared
-capability of a struct field that is intended to remain goroutine-local.
+ownerstamp of a struct field that is intended to remain goroutine-local.
 
 - **Aliasing:** Multiple `\mub` aliases to the same object may exist within
   one goroutine. No `\mub` may be live simultaneously with a send or freeze
@@ -94,9 +96,9 @@ capability of a struct field that is intended to remain goroutine-local.
   annotated. The checker infers `\mub` for any local pointer derived from an
   `\iso`. Explicit annotation is required only on function signatures and struct
   fields.
-- **The tracked default:** Within capability-annotated code, `\mub` represents
+- **The tracked default:** Within ownerstamped code, `\mub` represents
   the baseline — mutable, goroutine-local, no special treatment. It is what you
-  annotate first when adding capabilities to existing Go code.
+  annotate first when adding ownerstamps to existing Go code.
 
 ### 3.3 `\rob` — Read-Only Borrow
 
@@ -129,15 +131,15 @@ goroutines may hold `\imm` references simultaneously.
 - **Mutable:** No. Any write through an `\imm` pointer, at any depth, is a
   compile-time error.
 - **Deep immutability:** Propagates transitively. A field accessed through
-  `\imm` is `\imm` regardless of its declared capability (see §7).
+  `\imm` is `\imm` regardless of its declared ownerstamp (see §7).
 - **Production:** An `\imm` may only be produced by freezing an `\iso` (see
   §6.3). This guarantees no writable aliases exist at the point of conversion.
 
 ### 3.5 Default — Untracked
 
-Any pointer without a capability annotation is untracked. It behaves exactly as
+Any pointer without an ownerstamp is untracked. It behaves exactly as
 a regular Go pointer. The checker makes no guarantees about it and imposes no
-restrictions on its use. Untracked pointers may not be sent on capability-typed
+restrictions on its use. Untracked pointers may not be sent on ownerstamp-typed
 channels.
 
 The relationship between untracked and `\mub` is one of explicitness: an
@@ -146,9 +148,9 @@ confinement and known provenance.
 
 ---
 
-## 4. Capability Summary
+## 4. Ownerstamp Summary
 
-| Capability  | Mutable | Sendable    | Aliasing          | Goroutine-local |
+| Ownerstamp  | Mutable | Sendable    | Aliasing          | Goroutine-local |
 |-------------|---------|-------------|-------------------|-----------------|
 | `\iso`      | Yes     | Yes (move)  | None              | Yes             |
 | `\mub`      | Yes     | No          | Local aliases ok  | Yes             |
@@ -156,13 +158,13 @@ confinement and known provenance.
 | `\imm`      | No      | Yes (copy)  | Unrestricted      | No              |
 | untracked   | Yes     | No†         | Unrestricted      | No              |
 
-† Untracked pointers may not be sent on capability-typed channels.
+† Untracked pointers may not be sent on ownerstamp-typed channels.
 
 ---
 
-## 5. Capability Hierarchy
+## 5. Ownerstamp Hierarchy
 
-The four capabilities form a partial order. The two ownership forms (`\iso`,
+The four ownerstamps form a partial order. The two ownership forms (`\iso`,
 `\imm`) are sendable. The two borrow forms (`\mub`, `\rob`) are goroutine-local.
 The two mutable forms (`\iso`, `\mub`) permit writes. The two immutable forms
 (`\rob`, `\imm`) prohibit writes.
@@ -187,7 +189,7 @@ Moving up the hierarchy requires proof of the stronger property: uniqueness for
 ### 6.1 Channel Send
 
 A value sent on a channel must be `\iso` or `\imm`. The channel's element type
-must be capability-typed. An untyped channel may not carry `\iso` or `\imm`
+must be ownerstamp-typed. An untyped channel may not carry `\iso` or `\imm`
 values.
 
 ```go
@@ -226,7 +228,7 @@ go func() {
 }()
 ```
 
-The transpiler emits the closure unchanged. The capability check is purely
+The transpiler emits the closure unchanged. The ownerstamp check is purely
 static.
 
 ### 6.3 Freeze — `\iso` to `\imm`
@@ -289,12 +291,12 @@ Explicit `\mub` and `\rob` calls are only required when creating a named borrow
 for use across multiple statements. At function call sites, the checker performs
 **implicit borrow coercion**: if the callee's parameter is declared `\mub` or
 `\rob`, the checker automatically infers the appropriate borrow from the
-argument's capability, without requiring an explicit call.
+argument's ownerstamp, without requiring an explicit call.
 
 The coercion rules at a call site `f(arg)` where the parameter is declared as
 `\mub *T` or `\rob *T` are:
 
-| Argument capability | Parameter declared as | Coercion applied    | Arg after call  |
+| Argument ownerstamp | Parameter declared as | Coercion applied    | Arg after call  |
 |---------------------|-----------------------|---------------------|-----------------|
 | `\iso`              | `\mub *T`             | implicit `\mub`     | still `\iso`    |
 | `\iso`              | `\rob *T`             | implicit `\rob`     | still `\iso`    |
@@ -405,22 +407,22 @@ rcfg.Timeout = 5       // error: write through \rob
 
 ### 6.9 Channel Types
 
-A channel's element type may be annotated with a capability. Only `\iso` and
-`\imm` are legal element capabilities, because `\mub` and `\rob` are
+A channel's element type may be annotated with an ownerstamp. Only `\iso` and
+`\imm` are legal element ownerstamps, because `\mub` and `\rob` are
 goroutine-local by definition and sending them on a channel would violate that
 constraint. Declaring a `chan \mub *T` or `chan \rob *T` is a checker error.
 
 ```go
 var work chan \iso *Request       // ownership-transfer channel
 var broadcast chan \imm *Config   // shared-immutable channel
-var plain chan *Request           // untracked channel — no capability checking
+var plain chan *Request           // untracked channel — no ownerstamp checking
 var done \imm chan \iso *Request  // stable channel handle carrying \iso values
 ```
 
-The channel variable itself usually requires no capability annotation. Channels
+The channel variable itself usually requires no ownerstamp. Channels
 are concurrency-safe by construction in Go — the runtime mediates all sends and
 receives — so a channel value may be freely shared across goroutines without
-capability tracking.
+ownerstamp tracking.
 
 When a channel handle is stored in a field that must be read after the
 containing `\iso` object has moved, the field itself must be declared `\imm`.
@@ -445,8 +447,8 @@ channel handles themselves are safe.
 
 #### Send Compatibility
 
-The capability of the argument must be compatible with the channel's element
-capability. The full matrix:
+The ownerstamp of the argument must be compatible with the channel's element
+ownerstamp. The full matrix:
 
 | Argument | Channel element | Result |
 |----------|-----------------|--------|
@@ -456,8 +458,8 @@ capability. The full matrix:
 | `\imm *T` | `chan \iso *T` | Checker error — cannot produce `\iso` from `\imm`. |
 | `\mub *T` | any | Checker error — `\mub` is goroutine-local. |
 | `\rob *T` | any | Checker error — `\rob` is goroutine-local. |
-| untracked | capability chan | Checker error — untracked on capability channel. |
-| any | untracked chan | Plain Go semantics, no capability checking. |
+| untracked | ownerstamp chan | Checker error — untracked on ownerstamp channel. |
+| any | untracked chan | Plain Go semantics, no ownerstamp checking. |
 
 When an `\iso` is sent on a `chan \imm *T`, the implicit freeze is equivalent to
 `\freeze` followed by a send — the `\iso` is permanently converted to `\imm`
@@ -473,7 +475,7 @@ useLocally(icfg)           // legal
 
 #### Receive
 
-The receiver gets a value with the channel's element capability:
+The receiver gets a value with the channel's element ownerstamp:
 
 ```go
 x := <-work       // x : \iso *Request — receiver now owns it
@@ -484,9 +486,9 @@ For `chan \iso *T`, the receive is an ownership acquisition — the receiver get
 the sole `\iso` reference. For `chan \imm *T`, the receive produces an `\imm`
 that can be freely shared onward.
 
-#### `select` with Capability-Typed Sends
+#### `select` with Ownerstamp-Typed Sends
 
-The behavior of `select` follows directly from the capability of the value
+The behavior of `select` follows directly from the ownerstamp of the value
 being sent. There are two cases:
 
 **Sending `\imm` in a `select`:** Nothing special happens. `\imm` is not
@@ -512,11 +514,11 @@ know at compile time which branch the runtime will take.
 The same `\iso` may appear in multiple send cases — the runtime guarantees
 exactly one case fires, so the linearity invariant is preserved.
 
-The checker tracks capabilities per-branch:
+The checker tracks ownerstamps per-branch:
 
 - In a branch where the `\iso` appears in a send case: the `\iso` is consumed.
 - In a branch where the `\iso` does not appear in a send case (including
-  `default`): the `\iso` retains its pre-`select` capability.
+  `default`): the `\iso` retains its pre-`select` ownerstamp.
 - After the `select`: the `\iso` is not available, because it is not live on all
   branches.
 
@@ -577,22 +579,22 @@ select {
 ```
 
 Because `\clone` produces a fresh `\iso` that is immediately consumed by the
-send, the original value's capability is unaffected regardless of which branch
+send, the original value's ownerstamp is unaffected regardless of which branch
 fires. This eliminates the need for per-branch tracking entirely.
 
 More generally, the checker recognizes that an `\iso` is *not* consumed by a
 `select` send if the send expression is a function call or expression that
 produces a fresh `\iso` — such as `\clone(x)`, `\new(...)`, or any function
 returning `\iso *T`. In these cases the original variable does not participate
-in the send and retains its capability across the `select`.
+in the send and retains its ownerstamp across the `select`.
 
 ---
 
 ## 7. Viewpoint Adaptation
 
-When a field is accessed through a capability-qualified pointer, the effective
-capability of the field is the "meet" of the outer capability and the field's
-declared capability. The outer capability takes precedence where it is more
+When a field is accessed through an ownerstamp-qualified pointer, the effective
+ownerstamp of the field is the "meet" of the outer ownerstamp and the field's
+declared ownerstamp. The outer ownerstamp takes precedence where it is more
 restrictive.
 
 | Outer \ Field declared as | `\iso`  | `\mub`  | `\rob`  | `\imm`  | untracked |
@@ -629,11 +631,11 @@ _ = t.Outcome        // error: ordinary field read after move
 
 ## 8. The `\unsafe` Escape Hatch
 
-Passing a capability-tracked value to an unannotated function (stdlib, external
+Passing an ownerstamp-tracked value to an unannotated function (stdlib, external
 library, legacy code) requires an explicit `\unsafe` annotation at the call
 site. The same rule applies when returning, assigning, storing, sending, or
 erasing a tracked value into an untracked Go location: once a value is in the
-capability-typed universe, it can leave only through `\unsafe`.
+ownerstamp-typed universe, it can leave only through `\unsafe`.
 
 ```go
 json.Marshal(\unsafe(cfg))   // cfg : \iso *Config
@@ -645,7 +647,7 @@ not as ordinary untracked callees.
 
 `\unsafe` erases to its argument in the transpiled output. In the current
 checker it is conservative: the boundary itself is allowed, but it ends the
-local capability proof for the argument. Later operations that require the old
+local ownerstamp proof for the argument. Later operations that require the old
 proof, such as sending the same `\iso` or returning it as a tracked result,
 are rejected with `GWN012` and a note pointing back to the `\unsafe` site. Its
 presence is auditable via grep. It carries the same social contract as Go's
@@ -665,7 +667,7 @@ Arguments passed to matching observer calls do not require per-argument
 `\unsafe` wrappers. The directive must appear on its own line, names either a
 function or selector, and may include an optional trailing `()`. It applies only
 to argument checking for the call itself; checked return values, sends, stores,
-and other capability boundaries are still enforced normally. The transpiler
+and other ownerstamp boundaries are still enforced normally. The transpiler
 preserves byte and line alignment by emitting the directive as a comment:
 
 ```go
@@ -695,7 +697,7 @@ returned pointer is freshly allocated with no existing aliases.
 `\clone` performs a trusted user-defined copy and returns a fresh `\iso`. If
 `x` has static type `T`, that exact type must define `clone() T`; if `x` has
 static type `*T`, that exact type must define `clone() *T`. In v1, `T` must be
-a named struct type. The source may have any capability, including untracked,
+a named struct type. The source may have any ownerstamp, including untracked,
 and is not consumed. The returned `\iso` is trusted to share no mutable memory
 with the original. The transpiler emits `(x).clone()`.
 
@@ -703,7 +705,7 @@ with the original. The transpiler emits `(x).clone()`.
 
 ## 10. Interfaces
 
-Capability annotations may appear on interface method signatures.
+Ownerstamps may appear on interface method signatures.
 
 ```go
 type Handler interface {
@@ -712,9 +714,9 @@ type Handler interface {
 }
 ```
 
-Storing a capability-typed value in an `any` (empty interface) is a checker
+Storing an ownerstamp-typed value in an `any` (empty interface) is a checker
 error unless the value is explicitly wrapped in `\unsafe`. A future version of
-the spec may introduce capability-parameterized interfaces.
+the spec may introduce ownerstamp-parameterized interfaces.
 
 ---
 
@@ -725,7 +727,7 @@ numbers where possible.
 
 | Construct                  | Transpiled to                  |
 |----------------------------|--------------------------------|
-| Capability qualifier       | Erased from type               |
+| Ownerstamp qualifier       | Erased from type               |
 | `\iso` send on channel     | Send + `x = nil`               |
 | `\iso` assignment (move)   | Assignment + `src = nil`       |
 | `\freeze(x)`               | `dst := x; x = nil`           |
@@ -742,7 +744,7 @@ additional dependencies.
 
 ## 12. Syntax
 
-Gown introduces capability keywords as type qualifiers prefixed with `\`. They
+Gown introduces ownerstamp keywords as type qualifiers prefixed with `\`. They
 appear before the `*` in a pointer type.
 
 ```
@@ -803,11 +805,11 @@ and where possible a suggested fix.
 | GWN005  | Write through a read-only or immutable viewpoint                         |
 | GWN006  | `\mub`/`\rob` borrow or borrowing closure stored into an escaping location |
 | GWN007  | Returned borrow or returned closure capturing a non-shareable tracked value |
-| GWN008  | Capability-tracked value passed to an untracked call/parameter without `\unsafe` |
-| GWN009  | Capability-tracked value erased into an interface without `\unsafe`      |
+| GWN008  | Ownerstamp-tracked value passed to an untracked call/parameter without `\unsafe` |
+| GWN009  | Ownerstamp-tracked value erased into an interface without `\unsafe`      |
 | GWN010  | Channel/value mismatch, invalid coercion, or tracked value stored/returned/sent to untracked Go without `\unsafe` |
 | GWN011  | Attempted ownership move from a field projection                         |
-| GWN012  | Capability proof frontier violation after explicit `\unsafe`, with a note at the earlier frontier |
+| GWN012  | Ownerstamp proof frontier violation after explicit `\unsafe`, with a note at the earlier frontier |
 
 ---
 
@@ -831,7 +833,7 @@ gown -watch ./...       # incremental, re-check on file change
 
 ```
 mypkg/
-  config.gown       ← capability-annotated source (authored)
+  config.gown       ← ownerstamped source (authored)
   config.go         ← transpiled output (generated, committed)
   handler.gown
   handler.go
@@ -839,7 +841,7 @@ mypkg/
 ```
 
 Plain `.go` files in the same package coexist freely and are untracked from the
-capability checker's perspective. The committed `.go` files are valid Go and
+ownerstamp checker's perspective. The committed `.go` files are valid Go and
 gopls operates on them normally.
 
 ---
@@ -862,7 +864,7 @@ concurrent calculus (λ‖).
 reference to the same heap location unless all such references are `\imm`.
 
 **Immutability Lemma:** No write ever occurs through a reference whose
-capability is `\imm` or `\rob` at its introduction point.
+ownerstamp is `\imm` or `\rob` at its introduction point.
 
 **Race Freedom Theorem:** Follows from the two lemmas. A data race requires
 concurrent access with at least one write. The Isolation Lemma rules out
@@ -892,8 +894,8 @@ to a companion technical report.
 - **Cycle collection.** `\iso` and `\imm` objects are GC-managed by Go's
   collector. No changes to cycle handling are made.
 - **New concurrency primitives.** Go's goroutines and channels are used as-is.
-- **Capability-parameterized interfaces.** Deferred to a future version.
-- **Generics.** Interaction between capability types and Go generics is deferred
+- **Ownerstamp-parameterized interfaces.** Deferred to a future version.
+- **Generics.** Interaction between ownerstamp types and Go generics is deferred
   to a future version.
 - **Mutable shared state.** Mutexes, atomics, and `sync` primitives remain
   fully available and fully untracked.

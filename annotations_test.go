@@ -32,7 +32,7 @@ func TestScanAndClassifyCapabilityQualifiers(t *testing.T) {
 
 	wantCaps := []Cap{CapIso, CapMub, CapRob, CapImm, CapIso, CapMub, CapRob}
 	if len(gf.capQualifiers) != len(wantCaps) {
-		t.Fatalf("expected %d capability qualifiers, got %d", len(wantCaps), len(gf.capQualifiers))
+		t.Fatalf("expected %d ownerstamp qualifiers, got %d", len(wantCaps), len(gf.capQualifiers))
 	}
 	if len(gf.annotations) != len(wantCaps) {
 		t.Fatalf("expected %d annotation tokens, got %d", len(wantCaps), len(gf.annotations))

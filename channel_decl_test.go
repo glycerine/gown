@@ -32,7 +32,7 @@ func TestGWN010RejectsMutableBorrowChannelElement(t *testing.T) {
 		t.Fatalf("error location = %d:%d, want 6:18", checkerErr.Line, checkerErr.Col)
 	}
 	text := FormatError(err)
-	if !strings.Contains(text, "channel element capability must be \\iso or \\imm, not \\mub") {
+	if !strings.Contains(text, "channel element ownerstamp must be \\iso or \\imm, not \\mub") {
 		t.Fatalf("formatted error does not explain invalid channel element:\n%s", text)
 	}
 	if !strings.Contains(text, "ch := make(chan \\mub *payload)") {
@@ -47,7 +47,7 @@ func TestGWN010RejectsReadBorrowChannelElement(t *testing.T) {
 		t.Fatalf("error location = %d:%d, want 5:19", checkerErr.Line, checkerErr.Col)
 	}
 	text := FormatError(err)
-	if !strings.Contains(text, "channel element capability must be \\iso or \\imm, not \\rob") {
+	if !strings.Contains(text, "channel element ownerstamp must be \\iso or \\imm, not \\rob") {
 		t.Fatalf("formatted error does not explain invalid channel element:\n%s", text)
 	}
 	if !strings.Contains(text, "func Take(ch chan \\rob *payload)") {

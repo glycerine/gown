@@ -13,14 +13,14 @@ the Go race detector.
 ## overview
 
 Inspired a little by Rust, and alot by Pony's 
-capability-ownership system, gown is a pre-processor 
+ownership system, gown is a pre-processor 
 for Go source that statically detects use-after-move
 data-races at compile time. 
 
 Gown is much simpler than Pony. Gown is also 
 much, much simpler than Rust. Rust requires lifetime
-annotations, Gown does not. Pony has six capability
-annotations. Gown has only four.
+annotations, Gown does not. Pony has six ownership
+forms. Gown has only four ownerstamps.
 
 In one line, the summary of Gown would be: 
 channel sends can now enforce at compile time the former 
@@ -40,16 +40,17 @@ this is a small inconvenience in exchange for data-race freedom.
 
 ## introduction
 
-In Gown there are only four core annotations
+In Gown there are only four core ownerstamps
 on pointers: \iso for single-owner (isolated) mutable data, \imm for
 immutable data, \mub for mutable borrow, and \rob for read-only borrowed data.
 
-The annotations are also called capabilities. There
-are also some helpers like \new and \clone which create new \iso
+An ownerstamp is Gown's term of art for an ownership annotation: a small mark on
+a Go type that says who may own, mutate, borrow, or share the pointed-to value.
+There are also some helpers like \new and \clone which create new \iso
 pointers that we will get to later in this tutorial. For now we concentrate
-on the capability definitions.
+on the ownerstamp definitions.
 
-Each capability tells the Gown checker what kind of 
+Each ownerstamp tells the Gown checker what kind of 
 access a piece of code has to a value: unique ownership (\iso),
 local mutation (\mub), read-only access (\rob), or 
 immutable and thus safe for sharing (\imm)
@@ -100,9 +101,9 @@ The four core annotations are:
 | `\rob` | read-only borrow | no | no | temporary local reading |
 | `\imm` | immutable | no | yes, by sharing | safe to share freely |
 
-## annotation syntax
+## ownerstamp syntax
 
-Capability annotations appear before the `*` in pointer types:
+Ownerstamps, or ownership annotations, appear before the `*` in pointer types:
 
 ```go
 func Take(b \iso *Ticket) {}
@@ -123,8 +124,8 @@ b := \new(Ticket{})
 
 Here `b` is inferred as `\iso *Ticket`.
 
-All Gown annotations begin with `\`. If an annotation accidentally leaks into
-generated Go, the Go compiler will reject it. That makes annotation leakage
+All Gown ownerstamps begin with `\`. If an ownerstamp accidentally leaks into
+generated Go, the Go compiler will reject it. That makes ownerstamp leakage
 fail fast instead of silently changing the program.
 
 ## `\iso`: isolated ownership
@@ -458,7 +459,7 @@ Freezing consumes the original `\iso`.
 ### `\unsafe`
 
 Use `\unsafe` only at an explicit checked-to-unchecked boundary, such as a call
-to ordinary Go code that Gown cannot analyze. Once a value has a capability,
+to ordinary Go code that Gown cannot analyze. Once a value has an ownerstamp,
 Gown will not let it silently become plain Go again.
 
 ```go
@@ -471,7 +472,7 @@ func main() {
 
     LegacyUse(\unsafe(b))
 
-    // Later capability operations on b may be rejected, because the checker no
+    // Later ownerstamp operations on b may be rejected, because the checker no
     // longer has a complete proof of what happened beyond the unsafe boundary.
 }
 ```
@@ -635,7 +636,7 @@ read-only (while the channel itself is always goroutine safe).
 
 ## struct fields
 
-Struct fields may also carry capability annotations.
+Struct fields may also carry ownerstamps.
 
 ```go
 type Job struct {
@@ -664,7 +665,7 @@ func ReplaceInput(j \mub *Job, next \iso *Ticket) {
 
 In summary:
 
-- Put capabilities on fields that store tracked pointers.
+- Put ownerstamps on fields that store tracked pointers.
 - Read-only or immutable access through the outer object makes reachable fields
   read-only too.
 - Use `\imm chan ...` for stable channel fields that must be read after the
@@ -684,8 +685,8 @@ hit first.
 | `GWN005` | wrote through `\rob` or `\imm` | use `\mub` or keep unique `\iso` ownership |
 | `GWN008` | passed a tracked value to untracked Go | add annotations or use `\unsafe` deliberately |
 | `GWN009` | erased a tracked value into an interface | avoid the interface boundary or use `\unsafe` deliberately |
-| `GWN010` | invalid capability conversion, channel mismatch, or clone shape | adjust the annotation or method signature |
-| `GWN012` | tried to use a value as tracked after explicit `\unsafe` | keep it tracked or stop using it as capability-proven |
+| `GWN010` | invalid ownerstamp conversion, channel mismatch, or clone shape | adjust the ownerstamp or method signature |
+| `GWN012` | tried to use a value as tracked after explicit `\unsafe` | keep it tracked or stop using it as ownerstamp-proven |
 
 ## a complete example
 

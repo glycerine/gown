@@ -133,7 +133,7 @@ func PlanAnnotationTransaction(opts AnnotationTransactionOptions) (*PlannedAnnot
 		return nil, err
 	}
 	if delta.kind == "" {
-		return nil, errors.New("no single capability annotation delta detected")
+		return nil, errors.New("no single ownerstamp delta detected")
 	}
 
 	overlay := make(map[string][]byte, len(opts.Overlay)+1)
@@ -157,7 +157,7 @@ func PlanAnnotationTransaction(opts AnnotationTransactionOptions) (*PlannedAnnot
 	graph := buildAnnotationGraph(analysis, overlay)
 	root := graph.rootSite(delta)
 	if root == nil {
-		return nil, fmt.Errorf("could not map annotation delta to an editable capability site")
+		return nil, fmt.Errorf("could not map annotation delta to an editable ownerstamp site")
 	}
 
 	txn := &PlannedAnnotationTransaction{
@@ -250,7 +250,7 @@ func detectAnnotationDelta(path string, before, after []byte) (annotationDelta, 
 		delta.newLexeme = newTok[0].lexeme
 		delta.newCap = newTok[0].cap
 	default:
-		return annotationDelta{}, errors.New("edit does not contain exactly one complete capability annotation delta")
+		return annotationDelta{}, errors.New("edit does not contain exactly one complete ownerstamp delta")
 	}
 	return delta, nil
 }

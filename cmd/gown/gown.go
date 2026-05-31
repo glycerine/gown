@@ -21,7 +21,7 @@ type Config struct {
 
 func (c *Config) DefineFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&c.CheckOnly, "check", false, "do not overwrite .go, only typecheck .gown")
-	fs.BoolVar(&c.Propagate, "propagate", false, "force-propagate implied capability annotations before checking")
+	fs.BoolVar(&c.Propagate, "propagate", false, "force-propagate implied ownerstamps before checking")
 	fs.BoolVar(&c.Version, "version", false, "print build information and exit")
 }
 
