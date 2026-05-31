@@ -78,7 +78,7 @@ and then Gown emits ordinary `.go` files with the annotations erased.
 This tutorial is an introduction and starting point. For the 
 full specification, see `gown-spec.md`. The human readable proofs
 of soundness are in the theory-proof.md and theory-proof-gemini-v2.md
-files, which are backed by `Gown.lean`, a mechine-checked formal proof.
+files, which are backed by `Gown.lean`, a machine-checked formal proof.
 
 ### the core idea
 
