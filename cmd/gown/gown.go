@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 
 	"github.com/glycerine/gown"
 )
@@ -15,11 +16,13 @@ type Config struct {
 	Path      string
 	CheckOnly bool // true means do not overwrite/generate .go
 	Propagate bool // true means rewrite .gown annotations before checking
+	Version   bool // true means print build info and exit
 }
 
 func (c *Config) DefineFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&c.CheckOnly, "check", false, "do not overwrite .go, only typecheck .gown")
 	fs.BoolVar(&c.Propagate, "propagate", false, "force-propagate implied capability annotations before checking")
+	fs.BoolVar(&c.Version, "version", false, "print build information and exit")
 }
 
 func (c *Config) ValidateConfig() error {
@@ -27,10 +30,14 @@ func (c *Config) ValidateConfig() error {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stderr))
+	os.Exit(runWithWriters(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stderr io.Writer) int {
+	return runWithWriters(args, stderr, stderr)
+}
+
+func runWithWriters(args []string, stdout, stderr io.Writer) int {
 	myflags := flag.NewFlagSet("myflags", flag.ContinueOnError)
 	myflags.SetOutput(stderr)
 	cfg := &Config{}
@@ -40,6 +47,10 @@ func run(args []string, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "%s command line flag parse error: '%s'\n", ProgramName, err)
 		return 2
+	}
+	if cfg.Version {
+		fmt.Fprint(stdout, buildInfoString())
+		return 0
 	}
 	err = cfg.ValidateConfig()
 	if err != nil {
@@ -76,4 +87,16 @@ func run(args []string, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+func buildInfoString() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "build info unavailable\n"
+	}
+	text := info.String()
+	if len(text) == 0 || text[len(text)-1] != '\n' {
+		text += "\n"
+	}
+	return text
 }

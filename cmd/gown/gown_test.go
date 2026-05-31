@@ -179,6 +179,25 @@ func TestRunCheckAcceptsIntrinsicSyntaxForAnalysis(t *testing.T) {
 	}
 }
 
+func TestRunVersionPrintsBuildInfoWithoutPackageArgs(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runWithWriters([]string{"-version"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+	got := stdout.String()
+	for _, want := range []string{"go\t", "path\t"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("version output %q does not contain %q", got, want)
+		}
+	}
+}
+
 func writeCLIGownDir(t *testing.T, name, source string) string {
 	t.Helper()
 	dir := t.TempDir()
