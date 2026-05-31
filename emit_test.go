@@ -7,6 +7,14 @@ import (
 	"testing"
 )
 
+func TestEmitFormatsGeneratedGo(t *testing.T) {
+	out := emitGownSource(t, "format.gown", `package example
+func main(){if true{println("ok")}}
+`)
+
+	requireContains(t, out, "func main() {\n\tif true {\n\t\tprintln(\"ok\")\n\t}\n}")
+}
+
 func TestEmitNilAfterIsoSend(t *testing.T) {
 	out := emitGownSource(t, "send.gown", `package example
 
@@ -18,7 +26,7 @@ func main(ch chan \iso *payload) {
 }
 `)
 
-	requireContains(t, out, "ch <- x\n\tx = nil")
+	requireContains(t, out, "ch <- x\n\tx = nil"+generatedNilOwnershipTransferComment)
 }
 
 func TestEmitDoesNotNilBeforeOwnChannelFieldReceiveRebind(t *testing.T) {
@@ -85,7 +93,7 @@ func main() {
 }
 `)
 
-	requireContains(t, out, "Take(x)\n\tx = nil")
+	requireContains(t, out, "Take(x)\n\tx = nil"+generatedNilOwnershipTransferComment)
 }
 
 func TestEmitNilAfterIsoAssignmentMove(t *testing.T) {
@@ -100,7 +108,7 @@ func main() {
 }
 `)
 
-	requireContains(t, out, "y := x\n\tx = nil")
+	requireContains(t, out, "y := x\n\tx = nil"+generatedNilOwnershipTransferComment)
 }
 
 func TestEmitNilAfterDeferIsoCall(t *testing.T) {
@@ -116,7 +124,7 @@ func main() {
 }
 `)
 
-	requireContains(t, out, "defer Take(x)\n\tx = nil")
+	requireContains(t, out, "defer Take(x)\n\tx = nil"+generatedNilOwnershipTransferComment)
 }
 
 func TestEmitFreezeAssignment(t *testing.T) {
@@ -131,7 +139,7 @@ func main() {
 }
 `)
 
-	requireContains(t, out, "y := x\n\tx = nil")
+	requireContains(t, out, "y := x\n\tx = nil"+generatedNilOwnershipTransferComment)
 	requireNotContains(t, out, `\freeze`)
 }
 

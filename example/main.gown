@@ -23,12 +23,12 @@ type ticket struct {
 }
 
 func newTicket(name string) \iso *ticket {
-	return &ticket{
+	return \new(ticket{
 		tree: &bigTree{
 			name: name,
 		},
 		done: make(chan \iso *ticket),
-	}
+	})
 }
 
 type worker struct {

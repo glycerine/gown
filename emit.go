@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/types"
 	"sort"
 
@@ -16,6 +17,8 @@ type EmitEdit struct {
 	NewText []byte
 	Reason  string
 }
+
+const generatedNilOwnershipTransferComment = " // gown added: nil out because ownership transferred"
 
 func buildEmitSource(pkg *packages.Package, caps *CapabilityIndex, gf *gownFile, src []byte) ([]byte, error) {
 	if pkg == nil || caps == nil || gf == nil {
@@ -30,7 +33,15 @@ func buildEmitSource(pkg *packages.Package, caps *CapabilityIndex, gf *gownFile,
 		return nil, err
 	}
 	edits = append(edits, collectMoveNilEmitEdits(pkg, caps, file, src)...)
-	return applyEmitEdits(src, edits)
+	out, err := applyEmitEdits(src, edits)
+	if err != nil {
+		return nil, err
+	}
+	formatted, err := format.Source(out)
+	if err != nil {
+		return nil, fmt.Errorf("format emitted Go source for %s: %w", gf.path, err)
+	}
+	return formatted, nil
 }
 
 func syntaxFileForGownFile(pkg *packages.Package, gf *gownFile) *ast.File {
@@ -105,6 +116,9 @@ func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file 
 		if !ok {
 			return true
 		}
+		if _, ok := stmt.(*ast.BlockStmt); ok {
+			return true
+		}
 		roots := nilRootsForStatement(pkg, caps, stmt, currentSuppressions)
 		if len(roots) == 0 {
 			return true
@@ -120,6 +134,7 @@ func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file 
 			insert.Write(indent)
 			insert.WriteString(root)
 			insert.WriteString(" = nil")
+			insert.WriteString(generatedNilOwnershipTransferComment)
 		}
 		edits = append(edits, EmitEdit{
 			Start:   end,

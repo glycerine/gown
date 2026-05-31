@@ -65,21 +65,30 @@ files, which are backed by a `Gown.lean` LEAN proof.
 
 ### the core idea
 
-In ordinary Go, a pointer does not say much about who else might hold the same
-pointer. That is flexible, but it can make concurrent programs hard to reason
-about.
+In ordinary Go, a pointer can be copied and thus there can be multiple
+aliases of the same pointer outstanding at once. This makes it hard
+to be sure that pointer you just sent to another goroutine will not be
+mutated by one goroutine while another is reading it.
 
-Gown lets you write down the important aliasing promise:
+  "There can be only one." 
+     -- Connor MacLeod, Highlander, 1989
+
+Gown lets you write \iso to rule out all other aliases. The goroutine
+with an \iso pointer knows it has the only copy. That goroutine owns 
+that pointer. Suppose we pass around a *Ticket describing a job 
+and the progress made on the job so far.
 
 ```go
-type Buffer struct {
+type Ticket struct {
+    // ... various job description and progress/
+    // state fields would follow
     Data []byte
 }
 ```
 
-If a value has type `\iso *Buffer`, then there is one isolated owner. If a value
-has type `\imm *Buffer`, then it is deeply immutable and safe to share. If a
-value has type `\mub *Buffer` or `\rob *Buffer`, then it is a local borrow that
+If a value has type `\iso *Ticket`, then there is one isolated owner. If a value
+has type `\imm *Ticket`, then it is deeply immutable and safe to share. If a
+value has type `\mub *Ticket` or `\rob *Ticket`, then it is a local borrow that
 must not cross goroutine boundaries.
 
 The four core annotations are:
@@ -96,10 +105,10 @@ The four core annotations are:
 Capability annotations appear before the `*` in pointer types:
 
 ```go
-func Take(b \iso *Buffer) {}
-func Mutate(b \mub *Buffer) {}
-func Inspect(b \rob *Buffer) {}
-func Share(b \imm *Buffer) {}
+func Take(b \iso *Ticket) {}
+func Mutate(b \mub *Ticket) {}
+func Inspect(b \rob *Ticket) {}
+func Share(b \imm *Ticket) {}
 ```
 
 They can appear on function parameters, function return types, struct fields,
@@ -109,10 +118,10 @@ declarations.
 Local variables are usually inferred from the right-hand side:
 
 ```go
-b := \new(Buffer{})
+b := \new(Ticket{})
 ```
 
-Here `b` is inferred as `\iso *Buffer`.
+Here `b` is inferred as `\iso *Ticket`.
 
 All Gown annotations begin with `\`. If an annotation accidentally leaks into
 generated Go, the Go compiler will reject it. That makes annotation leakage
@@ -127,16 +136,16 @@ goroutine, but sending it is a move: after the move, the sender no longer owns
 the value.
 
 ```go
-type Buffer struct {
+type Ticket struct {
     Data []byte
 }
 
-func Take(b \iso *Buffer) {
+func Take(b \iso *Ticket) {
     b.Data = append(b.Data, 1)
 }
 
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
     Take(b)
 
     // Error: b was moved into Take.
@@ -153,15 +162,19 @@ A moved variable can be used again after it is assigned a fresh valid value.
 
 ```go
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
     Take(b)
 
-    b = \new(Buffer{})
+    b = \new(Ticket{})
     b.Data = append(b.Data, 2) // ok: b has been rebound
 }
 ```
 
-Rebinding is common. The important rule is that the new value must itself be a
+This isn't a great idea, but rebinding is a common idiom 
+in today's Go code. Hence Gown does not make it illegal.
+This facilitates adoption of Gown.
+
+The important rule is that the new value must itself be a
 valid `\iso` value.
 
 ### assignment moves ownership
@@ -170,7 +183,7 @@ Assigning one `\iso` variable to another is also a move.
 
 ```go
 func main() {
-    a := \new(Buffer{})
+    a := \new(Ticket{})
     b := a
 
     b.Data = append(b.Data, 1) // ok
@@ -186,9 +199,9 @@ An `\iso` value can be sent across a channel whose element type is `\iso`.
 
 ```go
 func main() {
-    ch := make(chan \iso *Buffer, 1)
+    ch := make(chan \iso *Ticket, 1)
 
-    b := \new(Buffer{})
+    b := \new(Ticket{})
     ch <- b
 
     // Error: b was moved into the channel.
@@ -199,7 +212,7 @@ func main() {
 The receiver becomes the new owner:
 
 ```go
-func worker(ch chan \iso *Buffer) {
+func worker(ch chan \iso *Ticket) {
     b := <-ch
     b.Data = append(b.Data, 1)
     Take(b)
@@ -209,15 +222,15 @@ func worker(ch chan \iso *Buffer) {
 ## `\mub`: mutable borrow
 
 Use `\mub` when a function needs to mutate a value temporarily, but should not
-take ownership of it. For example, a function that receives a \mub parameter could not send it to another goroutine over an \iso channel. In this example, AppendByte can mutate b, but not give it away. We know after AppendByte returns that main still has ownership of b. AppendBytes cannot store the pointer for later. AppendBytes cannot \freeze the pointer making it immutable.
+take ownership of it. For example, a function that receives a \mub parameter is forbidden from sending it to another goroutine. In this example, AppendByte can mutate b, but not give it away. We know after AppendByte returns that main still has ownership of b. AppendBytes cannot store the pointer for later. AppendBytes cannot \freeze the pointer making it immutable.
 
 ```go
-func AppendByte(b \mub *Buffer, x byte) {
+func AppendByte(b \mub *Ticket, x byte) {
     b.Data = append(b.Data, x)
 }
 
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
 
     AppendByte(b, 7)
     AppendByte(b, 8)
@@ -234,7 +247,7 @@ You can also create an explicit named mutable borrow:
 
 ```go
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
 
     mb := \mub(b)
     mb.Data = append(mb.Data, 1)
@@ -248,7 +261,7 @@ func main() {
 `\mub` is goroutine-local. It cannot be sent over a channel.
 
 ```go
-func Bad(ch chan \iso *Buffer, b \mub *Buffer) {
+func Bad(ch chan \iso *Ticket, b \mub *Ticket) {
     ch <- b // error: mutable borrows are not sendable
 }
 ```
@@ -262,12 +275,12 @@ Use `\rob` when a function should be allowed to inspect a value but not mutate
 it. It allows you to write functions that can process any kind of data, be it immutable or mutable or isolated.
 
 ```go
-func Len(b \rob *Buffer) int {
+func Len(b \rob *Ticket) int {
     return len(b.Data)
 }
 
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
 
     n := Len(b)
     _ = n
@@ -282,7 +295,7 @@ The caller keeps its ownership. The read-only borrow lasts for the call.
 A `\rob` value cannot be used to write:
 
 ```go
-func Bad(b \rob *Buffer) {
+func Bad(b \rob *Ticket) {
     b.Data = nil // error: cannot write through a read-only borrow
 }
 ```
@@ -292,7 +305,7 @@ borrow across more than one expression:
 
 ```go
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
 
     rb := \rob(b)
     _ = len(rb.Data)
@@ -316,12 +329,12 @@ behind it must not be mutated through the immutable reference.
 You usually create `\imm` by freezing an `\iso`:
 
 ```go
-func ReadOnlyLen(b \imm *Buffer) int {
+func ReadOnlyLen(b \imm *Ticket) int {
     return len(b.Data)
 }
 
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
     shared := \freeze(b)
 
     _ = ReadOnlyLen(shared)
@@ -336,9 +349,9 @@ Unlike `\iso`, sending an `\imm` value does not consume it.
 
 ```go
 func main() {
-    ch := make(chan \imm *Buffer)
+    ch := make(chan \imm *Ticket)
 
-    b := \new(Buffer{})
+    b := \new(Ticket{})
     shared := \freeze(b)
 
     ch <- shared
@@ -351,7 +364,7 @@ func main() {
 Writes through `\imm` are rejected:
 
 ```go
-func Bad(b \imm *Buffer) {
+func Bad(b \imm *Ticket) {
     b.Data = nil // error: cannot write through immutable data
 }
 ```
@@ -376,7 +389,7 @@ Use `\new` to create a fresh `\iso` pointer from a struct literal.
 
 ```go
 func main() {
-    b := \new(Buffer{Data: []byte{1, 2, 3}})
+    b := \new(Ticket{Data: []byte{1, 2, 3}})
     Take(b)
 }
 ```
@@ -401,14 +414,14 @@ clone() *T
 Example:
 
 ```go
-func (b *Buffer) clone() *Buffer {
+func (b *Ticket) clone() *Ticket {
     cp := *b
     cp.Data = append([]byte{}, b.Data...)
     return &cp
 }
 
 func main() {
-    template := \new(Buffer{Data: []byte{1, 2, 3}})
+    template := \new(Ticket{Data: []byte{1, 2, 3}})
 
     copy1 := \clone(template)
     copy2 := \clone(template)
@@ -429,7 +442,7 @@ method shape, but it cannot prove that the method body performed a deep copy.
 Use `\freeze` when you are done mutating an isolated value and want to share it.
 
 ```go
-func Publish(ch chan \imm *Buffer, b \iso *Buffer) {
+func Publish(ch chan \imm *Ticket, b \iso *Ticket) {
     shared := \freeze(b)
     ch <- shared
     ch <- shared
@@ -444,12 +457,12 @@ Use `\unsafe` only at an explicit checked-to-unchecked boundary, such as a call
 to ordinary Go code that Gown cannot analyze.
 
 ```go
-func LegacyUse(b *Buffer) {
+func LegacyUse(b *Ticket) {
     // ordinary Go code
 }
 
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
 
     LegacyUse(\unsafe(b))
 
@@ -467,21 +480,21 @@ A useful way to learn Gown is to compare the same API shape under different
 annotations.
 
 ```go
-func Own(b \iso *Buffer) {
+func Own(b \iso *Ticket) {
     // Takes ownership. Caller loses b.
 }
 
-func Mutate(b \mub *Buffer) {
+func Mutate(b \mub *Ticket) {
     // Temporarily mutates. Caller keeps b.
     b.Data = append(b.Data, 1)
 }
 
-func Inspect(b \rob *Buffer) int {
+func Inspect(b \rob *Ticket) int {
     // Temporarily reads. Caller keeps b.
     return len(b.Data)
 }
 
-func Share(b \imm *Buffer) int {
+func Share(b \imm *Ticket) int {
     // Reads a shareable immutable value.
     return len(b.Data)
 }
@@ -491,7 +504,7 @@ At a call site:
 
 ```go
 func main() {
-    b := \new(Buffer{})
+    b := \new(Ticket{})
 
     Mutate(b)  // implicit \mub borrow
     Inspect(b) // implicit \rob borrow
@@ -521,14 +534,14 @@ important.
 Use `chan \iso *T` when each item has one owner at a time.
 
 ```go
-func producer(ch chan \iso *Buffer) {
-    b := \new(Buffer{})
+func producer(ch chan \iso *Ticket) {
+    b := \new(Ticket{})
     ch <- b
 
     // b is gone here.
 }
 
-func consumer(ch chan \iso *Buffer) {
+func consumer(ch chan \iso *Ticket) {
     b := <-ch
     b.Data = append(b.Data, 1)
     Take(b)
@@ -540,8 +553,8 @@ func consumer(ch chan \iso *Buffer) {
 Use `chan \imm *T` when many receivers may safely share the same data.
 
 ```go
-func publish(ch chan \imm *Buffer) {
-    b := \new(Buffer{Data: []byte{1, 2, 3}})
+func publish(ch chan \imm *Ticket) {
+    b := \new(Ticket{Data: []byte{1, 2, 3}})
     shared := \freeze(b)
 
     ch <- shared
@@ -556,7 +569,7 @@ When you want to keep a local value but send a fresh owned copy, clone at the
 send site.
 
 ```go
-func publishCopies(ch chan \iso *Buffer, template \rob *Buffer) {
+func publishCopies(ch chan \iso *Ticket, template \rob *Ticket) {
     ch <- \clone(template)
     ch <- \clone(template)
 }
@@ -621,8 +634,8 @@ Struct fields may also carry capability annotations.
 
 ```go
 type Job struct {
-    Input  \iso *Buffer
-    Config \imm *Buffer
+    Input  \iso *Ticket
+    Config \imm *Ticket
     Done   \imm chan \iso *Job
 }
 ```
@@ -639,7 +652,7 @@ func UseConfig(j \rob *Job) int {
     return len(j.Config.Data)
 }
 
-func ReplaceInput(j \mub *Job, next \iso *Buffer) {
+func ReplaceInput(j \mub *Job, next \iso *Ticket) {
     j.Input = next
 }
 ```
@@ -795,17 +808,17 @@ func main() {
 
 Try these changes in small `.gown` files:
 
-1. Write a function that takes `\iso *Buffer` and prove to yourself that the
+1. Write a function that takes `\iso *Ticket` and prove to yourself that the
    caller cannot use the old variable afterward.
-2. Change that function to take `\mub *Buffer` and observe that the caller keeps
+2. Change that function to take `\mub *Ticket` and observe that the caller keeps
    ownership.
-3. Add a read-only helper with `\rob *Buffer`, then try to write through the
+3. Add a read-only helper with `\rob *Ticket`, then try to write through the
    parameter and see the checker reject it.
-4. Freeze an `\iso *Buffer` into `\imm *Buffer`, send it twice on a channel, and
+4. Freeze an `\iso *Ticket` into `\imm *Ticket`, send it twice on a channel, and
    confirm the sender still has the immutable value.
-5. Add a valid `clone() *Buffer` method, then send `\clone(b)` while continuing
+5. Add a valid `clone() *Ticket` method, then send `\clone(b)` while continuing
    to use `b`.
-6. Try to send a `\mub *Buffer` on a channel and explain why Gown rejects it.
+6. Try to send a `\mub *Ticket` on a channel and explain why Gown rejects it.
 7. Add a `Done \imm chan \iso *Ticket` reply channel to a ticket type, send the
    ticket to a worker, and receive the ticket back from `Done`.
 
