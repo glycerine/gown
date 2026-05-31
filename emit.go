@@ -56,6 +56,37 @@ func syntaxFileForGownFile(pkg *packages.Package, gf *gownFile) *ast.File {
 
 func collectIntrinsicEmitEdits(pkg *packages.Package, caps *OstampIndex, gf *gownFile, src []byte) ([]EmitEdit, error) {
 	var edits []EmitEdit
+	bindings := intrinsicEmitBindings(pkg, caps, gf, src)
+	for _, binding := range bindings {
+		if binding.Call == nil {
+			continue
+		}
+		if intrinsicBindingNestedInAnother(pkg, binding, bindings) {
+			continue
+		}
+		start, end := nodeOffsets(pkg, binding.Call)
+		replacement, err := intrinsicEmitReplacement(pkg, caps, src, binding, bindings)
+		if err != nil {
+			return nil, err
+		}
+		if len(replacement) == 0 {
+			continue
+		}
+		edits = append(edits, EmitEdit{
+			Start:   start,
+			End:     end,
+			NewText: replacement,
+			Reason:  "lower intrinsic",
+		})
+	}
+	return edits, nil
+}
+
+func intrinsicEmitBindings(pkg *packages.Package, caps *OstampIndex, gf *gownFile, src []byte) []IntrinsicBinding {
+	if pkg == nil || caps == nil || gf == nil {
+		return nil
+	}
+	var bindings []IntrinsicBinding
 	for _, binding := range caps.IntrinsicBindings {
 		if binding.Call == nil {
 			continue
@@ -67,37 +98,142 @@ func collectIntrinsicEmitEdits(pkg *packages.Package, caps *OstampIndex, gf *gow
 		if !validRange(src, start, end) {
 			continue
 		}
-		var replacement []byte
-		switch binding.Kind {
-		case IntrinsicMub, IntrinsicRob, IntrinsicFreeze, IntrinsicUnsafe:
-			replacement = nodeText(pkg, src, binding.Arg)
-		case IntrinsicNew:
-			arg := nodeText(pkg, src, binding.Arg)
-			if len(arg) == 0 {
-				continue
-			}
-			replacement = append([]byte("&"), arg...)
-		case IntrinsicClone, IntrinsicCloneExported:
-			if err, ok := checkCloneIntrinsic(pkg.TypesInfo, pkg.Types, binding); ok {
-				return nil, err
-			}
-			arg := nodeText(pkg, src, binding.Arg)
-			if len(arg) == 0 {
-				continue
-			}
-			replacement = append([]byte("("), arg...)
-			replacement = append(replacement, []byte(")."+cloneIntrinsicMethodName(binding.Kind)+"()")...)
-		default:
+		bindings = append(bindings, binding)
+	}
+	return bindings
+}
+
+func intrinsicBindingNestedInAnother(pkg *packages.Package, binding IntrinsicBinding, bindings []IntrinsicBinding) bool {
+	start, end := nodeOffsets(pkg, binding.Call)
+	for _, other := range bindings {
+		if other.Call == nil || other.Call == binding.Call {
+			continue
+		}
+		otherStart, otherEnd := nodeOffsets(pkg, other.Call)
+		if otherStart <= start && end <= otherEnd && (otherStart < start || end < otherEnd) {
+			return true
+		}
+	}
+	return false
+}
+
+func intrinsicEmitReplacement(pkg *packages.Package, caps *OstampIndex, src []byte, binding IntrinsicBinding, bindings []IntrinsicBinding) ([]byte, error) {
+	arg := loweredNodeText(pkg, caps, src, binding.Arg, bindings)
+	switch binding.Kind {
+	case IntrinsicMub, IntrinsicRob, IntrinsicFreeze, IntrinsicUnsafe:
+		return arg, nil
+	case IntrinsicNew:
+		if len(arg) == 0 {
+			return nil, nil
+		}
+		if !newArgCanUseAddressOf(binding.Arg) {
+			return nonCompositeNewReplacement(pkg, binding.Arg, arg), nil
+		}
+		return append([]byte("&"), arg...), nil
+	case IntrinsicClone, IntrinsicCloneExported:
+		if err, ok := checkCloneIntrinsic(pkg.TypesInfo, pkg.Types, binding); ok {
+			return nil, err
+		}
+		if len(arg) == 0 {
+			return nil, nil
+		}
+		replacement := append([]byte("("), arg...)
+		replacement = append(replacement, []byte(")."+cloneIntrinsicMethodName(binding.Kind)+"()")...)
+		return replacement, nil
+	default:
+		return nil, nil
+	}
+}
+
+func newArgCanUseAddressOf(expr ast.Expr) bool {
+	_, ok := unparenExpr(expr).(*ast.CompositeLit)
+	return ok
+}
+
+func nonCompositeNewReplacement(pkg *packages.Package, expr ast.Expr, arg []byte) []byte {
+	typ := pointerTypeString(pkg, expr)
+	if typ == "" {
+		return append([]byte("&"), arg...)
+	}
+	return []byte(fmt.Sprintf("func() %s {\n\tgownNew := %s\n\treturn &gownNew\n}()", typ, arg))
+}
+
+func pointerTypeString(pkg *packages.Package, expr ast.Expr) string {
+	if pkg == nil || pkg.TypesInfo == nil || expr == nil {
+		return ""
+	}
+	typ := pkg.TypesInfo.TypeOf(expr)
+	if typ == nil {
+		return ""
+	}
+	typ = types.Default(typ)
+	return types.TypeString(types.NewPointer(typ), func(p *types.Package) string {
+		if p == nil {
+			return ""
+		}
+		if pkg.Types != nil && p == pkg.Types {
+			return ""
+		}
+		return p.Name()
+	})
+}
+
+func loweredNodeText(pkg *packages.Package, caps *OstampIndex, src []byte, node ast.Node, bindings []IntrinsicBinding) []byte {
+	start, end := nodeOffsets(pkg, node)
+	if !validRange(src, start, end) {
+		return nil
+	}
+	out := append([]byte(nil), src[start:end]...)
+	edits := nestedIntrinsicEmitEdits(pkg, caps, src, start, end, bindings)
+	if len(edits) == 0 {
+		return out
+	}
+	lowered, err := applyEmitEdits(out, edits)
+	if err != nil {
+		return out
+	}
+	return lowered
+}
+
+func nestedIntrinsicEmitEdits(pkg *packages.Package, caps *OstampIndex, src []byte, start, end int, bindings []IntrinsicBinding) []EmitEdit {
+	var edits []EmitEdit
+	for _, binding := range bindings {
+		callStart, callEnd := nodeOffsets(pkg, binding.Call)
+		if callStart < start || callEnd > end {
+			continue
+		}
+		if intrinsicBindingNestedInRange(pkg, binding, bindings, start, end) {
+			continue
+		}
+		replacement, err := intrinsicEmitReplacement(pkg, caps, src, binding, bindings)
+		if err != nil || len(replacement) == 0 {
 			continue
 		}
 		edits = append(edits, EmitEdit{
-			Start:   start,
-			End:     end,
+			Start:   callStart - start,
+			End:     callEnd - start,
 			NewText: replacement,
-			Reason:  "lower intrinsic",
+			Reason:  "lower nested intrinsic",
 		})
 	}
-	return edits, nil
+	return edits
+}
+
+func intrinsicBindingNestedInRange(pkg *packages.Package, binding IntrinsicBinding, bindings []IntrinsicBinding, start, end int) bool {
+	callStart, callEnd := nodeOffsets(pkg, binding.Call)
+	for _, other := range bindings {
+		if other.Call == nil || other.Call == binding.Call {
+			continue
+		}
+		otherStart, otherEnd := nodeOffsets(pkg, other.Call)
+		if otherStart < start || otherEnd > end {
+			continue
+		}
+		if otherStart <= callStart && callEnd <= otherEnd && (otherStart < callStart || callEnd < otherEnd) {
+			return true
+		}
+	}
+	return false
 }
 
 func collectMoveNilEmitEdits(pkg *packages.Package, caps *OstampIndex, file *ast.File, src []byte) []EmitEdit {

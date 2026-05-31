@@ -214,6 +214,44 @@ func main() {
 	requireContains(t, out, `x := &payload{Data: "fresh"}`)
 }
 
+func TestEmitNestedNewLowersWithoutOverlappingEdits(t *testing.T) {
+	out := emitGownSource(t, "nested_new.gown", `package example
+
+type payload struct{ Data string }
+type job struct {
+	Input \iso *payload
+}
+
+func main() {
+	j := \new(job{
+		Input: \new(payload{Data: "fresh"}),
+	})
+	_ = j
+}
+`)
+
+	requireContains(t, out, `j := &job{
+		Input: &payload{Data: "fresh"},
+	}`)
+	requireNotContains(t, out, `\new`)
+}
+
+func TestEmitNewLowersNonCompositeExpressionToFreshPointer(t *testing.T) {
+	out := emitGownSource(t, "new_expr.gown", `package example
+
+func main() {
+	x := \new(int(9))
+	println(*x)
+}
+`)
+
+	requireContains(t, out, `x := func() *int {
+		gownNew := int(9)
+		return &gownNew
+	}()`)
+	requireNotContains(t, out, `&int(9)`)
+}
+
 func TestEmitDoesNotNilFreshNewSource(t *testing.T) {
 	out := emitGownSource(t, "fresh_new.gown", `package example
 
