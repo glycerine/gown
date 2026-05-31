@@ -203,7 +203,7 @@ func worker(ch chan \iso *Buffer) {
 ## `\mub`: mutable borrow
 
 Use `\mub` when a function needs to mutate a value temporarily, but should not
-take ownership of it. For example, a function that receives a \mub parameter could not send it to another goroutine over an \iso channel. In this example, AppendByte can mutate b, but not give it away. We know after AppendByte returns that main still has ownership of b. 
+take ownership of it. For example, a function that receives a \mub parameter could not send it to another goroutine over an \iso channel. In this example, AppendByte can mutate b, but not give it away. We know after AppendByte returns that main still has ownership of b. AppendBytes cannot store the pointer for later. AppendBytes cannot \freeze the pointer making it immutable.
 
 ```go
 func AppendByte(b \mub *Buffer, x byte) {
