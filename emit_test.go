@@ -21,6 +21,29 @@ func main(ch chan \iso *payload) {
 	requireContains(t, out, "ch <- x\n\tx = nil")
 }
 
+func TestEmitDoesNotNilBeforeOwnChannelFieldReceiveRebind(t *testing.T) {
+	out := emitGownSource(t, "receive_rebind.gown", `package example
+
+type ticket struct {
+	done chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	tkt = <-tkt.done
+	_ = tkt
+}
+`)
+
+	requireNotContains(t, out, "tkt = nil\n\ttkt = <-tkt.done")
+	requireContains(t, out, "work <- tkt\n\ttkt = <-tkt.done")
+}
+
 func TestEmitNilAfterIsoCall(t *testing.T) {
 	out := emitGownSource(t, "call.gown", `package example
 

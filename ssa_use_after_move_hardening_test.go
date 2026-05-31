@@ -1,6 +1,9 @@
 package gown
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const gownHardeningPreamble = `package example
 
@@ -200,6 +203,23 @@ func TestSSAGWN001AllowsRebindWithIsoReceiveAfterSend(t *testing.T) {
 }`)
 }
 
+func TestSSAGWN001AllowsRebindWithIsoReceiveFromMovedRootChannelField(t *testing.T) {
+	requireHardeningOK(t, `type ticket struct {
+	done chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	tkt = <-tkt.done
+	println(tkt)
+}`)
+}
+
 func TestSSAGWN001AllowsRebindByMovingOtherIsoAndRejectsOldSource(t *testing.T) {
 	requireHardeningCheckerCode(t, `func main(ch chan \iso *payload) {
 	var x \iso *payload
@@ -217,6 +237,28 @@ func TestSSAGWN010RejectsRebindFromUntracked(t *testing.T) {
 	ch <- x
 	x = z
 }`, GWN010)
+}
+
+func TestSSAGWN010RebindFromUntrackedReportsValueTypeAndReason(t *testing.T) {
+	err := checkGownSource(t, hardeningTestName(t), gownHardeningPreamble+`
+func main(ch chan \iso *payload, z *payload) {
+	var x \iso *payload
+	ch <- x
+	x = z
+}
+`)
+	if err == nil {
+		t.Fatal("expected GWN010, got nil")
+	}
+	text := err.Error()
+	for _, want := range []string{
+		"type *example.payload",
+		"requires a fresh or moved \\iso value",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("error %q does not contain %q", text, want)
+		}
+	}
 }
 
 func TestSSAGWN010RejectsRebindFromBorrow(t *testing.T) {

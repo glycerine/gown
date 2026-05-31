@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/ast"
+	"go/types"
 	"sort"
 
 	"golang.org/x/tools/go/packages"
@@ -90,7 +91,13 @@ func collectIntrinsicEmitEdits(pkg *packages.Package, caps *CapabilityIndex, gf 
 
 func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file *ast.File, src []byte) []EmitEdit {
 	var edits []EmitEdit
+	nilSuppressions := collectNilSuppressedRebindRoots(caps, file)
+	var currentSuppressions map[types.Object]bool
 	ast.Inspect(file, func(n ast.Node) bool {
+		if fn, ok := n.(*ast.FuncDecl); ok {
+			currentSuppressions = nilSuppressions[fn]
+			return true
+		}
 		if _, ok := n.(*ast.FuncLit); ok {
 			return false
 		}
@@ -98,7 +105,7 @@ func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file 
 		if !ok {
 			return true
 		}
-		roots := nilRootsForStatement(pkg, caps, stmt)
+		roots := nilRootsForStatement(pkg, caps, stmt, currentSuppressions)
 		if len(roots) == 0 {
 			return true
 		}
@@ -125,11 +132,48 @@ func collectMoveNilEmitEdits(pkg *packages.Package, caps *CapabilityIndex, file 
 	return edits
 }
 
-func nilRootsForStatement(pkg *packages.Package, caps *CapabilityIndex, stmt ast.Stmt) []string {
+func collectNilSuppressedRebindRoots(caps *CapabilityIndex, file *ast.File) map[*ast.FuncDecl]map[types.Object]bool {
+	out := make(map[*ast.FuncDecl]map[types.Object]bool)
+	if caps == nil || file == nil {
+		return out
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if _, ok := n.(*ast.FuncLit); ok {
+				return false
+			}
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok || len(assign.Lhs) != len(assign.Rhs) {
+				return true
+			}
+			for i := range assign.Lhs {
+				dst, _, ok := isoRootRebindReceive(caps, assign.Lhs[i], assign.Rhs[i])
+				if !ok {
+					continue
+				}
+				if out[fn] == nil {
+					out[fn] = make(map[types.Object]bool)
+				}
+				out[fn][dst.Root] = true
+			}
+			return true
+		})
+	}
+	return out
+}
+
+func nilRootsForStatement(pkg *packages.Package, caps *CapabilityIndex, stmt ast.Stmt, suppressNilRoots map[types.Object]bool) []string {
 	seen := make(map[string]bool)
 	var roots []string
 	add := func(place Place) {
 		if place.Root == nil || place.Key().Path != "" {
+			return
+		}
+		if suppressNilRoots[place.Root] {
 			return
 		}
 		name := place.Root.Name()

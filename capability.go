@@ -80,6 +80,21 @@ func (idx *CapabilityIndex) ChanElemCap(obj types.Object) Cap {
 	return CapUntracked
 }
 
+func chanElemCapForPlace(idx *CapabilityIndex, place Place) Cap {
+	if idx == nil || place.Root == nil {
+		return CapInvalid
+	}
+	obj := place.Root
+	if len(place.Projection) > 0 {
+		field := place.Projection[len(place.Projection)-1].Field
+		if field == nil {
+			return CapUntracked
+		}
+		obj = field
+	}
+	return idx.ChanElemCap(obj)
+}
+
 func (idx *CapabilityIndex) FuncCap(fn *types.Func) *FuncCapability {
 	if idx == nil || fn == nil {
 		return nil

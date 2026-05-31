@@ -57,7 +57,7 @@ func bindSendBindings(pkg *packages.Package, idx *CapabilityIndex) {
 }
 
 func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.SendStmt) {
-	ch, ok := directRootPlace(pkg, send.Chan)
+	ch, ok := idx.PlaceForExpr(send.Chan)
 	if !ok {
 		return
 	}
@@ -73,7 +73,7 @@ func bindSendBinding(pkg *packages.Package, idx *CapabilityIndex, send *ast.Send
 		ValueFresh:  value.Fresh,
 		ValueSource: value.Source,
 		ValueIso:    placeCanTransferAsIso(idx, value.Place) || value.Cap == CapIso,
-		ChanElemCap: idx.ChanElemCap(ch.Root),
+		ChanElemCap: chanElemCapForPlace(idx, ch),
 		ValueCap:    value.Cap,
 		Offset:      pos.Offset,
 		Line:        pos.Line,

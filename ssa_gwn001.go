@@ -15,17 +15,19 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 		return nil
 	}
 	places := buildSSAPlaceIndex(pkg, ssaPkg, caps)
+	assignments := collectSSAAssignments(pkg, caps)
 	checker := &ssaGWN001Checker{
-		pkg:          pkg,
-		caps:         caps,
-		places:       places,
-		assignments:  collectSSAAssignments(pkg, caps),
-		namedBorrows: collectSSANamedBorrows(pkg, caps),
-		deferEffects: collectSSADeferredClosureEffects(pkg, caps),
-		returns:      collectSSAReturnPlaces(pkg, caps),
-		returnValues: collectSSAReturnValues(pkg, caps),
-		bindings:     NewSSABindingIndex(caps),
-		reported:     make(map[string]bool),
+		pkg:             pkg,
+		caps:            caps,
+		places:          places,
+		assignments:     assignments,
+		movedRebindUses: collectSSAMovedRebindUseSpans(assignments, caps),
+		namedBorrows:    collectSSANamedBorrows(pkg, caps),
+		deferEffects:    collectSSADeferredClosureEffects(pkg, caps),
+		returns:         collectSSAReturnPlaces(pkg, caps),
+		returnValues:    collectSSAReturnValues(pkg, caps),
+		bindings:        NewSSABindingIndex(caps),
+		reported:        make(map[string]bool),
 	}
 	for _, fn := range collectSSAFunctions(ssaPkg) {
 		checker.checkFunction(fn)
@@ -38,6 +40,7 @@ type ssaGWN001Checker struct {
 	caps                *CapabilityIndex
 	places              *SSAPlaceIndex
 	assignments         map[ast.Expr]ssaAssignment
+	movedRebindUses     []ssaMovedRebindUseSpan
 	namedBorrows        map[*types.Func]SSANamedBorrowInfo
 	deferEffects        map[*types.Func]SSADeferredClosureEffectInfo
 	returns             map[sourcePosKey][]Place
@@ -54,6 +57,12 @@ type ssaAssignment struct {
 	Dst   Place
 	Value ValueCapability
 	RHS   ast.Expr
+}
+
+type ssaMovedRebindUseSpan struct {
+	Root  types.Object
+	Start token.Pos
+	End   token.Pos
 }
 
 func (checker *ssaGWN001Checker) checkFunction(fn *ssa.Function) {
@@ -185,6 +194,9 @@ func (checker *ssaGWN001Checker) checkDebugRefUse(debug *ssa.DebugRef, state *SS
 	if !moved {
 		return
 	}
+	if checker.allowsMovedRebindUse(debug.Pos(), place, state) {
+		return
+	}
 	checker.reportUseAfterMove(debug, place, site)
 }
 
@@ -194,6 +206,20 @@ func (checker *ssaGWN001Checker) isAssignmentTargetDebugRef(debug *ssa.DebugRef)
 	}
 	_, ok := checker.assignments[debugRefExprKey(debug.Expr)]
 	return ok
+}
+
+func (checker *ssaGWN001Checker) allowsMovedRebindUse(pos token.Pos, place Place, state *SSAFunctionState) bool {
+	if checker == nil || state == nil || !pos.IsValid() || place.Root == nil {
+		return false
+	}
+	for _, span := range checker.movedRebindUses {
+		if span.Root != place.Root || pos < span.Start || pos >= span.End {
+			continue
+		}
+		_, moved := state.CheckUse(PlaceKey{Root: span.Root})
+		return moved
+	}
+	return false
 }
 
 func (checker *ssaGWN001Checker) checkInstructionOperandUses(instr ssa.Instruction, state *SSAFunctionState) {
@@ -220,6 +246,9 @@ func (checker *ssaGWN001Checker) checkInstructionOperandUses(instr ssa.Instructi
 		}
 		site, moved := state.CheckUse(place.Key())
 		if !moved {
+			continue
+		}
+		if checker.allowsMovedRebindUse(instr.Pos(), place, state) {
 			continue
 		}
 		checker.reportUseAfterMove(instr, place, site)
@@ -315,7 +344,7 @@ func (checker *ssaGWN001Checker) applySelectTransfer(instr *ssa.Select, state *S
 		if !ok || chPlace.Root == nil {
 			continue
 		}
-		chCap := checker.caps.ChanElemCap(chPlace.Root)
+		chCap := chanElemCapForPlace(checker.caps, chPlace)
 		if chCap != CapIso && chCap != CapImm {
 			continue
 		}
@@ -346,11 +375,7 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 	}
 	pos := checker.pkg.Fset.Position(instr.Pos())
 	if assignment.Value.Cap != CapIso {
-		checker.reportCheckerError(newCheckerErrorAtPosition(
-			GWN010,
-			pos,
-			fmt.Sprintf("cannot assign %s value to \\iso root %q", assignment.Value.Cap, assignment.Dst.Root.Name()),
-		))
+		checker.reportAssignmentCapabilityMismatch(pos, assignment)
 		return
 	}
 	if assignment.Value.Fresh {
@@ -360,11 +385,7 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 	}
 	src := assignment.Value.Place
 	if src.Root == nil || !placeCanTransferAsIso(checker.caps, src) {
-		checker.reportCheckerError(newCheckerErrorAtPosition(
-			GWN010,
-			pos,
-			fmt.Sprintf("cannot assign %s value to \\iso root %q", assignment.Value.Cap, assignment.Dst.Root.Name()),
-		))
+		checker.reportAssignmentCapabilityMismatch(pos, assignment)
 		return
 	}
 	if site, frontiered := state.CheckFrontier(src.Key()); frontiered {
@@ -393,6 +414,20 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 	state.UnfrontierRoot(assignment.Dst.Key())
 }
 
+func (checker *ssaGWN001Checker) reportAssignmentCapabilityMismatch(pos token.Position, assignment ssaAssignment) {
+	checker.reportCheckerError(newCheckerErrorAtPosition(
+		GWN010,
+		pos,
+		fmt.Sprintf(
+			"cannot assign %s value of type %s to \\iso root %q: %s",
+			assignment.Value.Cap,
+			assignmentValueTypeString(checker.pkg, assignment.RHS),
+			assignment.Dst.Root.Name(),
+			assignmentValueInvalidReason(checker.caps, assignment),
+		),
+	))
+}
+
 func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFunctionState) {
 	if binding, ok := checker.bindings.Send(checker.pkg, instr); ok {
 		if binding.Value.Root == nil {
@@ -413,7 +448,7 @@ func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFu
 	if !ok || valuePlace.Root == nil || !placeCanTransferAsIso(checker.caps, valuePlace) {
 		return
 	}
-	chCap := checker.caps.ChanElemCap(chPlace.Root)
+	chCap := chanElemCapForPlace(checker.caps, chPlace)
 	if chCap != CapIso && chCap != CapImm {
 		return
 	}
@@ -1125,6 +1160,22 @@ func collectSSAAssignments(pkg *packages.Package, caps *CapabilityIndex) map[ast
 	return assignments
 }
 
+func collectSSAMovedRebindUseSpans(assignments map[ast.Expr]ssaAssignment, caps *CapabilityIndex) []ssaMovedRebindUseSpan {
+	var spans []ssaMovedRebindUseSpan
+	for lhs, assignment := range assignments {
+		dst, _, ok := isoRootRebindReceive(caps, lhs, assignment.RHS)
+		if !ok {
+			continue
+		}
+		spans = append(spans, ssaMovedRebindUseSpan{
+			Root:  dst.Root,
+			Start: assignment.RHS.Pos(),
+			End:   assignment.RHS.End(),
+		})
+	}
+	return spans
+}
+
 func assignmentValueCapability(pkg *packages.Package, caps *CapabilityIndex, expr ast.Expr) ValueCapability {
 	if value, ok := valueCapabilityForExpr(pkg, caps, expr); ok {
 		return value
@@ -1133,6 +1184,54 @@ func assignmentValueCapability(pkg *packages.Package, caps *CapabilityIndex, exp
 		return ValueCapability{Cap: cap, Fresh: cap == CapIso}
 	}
 	return ValueCapability{Cap: CapInvalid}
+}
+
+func assignmentValueTypeString(pkg *packages.Package, expr ast.Expr) string {
+	if pkg == nil || pkg.TypesInfo == nil || expr == nil {
+		return "<unknown>"
+	}
+	typ := pkg.TypesInfo.TypeOf(expr)
+	if typ == nil {
+		return "<unknown>"
+	}
+	return types.TypeString(typ, func(p *types.Package) string {
+		if p == nil {
+			return ""
+		}
+		return p.Name()
+	})
+}
+
+func assignmentValueInvalidReason(caps *CapabilityIndex, assignment ssaAssignment) string {
+	expr := unparenExpr(assignment.RHS)
+	if recv, ok := expr.(*ast.UnaryExpr); ok && recv.Op == token.ARROW {
+		place, ok := caps.PlaceForExpr(recv.X)
+		if !ok || place.Root == nil {
+			return "receive channel expression is not a tracked place"
+		}
+		chCap := chanElemCapForPlace(caps, place)
+		if !capTracked(chCap) {
+			return fmt.Sprintf("receive channel %s has %s element capability", placeName(place), chCap)
+		}
+		if chCap != CapIso {
+			return fmt.Sprintf("receive channel %s produces %s, but \\iso root rebinding requires \\iso", placeName(place), chCap)
+		}
+	}
+	switch assignment.Value.Cap {
+	case CapInvalid:
+		return "expression is not known to produce a tracked capability value"
+	case CapUntracked:
+		return "\\iso root rebinding requires a fresh or moved \\iso value; this expression is untracked"
+	default:
+		return fmt.Sprintf("\\iso root rebinding requires a fresh or moved \\iso value, not %s", assignment.Value.Cap)
+	}
+}
+
+func placeName(place Place) string {
+	if place.Root == nil {
+		return "<unknown>"
+	}
+	return place.Root.Name() + place.Projection.String()
 }
 
 func collectSSAReturnPlaces(pkg *packages.Package, caps *CapabilityIndex) map[sourcePosKey][]Place {

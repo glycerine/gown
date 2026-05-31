@@ -62,7 +62,7 @@ func (checker *ssaSendChecker) checkSend(send *ssa.Send) {
 	if !ok || valuePlace.Root == nil {
 		return
 	}
-	chCap := checker.caps.ChanElemCap(chPlace.Root)
+	chCap := chanElemCapForPlace(checker.caps, chPlace)
 	valueCap := capForSSAPlace(checker.caps, valuePlace)
 	pos := checker.pkg.Fset.Position(send.Pos())
 

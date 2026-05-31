@@ -144,12 +144,13 @@ func bindGenDeclCapabilities(pkg *packages.Package, idx *CapabilityIndex, quals 
 			}
 			for _, field := range st.Fields.List {
 				cap := directCapForType(pkg, quals, field.Type)
-				if cap == CapInvalid {
+				chanElemCap := chanElemCapForType(pkg, quals, field.Type)
+				if cap == CapInvalid && chanElemCap == CapInvalid {
 					continue
 				}
 				for _, name := range field.Names {
 					if obj := pkg.TypesInfo.Defs[name]; obj != nil {
-						idx.ObjectCaps[obj] = cap
+						bindObjectCaps(idx, obj, cap, chanElemCap)
 					}
 				}
 			}
@@ -309,7 +310,7 @@ func receiveCapForValueExpr(idx *CapabilityIndex, expr ast.Expr) Cap {
 	if !ok || place.Root == nil {
 		return CapInvalid
 	}
-	cap := idx.ChanElemCap(place.Root)
+	cap := chanElemCapForPlace(idx, place)
 	if !capTracked(cap) {
 		return CapInvalid
 	}
