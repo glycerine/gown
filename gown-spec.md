@@ -689,6 +689,7 @@ they do not exist as Go functions and are fully erased on output.
 | `\rob(x)`        | `\iso *T`     | `\rob *T`     | plain assignment      |
 | `\rob(x)`        | `\imm *T`     | `\rob *T`     | plain assignment      |
 | `\freeze(x)`     | `\iso *T`     | `\imm *T`     | `dst := x; x = nil`  |
+| `\swap(a, b)`    | two `\iso` assignable places of identical type | no value | `a, b = b, a` |
 | `\unsafe(x)`     | any           | same          | `x`                   |
 
 `\new` is the preferred constructor for `\iso` values. It guarantees the
@@ -700,6 +701,12 @@ static type `*T`, that exact type must define `clone() *T`. In v1, `T` must be
 a named struct type. The source may have any ownerstamp, including untracked,
 and is not consumed. The returned `\iso` is trusted to share no mutable memory
 with the original. The transpiler emits `(x).clone()`.
+
+`\swap(a, b)` exchanges the contents of two assignable `\iso` owner cells. Both
+arguments must be locals or field places with identical static Go types and
+effective ownerstamp `\iso`. The operation has no result value and emits Go's
+ordinary simultaneous assignment, `a, b = b, a`. Root/field overlap is allowed;
+Go's assignment evaluation order defines the exact operation.
 
 ---
 

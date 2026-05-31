@@ -553,6 +553,33 @@ func (checker *ssaGWN001Checker) applyIntrinsicTransfer(binding IntrinsicBinding
 		checker.applyExplicitFreezeIntrinsic(binding, state, instr)
 	case IntrinsicUnsafe:
 		checker.applyUnsafeIntrinsic(binding, state, instr)
+	case IntrinsicSwap:
+		checker.applySwapIntrinsic(binding, state, instr)
+	}
+}
+
+func (checker *ssaGWN001Checker) applySwapIntrinsic(binding IntrinsicBinding, state *SSAFunctionState, instr ssa.Instruction) {
+	if state == nil || len(binding.ArgPlaces) != 2 {
+		return
+	}
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	for _, place := range binding.ArgPlaces {
+		if place.Root == nil {
+			continue
+		}
+		key := place.Key()
+		if site, frontiered := state.CheckFrontier(key); frontiered {
+			checker.reportFrontierViolation(pos, place, site, "swap")
+			return
+		}
+		if site, moved := state.CheckUse(key); moved {
+			checker.reportUseAfterMoveAtPosition(pos, place, site)
+			return
+		}
+		if violation, ok := checker.namedBorrowMoveViolation(key, instr); ok {
+			checker.reportViolation(pos, violation)
+			return
+		}
 	}
 }
 

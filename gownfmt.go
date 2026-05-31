@@ -189,7 +189,7 @@ func writeGownfmtToken(path string, src []byte, lineStarts []int, prefix string,
 		out.WriteString(newGownfmtMarker(prefix, name, lexeme, true, replacements))
 	case "mub", "rob":
 		out.WriteString(newGownfmtMarker(prefix, name, lexeme, !hasCall, replacements))
-	case "new", "clone", "Clone", "freeze", "unsafe":
+	case "new", "clone", "Clone", "freeze", "unsafe", "swap":
 		if !hasCall {
 			return end, gownfmtError(path, lineStarts, offset, fmt.Sprintf(`%s must be used as a call`, lexeme))
 		}

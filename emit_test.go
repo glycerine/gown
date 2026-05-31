@@ -319,6 +319,39 @@ func main(ch chan \iso *payload) {
 	requireContains(t, out, "ch <- (Get()).clone()")
 }
 
+func TestEmitSwapLowersToMultipleAssignment(t *testing.T) {
+	out := emitGownSource(t, "swap.gown", `package example
+
+type payload struct{ Next \iso *payload }
+
+func main() {
+	x := \new(payload{})
+	y := \new(payload{})
+	\swap(x, y)
+	_ = x
+}
+`)
+
+	requireContains(t, out, "x, y = y, x")
+	requireNotContains(t, out, `\swap`)
+}
+
+func TestEmitSwapAllowsOverlappingFieldAndRoot(t *testing.T) {
+	out := emitGownSource(t, "swap_overlap.gown", `package example
+
+type node struct{ Next \iso *node }
+
+func main() {
+	n := \new(node{Next: &node{}})
+	\swap(n.Next, n)
+	_ = n
+}
+`)
+
+	requireContains(t, out, "n.Next, n = n, n.Next")
+	requireNotContains(t, out, `\swap`)
+}
+
 func TestEmitCloneFailsClosedWhenInvalid(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"clone_invalid.gown": `package example
 

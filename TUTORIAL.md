@@ -407,6 +407,7 @@ they are preprocessor constructs.
 | `\freeze(x)` | consume `\iso`, produce `\imm` | assignment plus consumed source |
 | `\mub(x)` | make an explicit mutable borrow | `x` |
 | `\rob(x)` | make an explicit read-only borrow | `x` |
+| `\swap(a, b)` | exchange two `\iso` owner cells | `a, b = b, a` |
 | `\unsafe(x)` | cross an unchecked boundary explicitly | `x` |
 
 ### `\new`
@@ -479,6 +480,37 @@ func Publish(ch chan \imm *Ticket, b \iso *Ticket) {
 ```
 
 Freezing consumes the original `\iso`.
+
+### `\swap`
+
+Use `\swap` when you need to exchange two isolated owner cells without treating
+either cell as an untracked destination.
+
+```go
+type Wheel struct{}
+
+type Bicycle struct {
+    Front \iso *Wheel
+}
+
+func main() {
+    b := \new(Bicycle{Front: &Wheel{}})
+    var front \iso *Wheel
+
+    \swap(front, b.Front)
+}
+```
+
+Both arguments must be assignable local or field places, both must have effective
+ownerstamp `\iso`, and their static Go types must be identical. Gown emits Go's
+ordinary simultaneous assignment:
+
+```go
+front, b.Front = b.Front, front
+```
+
+Root/field overlap is allowed. For example, `\swap(n.Next, n)` is governed by
+the same Go assignment evaluation order as the emitted code.
 
 ### `\unsafe`
 

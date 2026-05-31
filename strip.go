@@ -141,6 +141,11 @@ func scanGownToken(gf *gownFile, emit, analysis, gownSrc []byte, lineStarts []in
 			return end, scanError(gf.path, span, `\unsafe must be used as a call`)
 		}
 		recordIntrinsic(gf, emit, analysis, span, IntrinsicUnsafe)
+	case "swap":
+		if !hasCall {
+			return end, scanError(gf.path, span, `\swap must be used as a call`)
+		}
+		recordIntrinsic(gf, emit, analysis, span, IntrinsicSwap)
 	case "observer":
 		return end, scanError(gf.path, span, fmt.Sprintf(`observer directive must be spelled %s`, observerDirectiveLexeme))
 	default:
@@ -229,6 +234,8 @@ func intrinsicAnalysisName(intrinsic IntrinsicKind) string {
 		return "freeze_"
 	case IntrinsicUnsafe:
 		return "unsafe_"
+	case IntrinsicSwap:
+		return "swap_"
 	default:
 		return ""
 	}

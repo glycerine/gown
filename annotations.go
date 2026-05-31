@@ -49,6 +49,7 @@ const (
 	IntrinsicCloneExported
 	IntrinsicFreeze
 	IntrinsicUnsafe
+	IntrinsicSwap
 )
 
 type SourceSpan struct {

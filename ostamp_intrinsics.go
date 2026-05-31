@@ -86,20 +86,27 @@ func bindIntrinsicCall(pkg *packages.Package, idx *OstampIndex, intrinsics map[i
 	}
 	var arg ast.Expr
 	var argPlace Place
+	args := append([]ast.Expr(nil), call.Args...)
+	argPlaces := make([]Place, len(call.Args))
+	for i, callArg := range call.Args {
+		argPlaces[i], _ = idx.PlaceForExpr(callArg)
+	}
 	if len(call.Args) > 0 {
 		arg = call.Args[0]
-		argPlace, _ = idx.PlaceForExpr(arg)
+		argPlace = argPlaces[0]
 	}
 	idx.addIntrinsicBinding(IntrinsicBinding{
-		Kind:     ann.Intrinsic,
-		Offset:   pos.Offset,
-		Line:     pos.Line,
-		Col:      pos.Column,
-		Path:     gownSourcePath(pos.Filename),
-		Call:     call,
-		Arg:      arg,
-		ArgPlace: argPlace,
-		Result:   result,
+		Kind:      ann.Intrinsic,
+		Offset:    pos.Offset,
+		Line:      pos.Line,
+		Col:       pos.Column,
+		Path:      gownSourcePath(pos.Filename),
+		Call:      call,
+		Arg:       arg,
+		ArgPlace:  argPlace,
+		Args:      args,
+		ArgPlaces: argPlaces,
+		Result:    result,
 	})
 	if bindResult {
 		bindIntrinsicResultOstamp(idx, ann.Intrinsic, result)
@@ -118,6 +125,10 @@ func (idx *OstampIndex) addIntrinsicBinding(binding IntrinsicBinding) {
 		if existing.Arg == nil {
 			existing.Arg = binding.Arg
 			existing.ArgPlace = binding.ArgPlace
+		}
+		if len(existing.Args) == 0 && len(binding.Args) > 0 {
+			existing.Args = binding.Args
+			existing.ArgPlaces = binding.ArgPlaces
 		}
 		idx.IntrinsicBindings[i] = existing
 		return

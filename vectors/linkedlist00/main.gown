@@ -37,7 +37,7 @@ func pushFront(l \iso *list, n \iso *node) \iso *list {
 	//   l.head owns n.
 	//   n.next owns the old head chain.
 	//
-	// This does not need the forbidden overlapping swap \swap(l.head, l.head.next).
+	// This does not need a root/field overlap such as \swap(l.head, l.head.next).
 	\swap(n.next, l.head)
 	if n.next != nil {
 		n.next.prev = \unsafe(n)
@@ -129,11 +129,10 @@ func main() {
 	fmt.Printf("list head = %#v\n", \unsafe(l.head))
 }
 
-func forbiddenOverlap(n \iso *node) \iso *node {
-	// This must remain rejected by \swap validation, even though the types match.
-	// It swaps an owner cell with a field inside the object owned by that same
-	// cell, so the two ownership cells are not independent.
-	//
-	// \swap(n, n.next)
+func overlapAllowed(n \iso *node) \iso *node {
+	// Gown deliberately allows root/field overlap. The Go multiple-assignment
+	// evaluation order defines the operation precisely; this is a sharp tool,
+	// but it is not forbidden merely because the places overlap.
+	\swap(n.next, n)
 	return n
 }

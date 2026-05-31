@@ -252,6 +252,7 @@ func freeze_[T any](x T) T { return x }
 func clone_[T any](x T) T { return x }
 func unsafe_[T any](x T) T { return x }
 func new_[T any](x T) *T { return &x }
+func swap_(xs ...any) {}
 `
 }
 

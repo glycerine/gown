@@ -110,6 +110,10 @@ func UseNew() {
 	p := \new(Msg{})
 	_ = p
 }
+
+func UseSwap(x \iso *Msg, y \iso *Msg) {
+	\swap(x, y)
+}
 `
 
 func TestScanAndClassifyIntrinsics(t *testing.T) {
@@ -126,6 +130,7 @@ func TestScanAndClassifyIntrinsics(t *testing.T) {
 		IntrinsicCloneExported,
 		IntrinsicUnsafe,
 		IntrinsicNew,
+		IntrinsicSwap,
 	}
 	if len(gf.intrinsics) != len(wantIntrinsics) {
 		t.Fatalf("expected %d intrinsics, got %d", len(wantIntrinsics), len(gf.intrinsics))
@@ -140,7 +145,7 @@ func TestScanAndClassifyIntrinsics(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"mub_(x)", "rob_(x)", "freeze_(x)", "clone_(x)", "unsafe_(x)", "new_(Msg{})"} {
+	for _, want := range []string{"mub_(x)", "rob_(x)", "freeze_(x)", "clone_(x)", "unsafe_(x)", "new_(Msg{})", "swap_(x, y)"} {
 		if !strings.Contains(string(analysisSrc), want) {
 			t.Fatalf("analysis source does not contain %q:\n%s", want, analysisSrc)
 		}

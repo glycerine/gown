@@ -140,9 +140,33 @@ func intrinsicEmitReplacement(pkg *packages.Package, caps *OstampIndex, src []by
 		replacement := append([]byte("("), arg...)
 		replacement = append(replacement, []byte(")."+cloneIntrinsicMethodName(binding.Kind)+"()")...)
 		return replacement, nil
+	case IntrinsicSwap:
+		if err, ok := checkSwapIntrinsic(pkg, caps, binding); ok {
+			return nil, err
+		}
+		return swapIntrinsicEmitReplacement(pkg, caps, src, binding, bindings), nil
 	default:
 		return nil, nil
 	}
+}
+
+func swapIntrinsicEmitReplacement(pkg *packages.Package, caps *OstampIndex, src []byte, binding IntrinsicBinding, bindings []IntrinsicBinding) []byte {
+	if len(binding.Args) != 2 {
+		return nil
+	}
+	left := loweredNodeText(pkg, caps, src, binding.Args[0], bindings)
+	right := loweredNodeText(pkg, caps, src, binding.Args[1], bindings)
+	if len(left) == 0 || len(right) == 0 {
+		return nil
+	}
+	out := append([]byte(nil), left...)
+	out = append(out, []byte(", ")...)
+	out = append(out, right...)
+	out = append(out, []byte(" = ")...)
+	out = append(out, right...)
+	out = append(out, []byte(", ")...)
+	out = append(out, left...)
+	return out
 }
 
 func newArgCanUseAddressOf(expr ast.Expr) bool {

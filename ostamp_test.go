@@ -267,6 +267,7 @@ func TestOstampIndexBindsIntrinsicCalls(t *testing.T) {
 		{IntrinsicCloneExported, "z", "x"},
 		{IntrinsicUnsafe, "u", "x"},
 		{IntrinsicNew, "p", ""},
+		{IntrinsicSwap, "", "x"},
 	}
 	if len(gp.caps.IntrinsicBindings) != len(want) {
 		t.Fatalf("intrinsic bindings = %#v, want %d", gp.caps.IntrinsicBindings, len(want))
@@ -291,6 +292,9 @@ func TestOstampIndexBindsIntrinsicCalls(t *testing.T) {
 		}
 		if got.Line == 0 || got.Col == 0 {
 			t.Fatalf("binding %d missing source position: %#v", i, got)
+		}
+		if w.kind == IntrinsicSwap && len(got.ArgPlaces) != 2 {
+			t.Fatalf("swap binding arg places = %d, want 2", len(got.ArgPlaces))
 		}
 		if _, ok := gp.caps.IntrinsicBinding(got.Call); !ok {
 			t.Fatalf("binding %d not found by call lookup", i)

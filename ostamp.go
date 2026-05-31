@@ -40,15 +40,17 @@ type CallBinding struct {
 }
 
 type IntrinsicBinding struct {
-	Kind     IntrinsicKind
-	Offset   int
-	Line     int
-	Col      int
-	Path     string
-	Call     *ast.CallExpr
-	Arg      ast.Expr
-	ArgPlace Place
-	Result   types.Object
+	Kind      IntrinsicKind
+	Offset    int
+	Line      int
+	Col       int
+	Path      string
+	Call      *ast.CallExpr
+	Arg       ast.Expr
+	ArgPlace  Place
+	Args      []ast.Expr
+	ArgPlaces []Place
+	Result    types.Object
 }
 
 type InvalidChannelElementQualifier struct {

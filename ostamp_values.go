@@ -73,6 +73,8 @@ func intrinsicValueOstamp(binding IntrinsicBinding) ValueOstamp {
 		value.Fresh = true
 	case IntrinsicUnsafe:
 		value.Cap = CapUntracked
+	case IntrinsicSwap:
+		value.Cap = CapInvalid
 	default:
 		value.Cap = CapInvalid
 	}
