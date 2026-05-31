@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+        "time"
 )
+
+var _ = time.Time{}
 
 type bigTree struct {
 	name string
@@ -79,15 +82,22 @@ func main() {
 	  //fmt.Printf("tkt2 is: '%#v'\n", tkt2)
   	  tkt = <-tkt2.done
         } else {
-	    w.getJob <- tkt
+            select {
+	       case w.getJob <- tkt:
+            }
 	    // this should be okay!
 	    fmt.Printf("tkt.done is: '%p'\n", tkt.done)
             // this should not!
-            tkt.done = nil
+            //tkt.done = nil
             // except to read an \imm channel or rebind it:
    	    //tkt = <-tkt.done // okay
-   	    tkt3 := <-tkt.done
-   	    tkt = tkt3
+            var tkt3 *ticket
+            select {
+   	        case tkt3 = <-tkt.done:
+   	            tkt = tkt3
+                //case <-time.After(time.Second):
+                  //  tkt = <-tkt.done
+            }
         }
 
 	fmt.Printf("tkt.tree.name = '%v'\n", tkt.tree.name)
@@ -96,9 +106,9 @@ func main() {
 
 func (t *ticket) Clone() *ticket {
    return &ticket{
-	tree: t.tree.Clone(),
+	   tree: t.tree.Clone(),
 	outcome: t.outcome,
-	done: make(chan *ticket),
+	   done: make(chan *ticket),
    }
 }
 

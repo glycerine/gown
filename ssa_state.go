@@ -3,8 +3,13 @@ package gown
 type SSAFunctionState struct {
 	Consumed   map[PlaceKey]SSAMoveSite
 	Frontiered map[PlaceKey]SSAFrontierSite
+	FlowValues map[PlaceKey]SSAFlowValue
 	Borrows    []SSABorrow
 	Deferred   []SSADeferredGroup
+}
+
+type SSAFlowValue struct {
+	Cap Cap
 }
 
 type SSAMoveSite struct {
@@ -40,6 +45,7 @@ func NewSSAFunctionState() SSAFunctionState {
 	return SSAFunctionState{
 		Consumed:   make(map[PlaceKey]SSAMoveSite),
 		Frontiered: make(map[PlaceKey]SSAFrontierSite),
+		FlowValues: make(map[PlaceKey]SSAFlowValue),
 	}
 }
 
@@ -50,6 +56,9 @@ func (state SSAFunctionState) Clone() SSAFunctionState {
 	}
 	for place, site := range state.Frontiered {
 		clone.Frontiered[place] = site
+	}
+	for place, value := range state.FlowValues {
+		clone.FlowValues[place] = value
 	}
 	clone.Borrows = append(clone.Borrows, state.Borrows...)
 	clone.Deferred = append(clone.Deferred, state.Deferred...)
@@ -130,6 +139,31 @@ func (state *SSAFunctionState) UnfrontierRoot(place PlaceKey) {
 	}
 }
 
+func (state *SSAFunctionState) SetFlowValue(place PlaceKey, value SSAFlowValue) {
+	if place.Root == nil || place.Path != "" || !capTracked(value.Cap) {
+		return
+	}
+	if state.FlowValues == nil {
+		state.FlowValues = make(map[PlaceKey]SSAFlowValue)
+	}
+	state.FlowValues[place] = value
+}
+
+func (state *SSAFunctionState) ClearFlowValue(place PlaceKey) {
+	if place.Root == nil {
+		return
+	}
+	delete(state.FlowValues, PlaceKey{Root: place.Root})
+}
+
+func (state *SSAFunctionState) FlowValue(place PlaceKey) (SSAFlowValue, bool) {
+	if place.Root == nil {
+		return SSAFlowValue{}, false
+	}
+	value, ok := state.FlowValues[PlaceKey{Root: place.Root}]
+	return value, ok
+}
+
 func (state *SSAFunctionState) BeginBorrow(place PlaceKey, cap Cap) (SSAStateViolation, bool) {
 	if cap != CapMub && cap != CapRob {
 		return SSAStateViolation{}, false
@@ -204,6 +238,11 @@ func MergeSSAFunctionStates(left, right SSAFunctionState) (SSAFunctionState, []S
 			merged.Frontiered[place] = site
 		}
 	}
+	for place, leftValue := range left.FlowValues {
+		if rightValue, ok := right.FlowValues[place]; ok && rightValue == leftValue {
+			merged.FlowValues[place] = leftValue
+		}
+	}
 
 	var violations []SSAStateViolation
 	for _, borrow := range left.Borrows {
@@ -259,6 +298,7 @@ func borrowsConflict(a, b SSABorrow) bool {
 func equalSSAFunctionState(a, b SSAFunctionState) bool {
 	if len(a.Consumed) != len(b.Consumed) ||
 		len(a.Frontiered) != len(b.Frontiered) ||
+		len(a.FlowValues) != len(b.FlowValues) ||
 		len(a.Borrows) != len(b.Borrows) ||
 		len(a.Deferred) != len(b.Deferred) {
 		return false
@@ -270,6 +310,11 @@ func equalSSAFunctionState(a, b SSAFunctionState) bool {
 	}
 	for place, site := range a.Frontiered {
 		if b.Frontiered[place] != site {
+			return false
+		}
+	}
+	for place, value := range a.FlowValues {
+		if b.FlowValues[place] != value {
 			return false
 		}
 	}

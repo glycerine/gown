@@ -16,11 +16,13 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Capability
 	}
 	places := buildSSAPlaceIndex(pkg, ssaPkg, caps)
 	assignments := collectSSAAssignments(pkg, caps)
+	flowAssignments := collectSSAFlowAssignments(pkg, caps)
 	checker := &ssaGWN001Checker{
 		pkg:                     pkg,
 		caps:                    caps,
 		places:                  places,
 		assignments:             assignments,
+		flowAssignments:         flowAssignments,
 		immutableProjectionUses: collectSSAImmutableProjectionUseSpans(pkg, caps),
 		namedBorrows:            collectSSANamedBorrows(pkg, caps),
 		deferEffects:            collectSSADeferredClosureEffects(pkg, caps),
@@ -40,6 +42,7 @@ type ssaGWN001Checker struct {
 	caps                    *CapabilityIndex
 	places                  *SSAPlaceIndex
 	assignments             map[ast.Expr]ssaAssignment
+	flowAssignments         map[ast.Expr]ssaFlowAssignment
 	immutableProjectionUses []ssaImmutableProjectionUseSpan
 	namedBorrows            map[*types.Func]SSANamedBorrowInfo
 	deferEffects            map[*types.Func]SSADeferredClosureEffectInfo
@@ -57,6 +60,11 @@ type ssaAssignment struct {
 	Dst   Place
 	Value ValueCapability
 	RHS   ast.Expr
+}
+
+type ssaFlowAssignment struct {
+	Dst   Place
+	Value ValueCapability
 }
 
 type ssaImmutableProjectionUseSpan struct {
@@ -161,7 +169,7 @@ func (checker *ssaGWN001Checker) deferEffectInfoForFunction(fn *ssa.Function) SS
 }
 
 func (checker *ssaGWN001Checker) mergeSuccessorState(existing, incoming SSAFunctionState, block *ssa.BasicBlock) (SSAFunctionState, bool) {
-	if existing.Consumed == nil && len(existing.Frontiered) == 0 && len(existing.Borrows) == 0 && len(existing.Deferred) == 0 {
+	if existing.Consumed == nil && len(existing.Frontiered) == 0 && len(existing.FlowValues) == 0 && len(existing.Borrows) == 0 && len(existing.Deferred) == 0 {
 		return incoming.Clone(), true
 	}
 	merged, violations := MergeSSAFunctionStates(existing, incoming)
@@ -204,7 +212,11 @@ func (checker *ssaGWN001Checker) isAssignmentTargetDebugRef(debug *ssa.DebugRef)
 	if checker == nil || debug == nil {
 		return false
 	}
-	_, ok := checker.assignments[debugRefExprKey(debug.Expr)]
+	key := debugRefExprKey(debug.Expr)
+	if _, ok := checker.assignments[key]; ok {
+		return true
+	}
+	_, ok := checker.flowAssignments[key]
 	return ok
 }
 
@@ -295,6 +307,7 @@ func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction,
 	case *ssa.Defer:
 		checker.applyDeferTransfer(instr, state)
 	case *ssa.DebugRef:
+		checker.applyFlowAssignmentTransfer(instr, state)
 		checker.applyAssignmentTransfer(instr, state)
 	case *ssa.Go:
 		checker.applyGoTransfer(instr, state)
@@ -371,6 +384,23 @@ func (checker *ssaGWN001Checker) applySelectTransfer(instr *ssa.Select, state *S
 	}
 }
 
+func (checker *ssaGWN001Checker) applyFlowAssignmentTransfer(instr *ssa.DebugRef, state *SSAFunctionState) {
+	if instr == nil || state == nil {
+		return
+	}
+	assignment, ok := checker.flowAssignments[debugRefExprKey(instr.Expr)]
+	if !ok || assignment.Dst.Root == nil {
+		return
+	}
+	dst := assignment.Dst.Key()
+	state.UnconsumeRoot(dst)
+	state.UnfrontierRoot(dst)
+	state.ClearFlowValue(dst)
+	if capTracked(assignment.Value.Cap) {
+		state.SetFlowValue(dst, SSAFlowValue{Cap: assignment.Value.Cap})
+	}
+}
+
 func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, state *SSAFunctionState) {
 	if instr == nil {
 		return
@@ -380,6 +410,7 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 		return
 	}
 	pos := checker.pkg.Fset.Position(instr.Pos())
+	assignment = checker.assignmentWithFlowValue(assignment, state)
 	if assignment.Value.Cap != CapIso {
 		checker.reportAssignmentCapabilityMismatch(pos, assignment)
 		return
@@ -390,7 +421,7 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 		return
 	}
 	src := assignment.Value.Place
-	if src.Root == nil || !placeCanTransferAsIso(checker.caps, src) {
+	if src.Root == nil || !checker.placeCanTransferAsIsoInState(state, src) {
 		checker.reportAssignmentCapabilityMismatch(pos, assignment)
 		return
 	}
@@ -420,6 +451,28 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 	}
 	state.UnconsumeRoot(assignment.Dst.Key())
 	state.UnfrontierRoot(assignment.Dst.Key())
+}
+
+func (checker *ssaGWN001Checker) assignmentWithFlowValue(assignment ssaAssignment, state *SSAFunctionState) ssaAssignment {
+	if state == nil || capTracked(assignment.Value.Cap) || assignment.Value.Place.Root == nil {
+		return assignment
+	}
+	if value, ok := state.FlowValue(assignment.Value.Place.Key()); ok {
+		assignment.Value.Cap = value.Cap
+		assignment.Value.Fresh = false
+	}
+	return assignment
+}
+
+func (checker *ssaGWN001Checker) placeCanTransferAsIsoInState(state *SSAFunctionState, place Place) bool {
+	if placeCanTransferAsIso(checker.caps, place) {
+		return true
+	}
+	if state == nil || place.Root == nil {
+		return false
+	}
+	value, ok := state.FlowValue(place.Key())
+	return ok && value.Cap == CapIso
 }
 
 func (checker *ssaGWN001Checker) reportAssignmentCapabilityMismatch(pos token.Position, assignment ssaAssignment) {
@@ -1216,6 +1269,54 @@ func collectSSAAssignments(pkg *packages.Package, caps *CapabilityIndex) map[ast
 		})
 	}
 	return assignments
+}
+
+func collectSSAFlowAssignments(pkg *packages.Package, caps *CapabilityIndex) map[ast.Expr]ssaFlowAssignment {
+	assignments := make(map[ast.Expr]ssaFlowAssignment)
+	if pkg == nil || caps == nil {
+		return assignments
+	}
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			if assign.Tok != token.ASSIGN && assign.Tok != token.DEFINE {
+				return true
+			}
+			if len(assign.Lhs) != len(assign.Rhs) {
+				return true
+			}
+			for i, lhs := range assign.Lhs {
+				dst, ok := caps.PlaceForExpr(lhs)
+				if !ok || !flowAssignmentDstAllowed(pkg, caps, dst) {
+					continue
+				}
+				value := ValueCapability{Cap: CapInvalid}
+				if cap := receiveCapForValueExpr(caps, assign.Rhs[i]); cap != CapInvalid {
+					value.Cap = cap
+				}
+				assignments[debugRefExprKey(lhs)] = ssaFlowAssignment{Dst: dst, Value: value}
+			}
+			return true
+		})
+	}
+	return assignments
+}
+
+func flowAssignmentDstAllowed(pkg *packages.Package, caps *CapabilityIndex, dst Place) bool {
+	if pkg == nil || caps == nil || dst.Root == nil || dst.Key().Path != "" {
+		return false
+	}
+	if capForSSAPlace(caps, dst) != CapUntracked {
+		return false
+	}
+	obj, ok := dst.Root.(*types.Var)
+	if !ok || obj.IsField() {
+		return false
+	}
+	return obj.Parent() != pkg.Types.Scope()
 }
 
 func collectSSAImmutableProjectionUseSpans(pkg *packages.Package, caps *CapabilityIndex) []ssaImmutableProjectionUseSpan {

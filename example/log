@@ -1,9 +1,5 @@
 make
 gown .
-: GWN001: use of moved \iso value "tkt" after send at 82:15
-/Users/jaten/go/src/github.com/glycerine/gown/example/main.gown:82:15: note: moved by send here
-	    w.getJob <- tkt
-	             ^
-make: *** [all] Error 1
-
-
+/Users/jaten/go/src/github.com/glycerine/gown/example/main.gown:97:17: GWN010: cannot assign untracked value of type *main.ticket to \iso root "tkt": \iso root rebinding requires a fresh or moved \iso value; this expression is untracked
+   	            tkt = tkt3
+   	            ^

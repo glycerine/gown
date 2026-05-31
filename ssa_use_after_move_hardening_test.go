@@ -372,6 +372,49 @@ func main(work chan \iso *ticket, cond bool) {
 }`)
 }
 
+func TestSSAGWN001AllowsSelectReceiveTemporaryRebindFromMovedImmutableChannelField(t *testing.T) {
+	requireHardeningOK(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	var tkt3 *ticket
+	select {
+	case tkt3 = <-tkt.done:
+		tkt = tkt3
+	}
+	println(tkt)
+}`)
+}
+
+func TestSSAGWN001RejectsSelectReceiveTemporaryRebindAfterUnassignedPath(t *testing.T) {
+	requireHardeningCheckerCode(t, `type ticket struct {
+	done \imm chan \iso *ticket
+}
+
+func newTicket() \iso *ticket {
+	return &ticket{done: make(chan \iso *ticket)}
+}
+
+func main(work chan \iso *ticket) {
+	tkt := newTicket()
+	work <- tkt
+	var tkt3 *ticket
+	select {
+	case tkt3 = <-tkt.done:
+	default:
+	}
+	tkt = tkt3
+	println(tkt)
+}`, GWN010)
+}
+
 func TestSSAGWN001AllowsRebindFromOtherMovedImmutableChannelField(t *testing.T) {
 	requireHardeningOK(t, `type ticket struct {
 	done \imm chan \iso *ticket
