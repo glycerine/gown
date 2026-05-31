@@ -647,7 +647,7 @@ type Job struct {
 
 If you own a `\iso *Job`, then moving `job.Input` out directly is restricted:
 moving from a field projection can leave the containing object partially moved.
-The checker rejects unsafe field moves.
+The gown checker will reject this.
 
 A common pattern is to expose operations as methods or functions that preserve
 the ownership story:
@@ -662,14 +662,14 @@ func ReplaceInput(j \mub *Job, next \iso *Ticket) {
 }
 ```
 
-For beginners, it is enough to remember:
+In summary:
 
 - Put capabilities on fields that store tracked pointers.
 - Read-only or immutable access through the outer object makes reachable fields
   read-only too.
 - Use `\imm chan ...` for stable channel fields that must be read after the
   parent object moves.
-- Be careful moving ownership out of fields; prefer explicit helper functions.
+- helper functions may be needed
 
 ## common errors
 
