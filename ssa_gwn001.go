@@ -1351,7 +1351,7 @@ func assignmentValueInvalidReason(caps *OstampIndex, assignment ssaAssignment) s
 		}
 		chCap := chanElemCapForPlace(caps, place)
 		if !capTracked(chCap) {
-			return fmt.Sprintf("receive channel %s has %s element capability", placeName(place), chCap)
+			return fmt.Sprintf("receive channel %s has %s element ostamp", placeName(place), chCap)
 		}
 		if chCap != CapIso {
 			return fmt.Sprintf("receive channel %s produces %s, but \\iso root rebinding requires \\iso", placeName(place), chCap)

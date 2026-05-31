@@ -8,34 +8,34 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-type capabilityErasureMode uint8
+type ostampErasureMode uint8
 
 const (
-	capabilityErasureCalls capabilityErasureMode = 1 << iota
-	capabilityErasureInterfaces
-	capabilityErasureReturns
-	capabilityErasureAssignments
-	capabilityErasureSends
+	ostampErasureCalls ostampErasureMode = 1 << iota
+	ostampErasureInterfaces
+	ostampErasureReturns
+	ostampErasureAssignments
+	ostampErasureSends
 
-	capabilityErasureAll = capabilityErasureCalls |
-		capabilityErasureInterfaces |
-		capabilityErasureReturns |
-		capabilityErasureAssignments |
-		capabilityErasureSends
+	ostampErasureAll = ostampErasureCalls |
+		ostampErasureInterfaces |
+		ostampErasureReturns |
+		ostampErasureAssignments |
+		ostampErasureSends
 )
 
 func checkOstampErasure(ctx *CheckerContext) CheckerErrors {
 	if ctx == nil {
 		return nil
 	}
-	return checkOstampErasureInPackage(ctx.Pkg, ctx.Caps, capabilityErasureAll)
+	return checkOstampErasureInPackage(ctx.Pkg, ctx.Caps, ostampErasureAll)
 }
 
-func checkOstampErasureInPackage(pkg *packages.Package, caps *OstampIndex, mode capabilityErasureMode) CheckerErrors {
+func checkOstampErasureInPackage(pkg *packages.Package, caps *OstampIndex, mode ostampErasureMode) CheckerErrors {
 	if pkg == nil || caps == nil {
 		return nil
 	}
-	checker := capabilityErasureChecker{
+	checker := ostampErasureChecker{
 		pkg:      pkg,
 		caps:     caps,
 		mode:     mode,
@@ -47,15 +47,15 @@ func checkOstampErasureInPackage(pkg *packages.Package, caps *OstampIndex, mode 
 	return checker.errs
 }
 
-type capabilityErasureChecker struct {
+type ostampErasureChecker struct {
 	pkg      *packages.Package
 	caps     *OstampIndex
-	mode     capabilityErasureMode
+	mode     ostampErasureMode
 	errs     CheckerErrors
 	reported map[string]bool
 }
 
-func (checker *capabilityErasureChecker) checkFile(file *ast.File) {
+func (checker *ostampErasureChecker) checkFile(file *ast.File) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.FuncDecl:
@@ -75,8 +75,8 @@ func (checker *capabilityErasureChecker) checkFile(file *ast.File) {
 	})
 }
 
-func (checker *capabilityErasureChecker) checkFuncReturns(fn *ast.FuncDecl) {
-	if checker.mode&capabilityErasureReturns == 0 || fn == nil || fn.Body == nil {
+func (checker *ostampErasureChecker) checkFuncReturns(fn *ast.FuncDecl) {
+	if checker.mode&ostampErasureReturns == 0 || fn == nil || fn.Body == nil {
 		return
 	}
 	resultCaps := checker.funcResultCaps(fn)
@@ -95,7 +95,7 @@ func (checker *capabilityErasureChecker) checkFuncReturns(fn *ast.FuncDecl) {
 	})
 }
 
-func (checker *capabilityErasureChecker) checkReturn(ret *ast.ReturnStmt, resultCaps []Cap) {
+func (checker *ostampErasureChecker) checkReturn(ret *ast.ReturnStmt, resultCaps []Cap) {
 	if ret == nil {
 		return
 	}
@@ -115,8 +115,8 @@ func (checker *capabilityErasureChecker) checkReturn(ret *ast.ReturnStmt, result
 	}
 }
 
-func (checker *capabilityErasureChecker) checkCall(call *ast.CallExpr) {
-	if checker.mode&capabilityErasureCalls == 0 || call == nil {
+func (checker *ostampErasureChecker) checkCall(call *ast.CallExpr) {
+	if checker.mode&ostampErasureCalls == 0 || call == nil {
 		return
 	}
 	if _, ok := checker.caps.IntrinsicBinding(call); ok {
@@ -132,7 +132,7 @@ func (checker *capabilityErasureChecker) checkCall(call *ast.CallExpr) {
 	checker.checkCallReceiver(call)
 }
 
-func (checker *capabilityErasureChecker) checkCallArguments(call *ast.CallExpr) {
+func (checker *ostampErasureChecker) checkCallArguments(call *ast.CallExpr) {
 	paramCaps, ok := checker.callParamCaps(call)
 	if !ok {
 		return
@@ -154,7 +154,7 @@ func (checker *capabilityErasureChecker) checkCallArguments(call *ast.CallExpr) 
 	}
 }
 
-func (checker *capabilityErasureChecker) checkCallReceiver(call *ast.CallExpr) {
+func (checker *ostampErasureChecker) checkCallReceiver(call *ast.CallExpr) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return
@@ -174,8 +174,8 @@ func (checker *capabilityErasureChecker) checkCallReceiver(call *ast.CallExpr) {
 	)
 }
 
-func (checker *capabilityErasureChecker) checkAssign(stmt *ast.AssignStmt) {
-	if checker.mode&(capabilityErasureAssignments|capabilityErasureInterfaces) == 0 || stmt == nil {
+func (checker *ostampErasureChecker) checkAssign(stmt *ast.AssignStmt) {
+	if checker.mode&(ostampErasureAssignments|ostampErasureInterfaces) == 0 || stmt == nil {
 		return
 	}
 	if len(stmt.Lhs) != len(stmt.Rhs) {
@@ -186,8 +186,8 @@ func (checker *capabilityErasureChecker) checkAssign(stmt *ast.AssignStmt) {
 	}
 }
 
-func (checker *capabilityErasureChecker) checkValueSpec(spec *ast.ValueSpec) {
-	if checker.mode&(capabilityErasureAssignments|capabilityErasureInterfaces) == 0 || spec == nil {
+func (checker *ostampErasureChecker) checkValueSpec(spec *ast.ValueSpec) {
+	if checker.mode&(ostampErasureAssignments|ostampErasureInterfaces) == 0 || spec == nil {
 		return
 	}
 	if len(spec.Names) != len(spec.Values) {
@@ -198,7 +198,7 @@ func (checker *capabilityErasureChecker) checkValueSpec(spec *ast.ValueSpec) {
 	}
 }
 
-func (checker *capabilityErasureChecker) checkValueIntoDestination(src ast.Expr, dst ast.Expr) {
+func (checker *ostampErasureChecker) checkValueIntoDestination(src ast.Expr, dst ast.Expr) {
 	if isBlankIdent(dst) {
 		return
 	}
@@ -206,12 +206,12 @@ func (checker *capabilityErasureChecker) checkValueIntoDestination(src ast.Expr,
 		checker.checkValueIntoObject(src, capObjectForSSAPlace(checker.caps, place), dst)
 		return
 	}
-	if checker.mode&capabilityErasureInterfaces != 0 && isInterfaceExpr(checker.pkg, dst) {
+	if checker.mode&ostampErasureInterfaces != 0 && isInterfaceExpr(checker.pkg, dst) {
 		checker.checkValueIntoCap(src, CapUntracked, GWN009, dst, "cannot erase %s value %q into interface; use \\unsafe(...) to leave ownerstamp checking")
 	}
 }
 
-func (checker *capabilityErasureChecker) checkValueIntoObject(src ast.Expr, obj types.Object, dst ast.Node) {
+func (checker *ostampErasureChecker) checkValueIntoObject(src ast.Expr, obj types.Object, dst ast.Node) {
 	if obj == nil {
 		return
 	}
@@ -228,7 +228,7 @@ func (checker *capabilityErasureChecker) checkValueIntoObject(src ast.Expr, obj 
 	checker.checkValueIntoCap(src, dstCap, code, dst, message)
 }
 
-func (checker *capabilityErasureChecker) checkValueIntoCap(src ast.Expr, dstCap Cap, code CheckerErrorCode, dst ast.Node, message string) {
+func (checker *ostampErasureChecker) checkValueIntoCap(src ast.Expr, dstCap Cap, code CheckerErrorCode, dst ast.Node, message string) {
 	if dstCap != CapUntracked {
 		return
 	}
@@ -239,8 +239,8 @@ func (checker *capabilityErasureChecker) checkValueIntoCap(src ast.Expr, dstCap 
 	checker.reportAtNode(code, src, fmt.Sprintf(message, value.Cap, valueName(value)))
 }
 
-func (checker *capabilityErasureChecker) checkSend(send *ast.SendStmt) {
-	if checker.mode&capabilityErasureSends == 0 || send == nil {
+func (checker *ostampErasureChecker) checkSend(send *ast.SendStmt) {
+	if checker.mode&ostampErasureSends == 0 || send == nil {
 		return
 	}
 	ch, ok := checker.caps.PlaceForExpr(send.Chan)
@@ -258,8 +258,8 @@ func (checker *capabilityErasureChecker) checkSend(send *ast.SendStmt) {
 	)
 }
 
-func (checker *capabilityErasureChecker) checkCompositeLit(lit *ast.CompositeLit) {
-	if checker.mode&(capabilityErasureAssignments|capabilityErasureInterfaces) == 0 || lit == nil {
+func (checker *ostampErasureChecker) checkCompositeLit(lit *ast.CompositeLit) {
+	if checker.mode&(ostampErasureAssignments|ostampErasureInterfaces) == 0 || lit == nil {
 		return
 	}
 	structType := compositeStructType(checker.pkg, lit)
@@ -289,7 +289,7 @@ func (checker *capabilityErasureChecker) checkCompositeLit(lit *ast.CompositeLit
 	}
 }
 
-func (checker *capabilityErasureChecker) funcResultCaps(fn *ast.FuncDecl) []Cap {
+func (checker *ostampErasureChecker) funcResultCaps(fn *ast.FuncDecl) []Cap {
 	obj, _ := checker.pkg.TypesInfo.Defs[fn.Name].(*types.Func)
 	if obj != nil {
 		if sig := checker.caps.FuncCap(obj); sig != nil {
@@ -304,7 +304,7 @@ func (checker *capabilityErasureChecker) funcResultCaps(fn *ast.FuncDecl) []Cap 
 	return nil
 }
 
-func (checker *capabilityErasureChecker) callParamCaps(call *ast.CallExpr) ([]Cap, bool) {
+func (checker *ostampErasureChecker) callParamCaps(call *ast.CallExpr) ([]Cap, bool) {
 	callee := callCallee(checker.pkg, call)
 	if sig := checker.caps.FuncCap(callee); sig != nil {
 		return append([]Cap(nil), sig.Params...), true
@@ -323,11 +323,11 @@ func (checker *capabilityErasureChecker) callParamCaps(call *ast.CallExpr) ([]Ca
 	return params, true
 }
 
-func (checker *capabilityErasureChecker) valueOstamp(expr ast.Expr) (ValueOstamp, bool) {
+func (checker *ostampErasureChecker) valueOstamp(expr ast.Expr) (ValueOstamp, bool) {
 	return valueOstampForExpr(checker.pkg, checker.caps, expr)
 }
 
-func (checker *capabilityErasureChecker) reportAtNode(code CheckerErrorCode, node ast.Node, message string) {
+func (checker *ostampErasureChecker) reportAtNode(code CheckerErrorCode, node ast.Node, message string) {
 	err := newCheckerErrorAtNode(checker.pkg, code, node, message)
 	reportCheckerErrorOnce(&checker.errs, checker.reported, err)
 }

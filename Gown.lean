@@ -558,11 +558,11 @@ theorem stable_imm_field_from_mub :
   • stable \imm fields keep immutable viewpoint through \iso/\mub owners
 
   Key invariants:
-  • Iso: mutable capability ⟹ exclusive goroutine access
+  • Iso: mutable ownerstamp ⟹ exclusive goroutine access
   • Fresh: owned locations below allocation counter
   • Coherent: no goroutine holds both mutable and \imm on same location
 
-  DESIGN NOTE: Isolation constrains MUTABLE capabilities only.
+  DESIGN NOTE: Isolation constrains MUTABLE ownerstamps only.
   \rob (read-only) is excluded — it cannot write and can be safely
   created from shared \imm. Discovered during mechanization.
 -/

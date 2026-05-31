@@ -97,7 +97,7 @@ func TestOstampIndexBindsFunctionSignatures(t *testing.T) {
 		t.Fatal(err)
 	}
 	if gp.caps == nil {
-		t.Fatal("capability index is nil")
+		t.Fatal("ostamp index is nil")
 	}
 
 	wantParamCap(t, gp, "Mutate", 0, CapMub)
@@ -115,7 +115,7 @@ func TestOstampIndexBindsAnnotatedCallSites(t *testing.T) {
 		t.Fatal(err)
 	}
 	if gp.caps == nil {
-		t.Fatal("capability index is nil")
+		t.Fatal("ostamp index is nil")
 	}
 
 	var got []CallBinding
@@ -370,10 +370,10 @@ func wantParamCap(t *testing.T, gp *GownPackage, funcName string, index int, wan
 	fn := lookupFunc(t, gp, funcName)
 	sig := gp.caps.Funcs[fn]
 	if sig == nil {
-		t.Fatalf("missing capability signature for %s", funcName)
+		t.Fatalf("missing ostamp signature for %s", funcName)
 	}
 	if index >= len(sig.Params) {
-		t.Fatalf("%s has %d params in capability signature, want index %d",
+		t.Fatalf("%s has %d params in ostamp signature, want index %d",
 			funcName, len(sig.Params), index)
 	}
 	if sig.Params[index] != want {
@@ -391,10 +391,10 @@ func wantResultCap(t *testing.T, gp *GownPackage, funcName string, index int, wa
 	fn := lookupFunc(t, gp, funcName)
 	sig := gp.caps.Funcs[fn]
 	if sig == nil {
-		t.Fatalf("missing capability signature for %s", funcName)
+		t.Fatalf("missing ostamp signature for %s", funcName)
 	}
 	if index >= len(sig.Results) {
-		t.Fatalf("%s has %d results in capability signature, want index %d",
+		t.Fatalf("%s has %d results in ostamp signature, want index %d",
 			funcName, len(sig.Results), index)
 	}
 	if sig.Results[index] != want {
