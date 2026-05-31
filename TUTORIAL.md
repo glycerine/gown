@@ -106,14 +106,14 @@ type Ticket struct {
 }
 ```
 
-If a value has type `\iso *Ticket`, then there is one isolated owner. If a value
+If a value has type `\iso *Ticket`, then there is only one owner. If a value
 has type `\imm *Ticket`, then it is deeply immutable and safe to share. If a
 value has type `\mub *Ticket` or `\rob *Ticket`, then it is a local borrow that
 must not cross goroutine boundaries.
 
-The four core annotations are:
+The four core ownerstamps used to annotate pointers are:
 
-| Annotation | Name | Mutable? | Sendable across goroutines? | Main idea |
+| Ownerstamp | Name | Mutable? | Sendable across goroutines? | Main idea |
 | --- | --- | --- | --- | --- |
 | `\iso` | isolated | yes | yes, by move | one unique owner |
 | `\mub` | mutable borrow | yes | no | temporary local mutation |
@@ -122,7 +122,7 @@ The four core annotations are:
 
 ## ownerstamp syntax
 
-Ownerstamps, or ownership annotations, appear before the `*` in pointer types:
+Ownerstamps, our ownership annotations, appear before the `*` in pointer types:
 
 ```go
 func Take(b \iso *Ticket) {}
@@ -144,16 +144,15 @@ b := \new(Ticket{})
 Here `b` is inferred as `\iso *Ticket`.
 
 All Gown ownerstamps begin with `\`. If an ownerstamp accidentally leaks into
-generated Go, the Go compiler will reject it. That makes ownerstamp leakage
-fail fast instead of silently changing the program.
+generated Go, the Go compiler will reject it as illegal text before lexing begins. That makes ownerstamp leakage fail fast instead of silently changing the program.
 
 ## `\iso`: isolated ownership
 
 Use `\iso` when one part of the program owns a mutable value uniquely.
 
-An `\iso` value may be read and written. It may also be sent to another
-goroutine, but sending it is a move: after the move, the sender no longer owns
-the value.
+An `\iso` value may be read and written; but only by the owning goroutine. 
+It may also be sent to another goroutine, but sending it is a move: 
+after the move, the sender no longer owns the value.
 
 ```go
 type Ticket struct {

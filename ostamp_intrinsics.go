@@ -2,6 +2,7 @@ package gown
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/packages"
@@ -19,23 +20,38 @@ func bindIntrinsicCapabilities(pkg *packages.Package, idx *OstampIndex, intrinsi
 				if i < len(n.Names) {
 					result = pkg.TypesInfo.Defs[n.Names[i]]
 				}
-				bindIntrinsicCallsInExpr(pkg, idx, intrinsics, value, result)
+				bindIntrinsicCallsInExpr(pkg, idx, intrinsics, value, result, true)
 			}
 		case *ast.AssignStmt:
 			if len(n.Lhs) != len(n.Rhs) {
 				return true
 			}
 			for i, rhs := range n.Rhs {
-				bindIntrinsicCallsInExpr(pkg, idx, intrinsics, rhs, assignedObject(pkg, n.Lhs[i]))
+				result, bindResult := intrinsicAssignResultObject(pkg, n, i)
+				bindIntrinsicCallsInExpr(pkg, idx, intrinsics, rhs, result, bindResult)
 			}
 		case *ast.CallExpr:
-			bindIntrinsicCall(pkg, idx, intrinsics, n, nil)
+			bindIntrinsicCall(pkg, idx, intrinsics, n, nil, false)
 		}
 		return true
 	})
 }
 
-func bindIntrinsicCallsInExpr(pkg *packages.Package, idx *OstampIndex, intrinsics map[int]*IntrinsicAnnotation, expr ast.Expr, result types.Object) {
+func intrinsicAssignResultObject(pkg *packages.Package, stmt *ast.AssignStmt, index int) (types.Object, bool) {
+	if pkg == nil || stmt == nil || index >= len(stmt.Lhs) {
+		return nil, false
+	}
+	if stmt.Tok == token.DEFINE {
+		if name, ok := stmt.Lhs[index].(*ast.Ident); ok {
+			if obj := pkg.TypesInfo.Defs[name]; obj != nil {
+				return obj, true
+			}
+		}
+	}
+	return assignedObject(pkg, stmt.Lhs[index]), false
+}
+
+func bindIntrinsicCallsInExpr(pkg *packages.Package, idx *OstampIndex, intrinsics map[int]*IntrinsicAnnotation, expr ast.Expr, result types.Object, bindResult bool) {
 	if expr == nil {
 		return
 	}
@@ -45,15 +61,17 @@ func bindIntrinsicCallsInExpr(pkg *packages.Package, idx *OstampIndex, intrinsic
 			return true
 		}
 		var callResult types.Object
+		callBindResult := false
 		if call == expr {
 			callResult = result
+			callBindResult = bindResult
 		}
-		bindIntrinsicCall(pkg, idx, intrinsics, call, callResult)
+		bindIntrinsicCall(pkg, idx, intrinsics, call, callResult, callBindResult)
 		return true
 	})
 }
 
-func bindIntrinsicCall(pkg *packages.Package, idx *OstampIndex, intrinsics map[int]*IntrinsicAnnotation, call *ast.CallExpr, result types.Object) {
+func bindIntrinsicCall(pkg *packages.Package, idx *OstampIndex, intrinsics map[int]*IntrinsicAnnotation, call *ast.CallExpr, result types.Object, bindResult bool) {
 	if call == nil {
 		return
 	}
@@ -83,7 +101,9 @@ func bindIntrinsicCall(pkg *packages.Package, idx *OstampIndex, intrinsics map[i
 		ArgPlace: argPlace,
 		Result:   result,
 	})
-	bindIntrinsicResultOstamp(idx, ann.Intrinsic, result)
+	if bindResult {
+		bindIntrinsicResultOstamp(idx, ann.Intrinsic, result)
+	}
 }
 
 func (idx *OstampIndex) addIntrinsicBinding(binding IntrinsicBinding) {

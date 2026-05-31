@@ -110,6 +110,36 @@ func main() {
 }
 `
 
+const gownSSAExplicitFreezeSelfAssignSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func newPayload() \iso *payload {
+	return &payload{}
+}
+
+func main() {
+	x := newPayload()
+	x = \freeze(x)
+}
+`
+
+const gownSSAExplicitFreezeImmSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func main(x \imm *payload) {
+	y := \freeze(x)
+	ch := make(chan \imm *payload, 1)
+	ch <- y
+	ch <- x
+}
+`
+
 func TestSSAGWN001ReportsDirectUseAfterIsoSend(t *testing.T) {
 	gp := loadGownForSSACheck(t, "use_after_send.gown", gownUseAfterIsoSendSource)
 
@@ -241,6 +271,25 @@ func TestSSAExplicitFreezeRejectsFieldProjection(t *testing.T) {
 
 	errs := checkGWN001SSA(gp.pkg, gp.ssaPkg, gp.caps)
 	requireSSAErrorCode(t, errs, GWN011)
+}
+
+func TestSSAGWN010FreezeSelfAssignReportsIsoPointer(t *testing.T) {
+	err := checkGownSource(t, "freeze_self_assign.gown", gownSSAExplicitFreezeSelfAssignSource)
+	requireCheckerCode(t, err, GWN010)
+	text := err.Error()
+	if !strings.Contains(text, `cannot freeze \iso pointer "x"`) {
+		t.Fatalf("error %q does not contain expected source pointer diagnostic", text)
+	}
+	if strings.Contains(text, `cannot freeze \imm value "x"`) {
+		t.Fatalf("error still reports frozen result instead of source pointer: %q", text)
+	}
+}
+
+func TestSSAExplicitFreezeAllowsImmPointer(t *testing.T) {
+	err := checkGownSource(t, "freeze_imm.gown", gownSSAExplicitFreezeImmSource)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSSAGWN001ReportsUseAfterInferredFreezeSend(t *testing.T) {

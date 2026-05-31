@@ -562,11 +562,23 @@ func (checker *ssaGWN001Checker) applyExplicitFreezeIntrinsic(binding IntrinsicB
 		return
 	}
 	pos := checker.pkg.Fset.Position(instr.Pos())
+	sourceCap := checker.capForPlace(place)
+	if sourceCap == CapImm {
+		return
+	}
 	if !placeCanTransferAsIso(checker.caps, place) {
 		checker.reportCheckerError(newCheckerErrorAtPosition(
 			GWN010,
 			pos,
-			fmt.Sprintf("cannot freeze %s value %q", checker.capForPlace(place), place.Root.Name()),
+			fmt.Sprintf("cannot freeze %s pointer %q", sourceCap, place.Root.Name()),
+		))
+		return
+	}
+	if binding.Result == place.Root {
+		checker.reportCheckerError(newCheckerErrorAtPosition(
+			GWN010,
+			pos,
+			fmt.Sprintf("cannot freeze %s pointer %q", sourceCap, place.Root.Name()),
 		))
 		return
 	}
@@ -1228,6 +1240,9 @@ func collectSSAAssignments(pkg *packages.Package, caps *OstampIndex) map[ast.Exp
 				}
 				rhs := assign.Rhs[i]
 				value := assignmentValueOstamp(pkg, caps, rhs)
+				if value.Intrinsic == IntrinsicFreeze && value.Source.Root == dst.Root {
+					continue
+				}
 				if value.Place.Root == dst.Root && !value.Fresh {
 					continue
 				}
