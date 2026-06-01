@@ -263,6 +263,7 @@ func (body *restoreBodyCheck) checkDecl(stmt *ast.DeclStmt) {
 		}
 		for i, name := range valueSpec.Names {
 			if i < len(valueSpec.Values) {
+				body.rejectInterfaceBoxing(name, valueSpec.Values[i])
 				body.recordLocalToken(name, valueSpec.Values[i])
 			}
 		}
@@ -289,6 +290,8 @@ func (body *restoreBodyCheck) checkAssign(stmt *ast.AssignStmt) {
 	body.checkExpr(lhs)
 	body.checkExpr(rhs)
 	body.checkAssignmentTarget(lhs, rhs)
+	body.checkPointerFieldStoreValue(lhs, rhs)
+	body.rejectInterfaceBoxing(lhs, rhs)
 	body.rejectUntrackedPointerValue(rhs)
 	body.recordPointerAssignment(lhs, rhs)
 }
@@ -314,6 +317,35 @@ func (body *restoreBodyCheck) checkAssignmentTarget(lhs, rhs ast.Expr) {
 	}
 	if capForSSAPlace(body.caps, place) == CapImm || capForSSAPlace(body.caps, place) == CapRob {
 		body.errorAtNode(lhs, `\restore may not mutate read-only fields`)
+	}
+}
+
+func (body *restoreBodyCheck) checkPointerFieldStoreValue(lhs, rhs ast.Expr) {
+	if body == nil || lhs == nil || rhs == nil || isNilIdent(rhs) || !isPointerLike(body.pkg.TypesInfo.TypeOf(lhs)) {
+		return
+	}
+	lhsPlace, ok := body.caps.PlaceForExpr(lhs)
+	if !ok || lhsPlace.Root == nil || lhsPlace.Key().Path == "" {
+		return
+	}
+	if capForSSAPlace(body.caps, lhsPlace) != CapIso {
+		return
+	}
+	if _, ok := body.tokenForExpr(rhs); ok {
+		return
+	}
+	body.errorAtNode(rhs, `\restore pointer fields may only store nil or restore-local aliases`)
+}
+
+func (body *restoreBodyCheck) rejectInterfaceBoxing(dst ast.Expr, src ast.Expr) {
+	if body == nil || dst == nil || src == nil || !isInterfaceType(body.pkg.TypesInfo.TypeOf(dst)) {
+		return
+	}
+	if isNilIdent(src) {
+		return
+	}
+	if value, ok := valueOstampForExpr(body.pkg, body.caps, src); ok && capTracked(value.Cap) {
+		body.errorAtNode(src, `\restore may not box restore-local aliases into interfaces`)
 	}
 }
 
