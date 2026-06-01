@@ -155,10 +155,10 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		cfg.Overlay = overlay
 	}
 	//vv("GOWN packages.Load begin dir=%q overlay=%d", cfg.Dir, len(cfg.Overlay))
-	for path, src := range cfg.Overlay {
-		_, statErr := os.Stat(path)
-		//vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr)
-	}
+	//for path, src := range cfg.Overlay {
+	//	_, statErr := os.Stat(path)
+	//vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr)
+	//}
 	pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
 		//vv("GOWN AnalyzeWithOptions return: packages.Load failed dir=%q err=%v", cfg.Dir, err)
@@ -172,9 +172,9 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	gp.pkg = pkgs[0]
 	//vv("GOWN package selected name=%q id=%q syntax=%d errors=%d", gp.pkg.Name, gp.pkg.ID, len(gp.pkg.Syntax), len(gp.pkg.Errors))
 	if len(gp.pkg.Errors) > 0 {
-		for i, pkgErr := range gp.pkg.Errors {
-			//vv("GOWN package error[%d]: %v", i, pkgErr)
-		}
+		//for i, pkgErr := range gp.pkg.Errors {
+		//vv("GOWN package error[%d]: %v", i, pkgErr)
+		//}
 		//vv("GOWN AnalyzeWithOptions return: first package error=%v", gp.pkg.Errors[0])
 		return nil, fmt.Errorf("package error: %v", gp.pkg.Errors[0])
 	}

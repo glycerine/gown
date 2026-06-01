@@ -34,10 +34,11 @@ func runCheckerPasses(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIn
 	ctx := &CheckerContext{Pkg: pkg, SSAPkg: ssaPkg, Caps: caps}
 	//vv("GOWN checker runner start passes=%d ssaPkgNil=%v", len(checkerPasses), ssaPkg == nil)
 	for i, pass := range checkerPasses {
-		name := checkerPassName(pass)
-		//vv("GOWN checker pass[%d] begin name=%s", i, name)
+		_ = i
+
+		//vv("GOWN checker pass[%d] begin name=%s", i, checkerPassName(pass))
 		passErrs := pass(ctx)
-		//vv("GOWN checker pass[%d] complete name=%s errors=%d", i, name, len(passErrs))
+		//vv("GOWN checker pass[%d] complete name=%s errors=%d", i, checkerPassName(pass), len(passErrs))
 		if len(passErrs) > 0 {
 			//vv("GOWN checker pass[%d] first error name=%s err=%v", i, name, passErrs[0])
 			//vv("GOWN checker runner stop after first error pass[%d] name=%s", i, name)
