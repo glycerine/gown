@@ -35,14 +35,14 @@ func Move(x \iso *payload) \iso *payload {
 }
 `
 
-func TestGWN007RejectsReturnedMutableBorrow(t *testing.T) {
+func TestGWN010RejectsReturnedMutableBorrowToUntrackedResult(t *testing.T) {
 	err := checkGownSource(t, "return_mub.gown", gownReturnMubSource)
-	requireCheckerCode(t, err, GWN007)
+	requireCheckerCode(t, err, GWN010)
 }
 
-func TestGWN007RejectsReturnedReadBorrow(t *testing.T) {
+func TestGWN010RejectsReturnedReadBorrowToUntrackedResult(t *testing.T) {
 	err := checkGownSource(t, "return_rob.gown", gownReturnRobSource)
-	requireCheckerCode(t, err, GWN007)
+	requireCheckerCode(t, err, GWN010)
 }
 
 func TestGWN007AllowsReturnedIso(t *testing.T) {

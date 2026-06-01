@@ -64,29 +64,29 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	if len(opts.GownOverlay) > 0 {
 		opts.CheckOnly = true
 	}
-	vv("GOWN AnalyzeWithOptions start path=%q checkOnly=%v gownOverlay=%d", gp.path, opts.CheckOnly, len(opts.GownOverlay))
+	//vv("GOWN AnalyzeWithOptions start path=%q checkOnly=%v gownOverlay=%d", gp.path, opts.CheckOnly, len(opts.GownOverlay))
 
 	entries, err := os.ReadDir(gp.path)
 	if err != nil {
-		vv("GOWN AnalyzeWithOptions return: os.ReadDir failed path=%q err=%v", gp.path, err)
+		//vv("GOWN AnalyzeWithOptions return: os.ReadDir failed path=%q err=%v", gp.path, err)
 		return nil, fmt.Errorf("reading directory %s: %w", gp.path, err)
 	}
-	vv("GOWN read directory path=%q entries=%d", gp.path, len(entries))
+	//vv("GOWN read directory path=%q entries=%d", gp.path, len(entries))
 
 	gownNames := make(map[string]bool)
 	for _, e := range entries {
 		if !e.IsDir() && isGownSourceFileName(e.Name()) {
 			gownNames[e.Name()] = true
-			vv("GOWN discovered .gown file name=%q", e.Name())
+			//vv("GOWN discovered .gown file name=%q", e.Name())
 		}
 	}
 	for path := range opts.GownOverlay {
 		if isGownSourceFileName(filepath.Base(path)) && samePackagePath(gp.path, path) {
 			gownNames[filepath.Base(path)] = true
-			vv("GOWN discovered overlay .gown file path=%q base=%q", path, filepath.Base(path))
+			//vv("GOWN discovered overlay .gown file path=%q base=%q", path, filepath.Base(path))
 		}
 	}
-	vv("GOWN .gown discovery complete path=%q count=%d", gp.path, len(gownNames))
+	//vv("GOWN .gown discovery complete path=%q count=%d", gp.path, len(gownNames))
 
 	overlay := make(map[string][]byte)
 	emitSources := make(map[string][]byte)
@@ -98,51 +98,51 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		if !ok {
 			src, err = os.ReadFile(gownPath)
 			if err != nil {
-				vv("GOWN AnalyzeWithOptions return: os.ReadFile failed path=%q err=%v", gownPath, err)
+				//vv("GOWN AnalyzeWithOptions return: os.ReadFile failed path=%q err=%v", gownPath, err)
 				return nil, fmt.Errorf("reading %s: %w", gownPath, err)
 			}
 		}
-		vv("GOWN loaded .gown source path=%q overlay=%v bytes=%d", gownPath, ok, len(src))
+		//vv("GOWN loaded .gown source path=%q overlay=%v bytes=%d", gownPath, ok, len(src))
 
 		emitSrc, analysisSrc, gf, err := scanAndClassify(name, src)
 		if err != nil {
-			vv("GOWN AnalyzeWithOptions return: scanAndClassify failed file=%q err=%v", name, err)
+			//vv("GOWN AnalyzeWithOptions return: scanAndClassify failed file=%q err=%v", name, err)
 			return nil, err
 		}
 		gp.files = append(gp.files, gf)
 		if len(gf.intrinsics) > 0 {
 			needIntrinsicHelpers = true
 		}
-		vv("GOWN classified file=%q iso=%d intrinsics=%d boundary=%d creates=%d", gf.path, len(gf.iso), len(gf.intrinsics), len(gf.boundary), len(gf.create))
+		//vv("GOWN classified file=%q iso=%d intrinsics=%d boundary=%d creates=%d", gf.path, len(gf.iso), len(gf.intrinsics), len(gf.boundary), len(gf.create))
 
 		goName := strings.TrimSuffix(name, ".gown") + ".go"
 		goPath := filepath.Join(gp.path, goName)
 		absGoPath, err := filepath.Abs(goPath)
 		if err != nil {
-			vv("GOWN AnalyzeWithOptions return: filepath.Abs failed path=%q err=%v", goPath, err)
+			//vv("GOWN AnalyzeWithOptions return: filepath.Abs failed path=%q err=%v", goPath, err)
 			return nil, fmt.Errorf("resolving %s: %w", goPath, err)
 		}
 		overlay[absGoPath] = analysisSrc
 		emitSources[absGoPath] = emitSrc
-		vv("GOWN prepared generated source goPath=%q abs=%q analysisBytes=%d emitBytes=%d", goPath, absGoPath, len(analysisSrc), len(emitSrc))
+		//vv("GOWN prepared generated source goPath=%q abs=%q analysisBytes=%d emitBytes=%d", goPath, absGoPath, len(analysisSrc), len(emitSrc))
 		if firstOverlayPath == "" {
 			firstOverlayPath = absGoPath
 		}
 	}
 
 	if len(gownNames) == 0 {
-		vv("GOWN AnalyzeWithOptions return: no .gown files after discovery path=%q", gp.path)
+		//vv("GOWN AnalyzeWithOptions return: no .gown files after discovery path=%q", gp.path)
 		return nil, fmt.Errorf("no .gown files found in %s", gp.path)
 	}
 
 	if len(gp.files) == 0 {
-		vv("GOWN AnalyzeWithOptions return: no gownFile objects path=%q gownNames=%d", gp.path, len(gownNames))
+		//vv("GOWN AnalyzeWithOptions return: no gownFile objects path=%q gownNames=%d", gp.path, len(gownNames))
 		return nil, fmt.Errorf("no .gown files found in %s", gp.path)
 	}
 
 	if needIntrinsicHelpers && firstOverlayPath != "" {
 		overlay[firstOverlayPath] = append(append([]byte(nil), overlay[firstOverlayPath]...), []byte(intrinsicAnalysisHelperDecls())...)
-		vv("GOWN appended intrinsic analysis helpers firstOverlayPath=%q overlayBytes=%d", firstOverlayPath, len(overlay[firstOverlayPath]))
+		//vv("GOWN appended intrinsic analysis helpers firstOverlayPath=%q overlayBytes=%d", firstOverlayPath, len(overlay[firstOverlayPath]))
 	}
 
 	cfg := &packages.Config{
@@ -154,46 +154,46 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	if len(overlay) > 0 {
 		cfg.Overlay = overlay
 	}
-	vv("GOWN packages.Load begin dir=%q overlay=%d", cfg.Dir, len(cfg.Overlay))
+	//vv("GOWN packages.Load begin dir=%q overlay=%d", cfg.Dir, len(cfg.Overlay))
 	for path, src := range cfg.Overlay {
 		_, statErr := os.Stat(path)
-		vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr)
+		//vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr)
 	}
 	pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
-		vv("GOWN AnalyzeWithOptions return: packages.Load failed dir=%q err=%v", cfg.Dir, err)
+		//vv("GOWN AnalyzeWithOptions return: packages.Load failed dir=%q err=%v", cfg.Dir, err)
 		return nil, fmt.Errorf("packages.Load: %w", err)
 	}
-	vv("GOWN packages.Load complete dir=%q packages=%d", cfg.Dir, len(pkgs))
+	//vv("GOWN packages.Load complete dir=%q packages=%d", cfg.Dir, len(pkgs))
 	if len(pkgs) == 0 {
-		vv("GOWN AnalyzeWithOptions return: packages.Load returned zero packages dir=%q", cfg.Dir)
+		//vv("GOWN AnalyzeWithOptions return: packages.Load returned zero packages dir=%q", cfg.Dir)
 		return nil, fmt.Errorf("no packages found in %s", gp.path)
 	}
 	gp.pkg = pkgs[0]
-	vv("GOWN package selected name=%q id=%q syntax=%d errors=%d", gp.pkg.Name, gp.pkg.ID, len(gp.pkg.Syntax), len(gp.pkg.Errors))
+	//vv("GOWN package selected name=%q id=%q syntax=%d errors=%d", gp.pkg.Name, gp.pkg.ID, len(gp.pkg.Syntax), len(gp.pkg.Errors))
 	if len(gp.pkg.Errors) > 0 {
 		for i, pkgErr := range gp.pkg.Errors {
-			vv("GOWN package error[%d]: %v", i, pkgErr)
+			//vv("GOWN package error[%d]: %v", i, pkgErr)
 		}
-		vv("GOWN AnalyzeWithOptions return: first package error=%v", gp.pkg.Errors[0])
+		//vv("GOWN AnalyzeWithOptions return: first package error=%v", gp.pkg.Errors[0])
 		return nil, fmt.Errorf("package error: %v", gp.pkg.Errors[0])
 	}
-	vv("GOWN assignCapabilities begin files=%d", len(gp.files))
+	//vv("GOWN assignCapabilities begin files=%d", len(gp.files))
 	gp.caps = assignCapabilities(gp.pkg, gp.files)
-	vv("GOWN assignCapabilities complete")
-	vv("GOWN buildSSA begin")
+	//vv("GOWN assignCapabilities complete")
+	//vv("GOWN buildSSA begin")
 	if err := gp.buildSSA(); err != nil {
-		vv("GOWN AnalyzeWithOptions return: buildSSA failed err=%v", err)
+		//vv("GOWN AnalyzeWithOptions return: buildSSA failed err=%v", err)
 		return nil, err
 	}
-	vv("GOWN buildSSA complete ssaPkgNil=%v", gp.ssaPkg == nil)
+	//vv("GOWN buildSSA complete ssaPkgNil=%v", gp.ssaPkg == nil)
 
 	for _, gf := range gp.files {
-		vv("GOWN assignRegions begin file=%q", gf.path)
+		//vv("GOWN assignRegions begin file=%q", gf.path)
 		assignRegions(gp.pkg, gf)
-		vv("GOWN assignBoundary begin file=%q", gf.path)
+		//vv("GOWN assignBoundary begin file=%q", gf.path)
 		assignBoundary(gp.pkg, gf)
-		vv("GOWN region/boundary complete file=%q boundary=%d", gf.path, len(gf.boundary))
+		//vv("GOWN region/boundary complete file=%q boundary=%d", gf.path, len(gf.boundary))
 	}
 
 	// Collect all boundary crossings across files.
@@ -249,48 +249,48 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		}
 	}
 
-	vv("GOWN computeReachableTypes begin boundary=%d isoTypes=%d", len(allBoundary), len(isoTypes))
+	//vv("GOWN computeReachableTypes begin boundary=%d isoTypes=%d", len(allBoundary), len(isoTypes))
 	reachable, poisoned := computeReachableTypes(allBoundary, isoTypes)
-	vv("GOWN computeReachableTypes complete reachable=%d poisoned=%v", len(reachable), poisoned)
+	//vv("GOWN computeReachableTypes complete reachable=%d poisoned=%v", len(reachable), poisoned)
 
 	for _, gf := range gp.files {
-		vv("GOWN assignCreates begin file=%q", gf.path)
+		//vv("GOWN assignCreates begin file=%q", gf.path)
 		assignCreates(gp.pkg, gf, reachable, poisoned)
-		vv("GOWN assignCreates complete file=%q creates=%d", gf.path, len(gf.create))
+		//vv("GOWN assignCreates complete file=%q creates=%d", gf.path, len(gf.create))
 	}
 
-	vv("GOWN runCheckerPasses begin")
+	//vv("GOWN runCheckerPasses begin")
 	if errs := runCheckerPasses(gp.pkg, gp.ssaPkg, gp.caps); len(errs) > 0 {
-		vv("GOWN AnalyzeWithOptions return: checker errors=%d first=%v", len(errs), errs[0])
+		//vv("GOWN AnalyzeWithOptions return: checker errors=%d first=%v", len(errs), errs[0])
 		return gp.analysis(), errs
 	}
-	vv("GOWN runCheckerPasses complete no errors")
+	//vv("GOWN runCheckerPasses complete no errors")
 
 	if !opts.CheckOnly {
 		for _, gf := range gp.files {
 			goPath := filepath.Join(gp.path, generatedGoName(gf.path))
 			absGoPath, err := filepath.Abs(goPath)
 			if err != nil {
-				vv("GOWN AnalyzeWithOptions return: filepath.Abs emit failed path=%q err=%v", goPath, err)
+				//vv("GOWN AnalyzeWithOptions return: filepath.Abs emit failed path=%q err=%v", goPath, err)
 				return nil, fmt.Errorf("resolving %s: %w", goPath, err)
 			}
 			emitSrc := emitSources[absGoPath]
-			vv("GOWN buildEmitSource begin file=%q goPath=%q emitBytes=%d", gf.path, goPath, len(emitSrc))
+			//vv("GOWN buildEmitSource begin file=%q goPath=%q emitBytes=%d", gf.path, goPath, len(emitSrc))
 			finalSrc, err := buildEmitSource(gp.pkg, gp.caps, gf, emitSrc)
 			if err != nil {
-				vv("GOWN AnalyzeWithOptions return: buildEmitSource failed file=%q err=%v", gf.path, err)
+				//vv("GOWN AnalyzeWithOptions return: buildEmitSource failed file=%q err=%v", gf.path, err)
 				return nil, err
 			}
-			vv("GOWN write generated .go begin path=%q bytes=%d", goPath, len(finalSrc))
+			//vv("GOWN write generated .go begin path=%q bytes=%d", goPath, len(finalSrc))
 			if err := os.WriteFile(goPath, finalSrc, 0644); err != nil {
-				vv("GOWN AnalyzeWithOptions return: os.WriteFile failed path=%q err=%v", goPath, err)
+				//vv("GOWN AnalyzeWithOptions return: os.WriteFile failed path=%q err=%v", goPath, err)
 				return nil, fmt.Errorf("writing %s: %w", goPath, err)
 			}
-			vv("GOWN write generated .go complete path=%q", goPath)
+			//vv("GOWN write generated .go complete path=%q", goPath)
 		}
 	}
 
-	vv("GOWN AnalyzeWithOptions success path=%q", gp.path)
+	//vv("GOWN AnalyzeWithOptions success path=%q", gp.path)
 	return gp.analysis(), nil
 }
 

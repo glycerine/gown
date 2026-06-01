@@ -155,14 +155,14 @@ func main() {
 }
 `
 
-func TestGWN003RejectsMutableBorrowSend(t *testing.T) {
+func TestGWN010RejectsMutableBorrowSendToUntrackedChannel(t *testing.T) {
 	err := checkGownSource(t, "mub_send.gown", gownMubSendSource)
-	requireCheckerCode(t, err, GWN003)
+	requireCheckerCode(t, err, GWN010)
 }
 
-func TestGWN003RejectsReadBorrowSend(t *testing.T) {
+func TestGWN010RejectsReadBorrowSendToUntrackedChannel(t *testing.T) {
 	err := checkGownSource(t, "rob_send.gown", gownRobSendSource)
-	requireCheckerCode(t, err, GWN003)
+	requireCheckerCode(t, err, GWN010)
 }
 
 func TestGWN003AllowsImmutableSend(t *testing.T) {

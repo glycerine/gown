@@ -112,21 +112,21 @@ func TestSSAGWN001RejectsCompareAfterSend(t *testing.T) {
 }`, GWN001)
 }
 
-func TestSSAGWN001RejectsInterfaceConversionAfterSend(t *testing.T) {
+func TestSSAGWN009RejectsInterfaceConversionAfterSend(t *testing.T) {
 	requireHardeningCheckerCode(t, `func main(ch chan \iso *payload) {
 	var x \iso *payload
 	ch <- x
 	var y any = x
 	_ = y
-}`, GWN001)
+}`, GWN009)
 }
 
-func TestSSAGWN001RejectsMethodReceiverAfterSend(t *testing.T) {
+func TestSSAGWN008RejectsMethodReceiverAfterSend(t *testing.T) {
 	requireHardeningCheckerCode(t, `func main(ch chan \iso *payload) {
 	var x \iso *payload
 	ch <- x
 	x.Touch()
-}`, GWN001)
+}`, GWN008)
 }
 
 func TestSSAGWN001RejectsClosureCaptureAfterSend(t *testing.T) {

@@ -32,19 +32,19 @@ var checkerPasses = []CheckerPass{
 
 func runCheckerPasses(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) CheckerErrors {
 	ctx := &CheckerContext{Pkg: pkg, SSAPkg: ssaPkg, Caps: caps}
-	vv("GOWN checker runner start passes=%d ssaPkgNil=%v", len(checkerPasses), ssaPkg == nil)
+	//vv("GOWN checker runner start passes=%d ssaPkgNil=%v", len(checkerPasses), ssaPkg == nil)
 	for i, pass := range checkerPasses {
 		name := checkerPassName(pass)
-		vv("GOWN checker pass[%d] begin name=%s", i, name)
+		//vv("GOWN checker pass[%d] begin name=%s", i, name)
 		passErrs := pass(ctx)
-		vv("GOWN checker pass[%d] complete name=%s errors=%d", i, name, len(passErrs))
+		//vv("GOWN checker pass[%d] complete name=%s errors=%d", i, name, len(passErrs))
 		if len(passErrs) > 0 {
-			vv("GOWN checker pass[%d] first error name=%s err=%v", i, name, passErrs[0])
-			vv("GOWN checker runner stop after first error pass[%d] name=%s", i, name)
+			//vv("GOWN checker pass[%d] first error name=%s err=%v", i, name, passErrs[0])
+			//vv("GOWN checker runner stop after first error pass[%d] name=%s", i, name)
 			return CheckerErrors{passErrs[0]}
 		}
 	}
-	vv("GOWN checker runner complete totalErrors=0")
+	//vv("GOWN checker runner complete totalErrors=0")
 	return nil
 }
 

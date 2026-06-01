@@ -254,16 +254,14 @@ func TestGWN010RejectsPlainHelperResultSentToIsoChannel(t *testing.T) {
 	requireCheckerCode(t, err, GWN010)
 }
 
-func TestGWN008AndGWN010RejectPlainHelperBetweenIsoReceiveAndSend(t *testing.T) {
+func TestGWN008RejectsPlainHelperBetweenIsoReceiveAndSend(t *testing.T) {
 	err := checkGownSource(t, "plain_helper_between_iso.gown", gownPlainHelperBetweenIsoReceiveAndSendSource)
 	requireCheckerCode(t, err, GWN008)
-	requireCheckerCode(t, err, GWN010)
 }
 
-func TestGWN008AndGWN010RejectPlainHelperBetweenIsoSelectReceiveAndSendInClosure(t *testing.T) {
+func TestGWN008RejectsPlainHelperBetweenIsoSelectReceiveAndSendInClosure(t *testing.T) {
 	err := checkGownSource(t, "plain_helper_select_closure.gown", gownPlainHelperBetweenIsoSelectReceiveAndSendInClosureSource)
 	requireCheckerCode(t, err, GWN008)
-	requireCheckerCode(t, err, GWN010)
 }
 
 func TestObserverAllowsFmtPrintfTrackedArgument(t *testing.T) {

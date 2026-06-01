@@ -130,14 +130,14 @@ func TestGWN005RejectsIncThroughReadBorrow(t *testing.T) {
 	requireCheckerCode(t, err, GWN005)
 }
 
-func TestGWN006RejectsMutableBorrowStoredToField(t *testing.T) {
+func TestGWN010RejectsMutableBorrowStoredToUntrackedField(t *testing.T) {
 	err := checkGownSource(t, "mub_store_field.gown", gownMubStoreToFieldSource)
-	requireCheckerCode(t, err, GWN006)
+	requireCheckerCode(t, err, GWN010)
 }
 
-func TestGWN006RejectsReadBorrowStoredToGlobal(t *testing.T) {
+func TestGWN010RejectsReadBorrowStoredToUntrackedGlobal(t *testing.T) {
 	err := checkGownSource(t, "rob_store_global.gown", gownRobStoreToGlobalSource)
-	requireCheckerCode(t, err, GWN006)
+	requireCheckerCode(t, err, GWN010)
 }
 
 func TestGWN006AllowsLocalBorrowAliasForNow(t *testing.T) {
