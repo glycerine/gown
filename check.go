@@ -109,6 +109,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 			vv("GOWN AnalyzeWithOptions return: scanAndClassify failed file=%q err=%v", name, err) // not seen
 			return nil, err
 		}
+		vv("emitSrc = '%v';\n\n analysisSrc = '%v'", string(emitSrc), string(analysisSrc))
 		gp.files = append(gp.files, gf)
 		if len(gf.intrinsics) > 0 {
 			needIntrinsicHelpers = true
@@ -143,7 +144,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 
 	if needIntrinsicHelpers && firstOverlayPath != "" {
 		overlay[firstOverlayPath] = append(append([]byte(nil), overlay[firstOverlayPath]...), []byte(intrinsicAnalysisHelperDecls())...)
-		vv("GOWN appended intrinsic analysis helpers firstOverlayPath=%q overlayBytes=%d", firstOverlayPath, len(overlay[firstOverlayPath]))
+		vv("GOWN appended intrinsic analysis helpers firstOverlayPath=%q overlayBytes=%d", firstOverlayPath, len(overlay[firstOverlayPath])) // check.go:147 [goID 1] 2026-06-01 02:31:38.196213381 +0000 UTC GOWN appended intrinsic analysis helpers firstOverlayPath="/home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go" overlayBytes=3089
 	}
 
 	cfg := &packages.Config{
@@ -155,39 +156,39 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	if len(overlay) > 0 {
 		cfg.Overlay = overlay
 	}
-	vv("GOWN packages.Load begin dir=%q overlay=%d", cfg.Dir, len(cfg.Overlay))
+	vv("GOWN packages.Load begin dir=%q overlay=%d", cfg.Dir, len(cfg.Overlay)) // check.go:159 [goID 1] 2026-06-01 02:31:38.196229752 +0000 UTC GOWN packages.Load begin dir="." overlay=1
 	for path, src := range cfg.Overlay {
 		_, statErr := os.Stat(path)
-		vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr)
+		vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr) // check.go:162 [goID 1] 2026-06-01 02:31:38.196248938 +0000 UTC GOWN packages.Load overlay path="/home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go" bytes=3089 diskExists=false statErr=stat /home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go: no such file or directory
 	}
 	pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
 		vv("GOWN AnalyzeWithOptions return: packages.Load failed dir=%q err=%v", cfg.Dir, err)
 		return nil, fmt.Errorf("packages.Load: %w", err)
 	}
-	vv("GOWN packages.Load complete dir=%q packages=%d", cfg.Dir, len(pkgs))
+	vv("GOWN packages.Load complete dir=%q packages=%d", cfg.Dir, len(pkgs)) // check.go:169 [goID 1] 2026-06-01 02:31:38.209256387 +0000 UTC GOWN packages.Load complete dir="." packages=1
 	if len(pkgs) == 0 {
-		//vv("GOWN AnalyzeWithOptions return: packages.Load returned zero packages dir=%q", cfg.Dir)
+		vv("GOWN AnalyzeWithOptions return: packages.Load returned zero packages dir=%q", cfg.Dir) // not seen.
 		return nil, fmt.Errorf("no packages found in %s", gp.path)
 	}
 	gp.pkg = pkgs[0]
-	//vv("GOWN package selected name=%q id=%q syntax=%d errors=%d", gp.pkg.Name, gp.pkg.ID, len(gp.pkg.Syntax), len(gp.pkg.Errors))
+	vv("GOWN package selected name=%q id=%q syntax=%d errors=%d", gp.pkg.Name, gp.pkg.ID, len(gp.pkg.Syntax), len(gp.pkg.Errors)) // check.go:175 [goID 1] 2026-06-01 02:31:38.209275945 +0000 UTC GOWN package selected name="" id="." syntax=0 errors=1
 	if len(gp.pkg.Errors) > 0 {
-		//for i, pkgErr := range gp.pkg.Errors {
-		//vv("GOWN package error[%d]: %v", i, pkgErr)
-		//}
-		//vv("GOWN AnalyzeWithOptions return: first package error=%v", gp.pkg.Errors[0])
+		for i, pkgErr := range gp.pkg.Errors {
+			vv("GOWN package error[%d]: %v", i, pkgErr) // check.go:177 [goID 1] 2026-06-01 02:26:11.292790589 +0000 UTC GOWN package error[0]: -: no Go files in /mnt/oldrog/home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00
+		}
+		vv("GOWN AnalyzeWithOptions return: first package error=%v", gp.pkg.Errors[0]) // check.go:179 [goID 1] 2026-06-01 02:26:11.292813934 +0000 UTC GOWN AnalyzeWithOptions return: first package error=-: no Go files in /mnt/oldrog/home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00
 		return nil, fmt.Errorf("package error: %v", gp.pkg.Errors[0])
 	}
-	//vv("GOWN assignCapabilities begin files=%d", len(gp.files))
+	vv("len gp.pkg.Errors == 0. assignCapabilities begin files=%d", len(gp.files))
 	gp.caps = assignCapabilities(gp.pkg, gp.files)
-	//vv("GOWN assignCapabilities complete")
-	//vv("GOWN buildSSA begin")
+	vv("GOWN assignCapabilities complete")
+	vv("GOWN buildSSA begin")
 	if err := gp.buildSSA(); err != nil {
-		//vv("GOWN AnalyzeWithOptions return: buildSSA failed err=%v", err)
+		vv("GOWN AnalyzeWithOptions return: buildSSA failed err=%v", err)
 		return nil, err
 	}
-	//vv("GOWN buildSSA complete ssaPkgNil=%v", gp.ssaPkg == nil)
+	vv("GOWN buildSSA complete ssaPkgNil=%v", gp.ssaPkg == nil)
 
 	for _, gf := range gp.files {
 		//vv("GOWN assignRegions begin file=%q", gf.path)
