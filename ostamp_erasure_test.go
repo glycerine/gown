@@ -1,6 +1,9 @@
 package gown
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const gownReturnFreezeToPlainResultSource = `package example
 
@@ -298,6 +301,26 @@ func TestGWN010AllowsUnsafeTrackedValueToExplicitPlainLocal(t *testing.T) {
 func TestGWN010RejectsTrackedValueToUntrackedField(t *testing.T) {
 	err := checkGownSource(t, "tracked_untracked_field.gown", gownTrackedToUntrackedFieldSource)
 	requireCheckerCode(t, err, GWN010)
+	text := FormatError(err)
+	if !strings.Contains(text, `cannot store \iso value "n.next" in untracked field prev`) {
+		t.Fatalf("diagnostic %q does not name projected source n.next", text)
+	}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, "n.prev = n.next") {
+			continue
+		}
+		if i+1 >= len(lines) {
+			t.Fatalf("diagnostic %q has source line without caret line", text)
+		}
+		gotCaret := strings.Index(lines[i+1], "^")
+		wantCaret := strings.Index(line, "next")
+		if gotCaret != wantCaret {
+			t.Fatalf("caret column = %d, want %d in diagnostic:\n%s", gotCaret, wantCaret, text)
+		}
+		return
+	}
+	t.Fatalf("diagnostic %q does not include source line", text)
 }
 
 func TestGWN010AllowsUnsafeTrackedValueToUntrackedField(t *testing.T) {

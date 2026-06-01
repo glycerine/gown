@@ -71,14 +71,11 @@ func insertAfterHead(l \iso *list, n \iso *node) \iso *list {
 	}
 
 	// Insert n between l.head and l.head.next.
-	//
-	// Again, no overlapping root/field swap is needed:
-	//   n.next       <-> l.head.next
-	//   l.head.next  <-> n
+
 	\swap(n.next, l.head.next)
 	n.prev = l.head 
 	if n.next != nil {
-		n.next.prev = n
+		n.next.prev = n // \unsafe(n)
 	}
 	\swap(l.head.next, n)
 	return l

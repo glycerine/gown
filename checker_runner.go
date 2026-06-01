@@ -40,8 +40,8 @@ func runCheckerPasses(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIn
 		passErrs := pass(ctx)
 		//vv("GOWN checker pass[%d] complete name=%s errors=%d", i, checkerPassName(pass), len(passErrs))
 		if len(passErrs) > 0 {
-			//vv("GOWN checker pass[%d] first error name=%s err=%v", i, name, passErrs[0])
-			//vv("GOWN checker runner stop after first error pass[%d] name=%s", i, name)
+			//vv("GOWN checker pass[%d] first error name=%s err=%v", i, checkerPassName(pass), passErrs[0])
+			//vv("GOWN checker runner stop after first error pass[%d] name=%s", i, checkerPassName(pass))
 			return CheckerErrors{passErrs[0]}
 		}
 	}

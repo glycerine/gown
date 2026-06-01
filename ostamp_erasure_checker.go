@@ -255,7 +255,17 @@ func (checker *ostampErasureChecker) checkValueIntoCap(src ast.Expr, dstCap Cap,
 	if !ok || !valueRequiresUnsafeErasure(value) {
 		return
 	}
-	checker.reportAtNode(code, src, fmt.Sprintf(message, value.Cap, valueName(value)))
+	checker.reportAtNode(code, valueDiagnosticNode(src, value), fmt.Sprintf(message, value.Cap, valueName(value)))
+}
+
+func valueDiagnosticNode(expr ast.Expr, value ValueOstamp) ast.Node {
+	if len(value.Place.Projection) == 0 && len(value.Source.Projection) == 0 {
+		return expr
+	}
+	if sel, ok := unparenExpr(expr).(*ast.SelectorExpr); ok && sel.Sel != nil {
+		return sel.Sel
+	}
+	return expr
 }
 
 func (checker *ostampErasureChecker) checkSend(send *ast.SendStmt) {
@@ -407,10 +417,10 @@ func isBlankIdent(expr ast.Expr) bool {
 
 func valueName(value ValueOstamp) string {
 	if value.Place.Root != nil {
-		return value.Place.Root.Name()
+		return placeName(value.Place)
 	}
 	if value.Source.Root != nil {
-		return value.Source.Root.Name()
+		return placeName(value.Source)
 	}
 	return "<expression>"
 }
