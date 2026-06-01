@@ -54,6 +54,39 @@ func (gp *GownPackage) CheckWithOptions(opts CheckOptions) error {
 	return err
 }
 
+// AnalyzeWithOptions canonicalizes paths early to avoid
+// some mysterious failures. aka: symlink sensitivity;
+// why we canonicalize paths by resolve symlinks up front.
+//
+// go/packages is path-identity sensitive, and our overlays
+// are keyed by exact absolute filenames. On the remote box,
+// /home/jaten/... and /mnt/oldrog/home/jaten/... named
+// the same directory, but different parts of the load
+// process were seeing different spellings.
+//
+// That matters a lot for Gown because, in check mode,
+// the generated .go file may exist only as an overlay.
+// If packages.Load decides the package directory is
+// the realpath form but our overlay key is the symlink form,
+// the loader does not reliably associate that
+// generated .go overlay with the package. Then it sees
+// a directory with only .gown files and reports
+// the misleading downstream symptom that "no Go files"
+// are available.
+//
+// So I would phrase the root cause as:
+//
+// go/packages is not symlink-transparent for package
+// directory identity plus overlay filenames; Gown
+// was feeding it mixed symlink and canonical path spellings.
+//
+// The fix was to canonicalize the package directory
+// once, then use that same spelling for directory
+// reads, generated overlay paths, packages.Config.Dir,
+// and packages.Load. Then I added canonical comparison
+// on the Gown side so editor/test overlay paths can
+// still come in through a symlink spelling without
+// breaking the mapping.
 func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, error) {
 	gp.pkg = nil
 	gp.files = nil
