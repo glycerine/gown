@@ -86,7 +86,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 			vv("GOWN discovered overlay .gown file path=%q base=%q", path, filepath.Base(path)) // not seen
 		}
 	}
-	vv("GOWN .gown discovery complete path=%q count=%d", gp.path, len(gownNames))
+	vv("GOWN .gown discovery complete gp.path=%q count=%d", gp.path, len(gownNames))
 
 	overlay := make(map[string][]byte)
 	emitSources := make(map[string][]byte)
@@ -161,8 +161,11 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		_, statErr := os.Stat(path)
 		vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr) // check.go:162 [goID 1] 2026-06-01 02:31:38.196248938 +0000 UTC GOWN packages.Load overlay path="/home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go" bytes=3089 diskExists=false statErr=stat /home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go: no such file or directory
 	}
+	absPkgPath, err := filepath.Abs(gp.path)
+	panicOn(err)
 	vv(`about to packages.Load(cfg, ".") with cfg = '%#v'`, cfg)
-	pkgs, err := packages.Load(cfg, ".")
+	pkgs, err := packages.Load(cfg, absPkgPath)
+	//pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
 		vv("GOWN AnalyzeWithOptions return: packages.Load failed dir=%q err=%v", cfg.Dir, err)
 		return nil, fmt.Errorf("packages.Load: %w", err)
