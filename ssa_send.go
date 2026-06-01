@@ -19,7 +19,7 @@ func checkSendCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *
 		bindings: NewSSABindingIndex(caps),
 		reported: make(map[string]bool),
 	}
-	for _, fn := range collectSSAFunctions(ssaPkg) {
+	for _, fn := range collectSSAFunctionsForChecking(ssaPkg, caps) {
 		checker.checkFunction(fn)
 	}
 	return checker.errs

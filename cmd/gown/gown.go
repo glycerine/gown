@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 
@@ -32,11 +33,11 @@ func main() {
 	os.Exit(runWithWriters(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func run(args []string, stderr *os.File) int {
+func run(args []string, stderr io.Writer) int {
 	return runWithWriters(args, stderr, stderr)
 }
 
-func runWithWriters(args []string, stdout, stderr *os.File) int {
+func runWithWriters(args []string, stdout, stderr io.Writer) int {
 	myflags := flag.NewFlagSet("myflags", flag.ContinueOnError)
 	myflags.SetOutput(stderr)
 	cfg := &Config{}
@@ -81,9 +82,7 @@ func runWithWriters(args []string, stdout, stderr *os.File) int {
 		}
 		gp := gown.NewGownPackage(dir)
 		if err := gp.CheckWithOptions(gown.CheckOptions{CheckOnly: cfg.CheckOnly}); err != nil {
-			//fmt.Fprintf(stderr, "gown/cmd/gown error from gp.CheckWithOptions: '%v'\n", err)
 			fmt.Fprintln(stderr, gown.FormatError(err))
-			stderr.Sync()
 			return 1
 		}
 	}

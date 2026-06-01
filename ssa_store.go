@@ -17,7 +17,7 @@ func checkStoreCapabilitiesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps 
 		places:   buildSSAPlaceIndex(pkg, ssaPkg, caps),
 		reported: make(map[string]bool),
 	}
-	for _, fn := range collectSSAFunctions(ssaPkg) {
+	for _, fn := range collectSSAFunctionsForChecking(ssaPkg, caps) {
 		checker.checkFunction(fn)
 	}
 	return checker.errs

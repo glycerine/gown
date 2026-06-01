@@ -36,6 +36,7 @@ const (
 	AnnotationIntrinsic
 	AnnotationUnsafeBoundary
 	AnnotationObserverDirective
+	AnnotationRestoreRegion
 )
 
 type IntrinsicKind uint8
@@ -93,6 +94,7 @@ type GownSourceViews struct {
 	Intrinsics    []*IntrinsicAnnotation
 	UnsafeUses    []*UnsafeBoundaryAnnotation
 	Observers     []*ObserverAnnotation
+	Restores      []*RestoreAnnotation
 }
 
 func ClassifyGownSource(path string, src []byte) (*GownSourceViews, error) {
@@ -108,5 +110,6 @@ func ClassifyGownSource(path string, src []byte) (*GownSourceViews, error) {
 		Intrinsics:    gf.intrinsics,
 		UnsafeUses:    gf.unsafeUses,
 		Observers:     gf.observers,
+		Restores:      gf.restores,
 	}, nil
 }

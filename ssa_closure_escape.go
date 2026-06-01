@@ -20,7 +20,7 @@ func checkClosureEscapesSSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *Os
 		reported: make(map[string]bool),
 	}
 	checker.checkSourceClosures()
-	for _, fn := range collectSSAFunctions(ssaPkg) {
+	for _, fn := range collectSSAFunctionsForChecking(ssaPkg, caps) {
 		checker.checkFunction(fn)
 	}
 	return checker.errs

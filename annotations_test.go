@@ -309,6 +309,14 @@ func TestScanAndClassifyRejectsMalformedTokens(t *testing.T) {
 			name: "freeze-without-call",
 			src:  `package p; func f(x *T) { _ = \freeze }`,
 		},
+		{
+			name: "restore-call",
+			src:  `package p; func f(x *T) { _ = \restore(x) }`,
+		},
+		{
+			name: "restore-without-func",
+			src:  `package p; func f(x *T) { _ = \restore x }`,
+		},
 	}
 
 	for _, tt := range tests {

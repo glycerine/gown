@@ -12,8 +12,9 @@ surgery on `\iso` object graphs.
 `\restore` is a scoped, auditable way to temporarily open one or more `\iso`
 roots, perform local pointer rewiring, and return to ordinary checked `\iso`
 ownership. It is not an escape hatch. A restore region is accepted only when the
-checker can prove that all temporary aliases are dead, no alias escaped, and each
-returned value is again a valid `\iso` root.
+checker can rely on Go function scope to end restore-local variable bindings,
+and can prove that no restore-local alias escapes except through the declared
+returned `\iso` results.
 
 V1 deliberately favors proof simplicity over expressiveness. The accepted source
 form is an immediately invoked function literal (IIFE):
@@ -97,6 +98,11 @@ root may remain available through its old outside binding.
 V1 supports one or more returned `\iso` roots. Mixed result lists containing
 non-`\iso` values are deferred.
 
+The initial implementation keeps the boundary proof especially small by
+requiring final returned expressions to be direct opened `\iso` parameter roots.
+Returning detached restore-local aliases as separate `\iso` roots is deferred
+until the checker has a richer graph-splitting proof.
+
 ---
 
 ## 4. Allowed Body Fragment
@@ -158,6 +164,7 @@ The restore body must not contain:
 
 - Ordinary function calls, method calls, builtin calls, or Gown intrinsic calls.
 - `\unsafe`.
+- Use of Go's native unsafe package.
 - Channel send, receive, `select`, or channel operations of any kind.
 - `go`, `defer`, `goto`, labels, `fallthrough`, `break`, or `continue`.
 - `for`, `range`, `switch`, or type switch.
@@ -184,9 +191,14 @@ preferred because it keeps the restore boundary inspectable.
 
 ## 6. Boundary Check
 
-At the final return, the checker must prove the restore boundary condition:
+At the final return, the returned expressions name the candidate restored roots.
+They do not need ordinary `\iso` capability inside the restore body; that proof
+is suspended while the body performs local aliasing and rewiring. The checker
+grants the declared `\iso` result capabilities only after proving the full
+restore boundary condition:
 
-1. Each returned expression has the corresponding result capability `\iso *T`.
+1. Each returned expression is a restore-local pointer expression assignable to
+   the corresponding declared result type.
 2. Every restore-local pointer alias is dead after the IIFE returns.
 3. No restore-local alias was stored outside the opened graph.
 4. No restore-local alias was sent, captured by a goroutine, captured by an
@@ -199,6 +211,11 @@ At the final return, the checker must prove the restore boundary condition:
    consumed, nil, or otherwise unreachable from live checked state.
 8. No `\imm` location became mutable, and no mutable location gained an `\imm`
    alias.
+
+The checker tracks simple symbolic graph effects inside the body: moving a
+tracked field projection requires that projection to be overwritten before its
+owning graph is returned, and an opened `\iso` parameter incorporated into one
+returned graph may not also be returned as a separate result.
 
 If any of these facts is uncertain, the checker rejects the restore.
 

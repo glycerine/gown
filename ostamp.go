@@ -11,12 +11,17 @@ type OstampIndex struct {
 	Funcs                           map[*types.Func]*FuncOstamp
 	CallBindings                    []CallBinding
 	IntrinsicBindings               []IntrinsicBinding
+	RestoreBindings                 []RestoreBinding
+	RestoreAnnotations              []*RestoreAnnotation
 	InvalidChannelElementQualifiers []InvalidChannelElementQualifier
 	Observers                       map[string]bool
 	Places                          *PlaceIndex
 	SendBindings                    []SendBinding
 	callBindingByCall               map[*ast.CallExpr]int
 	intrinsicByCall                 map[*ast.CallExpr]int
+	restoreByCall                   map[*ast.CallExpr]int
+	restoreByFuncLit                map[*ast.FuncLit]int
+	restoreByAssign                 map[*ast.AssignStmt]int
 	sendBindingByStmt               map[*ast.SendStmt]int
 }
 
@@ -69,6 +74,9 @@ func newOstampIndex() *OstampIndex {
 		Observers:         make(map[string]bool),
 		callBindingByCall: make(map[*ast.CallExpr]int),
 		intrinsicByCall:   make(map[*ast.CallExpr]int),
+		restoreByCall:     make(map[*ast.CallExpr]int),
+		restoreByFuncLit:  make(map[*ast.FuncLit]int),
+		restoreByAssign:   make(map[*ast.AssignStmt]int),
 		sendBindingByStmt: make(map[*ast.SendStmt]int),
 	}
 }

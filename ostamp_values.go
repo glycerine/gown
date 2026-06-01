@@ -25,6 +25,9 @@ func valueOstampForExpr(pkg *packages.Package, idx *OstampIndex, expr ast.Expr) 
 	}
 	expr = unparenExpr(expr)
 	if call, ok := expr.(*ast.CallExpr); ok {
+		if value, ok := restoreCallValueOstamp(idx, call); ok {
+			return value, true
+		}
 		if binding, ok := idx.IntrinsicBinding(call); ok {
 			return intrinsicValueOstamp(binding), true
 		}

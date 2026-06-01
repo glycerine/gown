@@ -16,6 +16,7 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *OstampIndex {
 	idx.Places = buildPlaceIndex(pkg)
 	qualsByFile := capQualifiersByGeneratedFile(files)
 	intrinsicsByFile := intrinsicsByGeneratedFile(files)
+	restoresByFile := restoresByGeneratedFile(files)
 
 	for _, file := range pkg.Syntax {
 		fileKey := filepath.Base(pkg.Fset.Position(file.Pos()).Filename)
@@ -38,6 +39,7 @@ func assignCapabilities(pkg *packages.Package, files []*gownFile) *OstampIndex {
 	for _, file := range pkg.Syntax {
 		fileKey := filepath.Base(pkg.Fset.Position(file.Pos()).Filename)
 		bindIntrinsicCapabilities(pkg, idx, intrinsicsByFile[fileKey], file)
+		bindRestoreCapabilities(pkg, idx, qualsByFile[fileKey], restoresByFile[fileKey], file)
 	}
 
 	for _, file := range pkg.Syntax {

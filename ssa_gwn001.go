@@ -31,7 +31,7 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampInde
 		bindings:                NewSSABindingIndex(caps),
 		reported:                make(map[string]bool),
 	}
-	for _, fn := range collectSSAFunctions(ssaPkg) {
+	for _, fn := range collectSSAFunctionsForChecking(ssaPkg, caps) {
 		checker.checkFunction(fn)
 	}
 	return checker.errs
@@ -529,6 +529,10 @@ func (checker *ssaGWN001Checker) applySendTransfer(instr *ssa.Send, state *SSAFu
 }
 
 func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFunctionState) {
+	if binding, ok := checker.bindings.Restore(checker.pkg, instr); ok {
+		checker.applyRestoreTransfer(binding, state, instr)
+		return
+	}
 	if binding, ok := checker.bindings.Intrinsic(checker.pkg, instr); ok {
 		checker.applyIntrinsicTransfer(binding, state, instr)
 		return
@@ -541,6 +545,31 @@ func (checker *ssaGWN001Checker) applyCallTransfer(instr *ssa.Call, state *SSAFu
 		return
 	}
 	checker.applyCallCommonTransfer(&instr.Call, state, instr, "call")
+}
+
+func (checker *ssaGWN001Checker) applyRestoreTransfer(binding RestoreBinding, state *SSAFunctionState, instr ssa.Instruction) {
+	if state == nil {
+		return
+	}
+	for i, paramCap := range binding.ParamCaps {
+		if paramCap != CapIso || i >= len(binding.ArgPlaces) {
+			continue
+		}
+		argPlace := binding.ArgPlaces[i]
+		if argPlace.Root == nil {
+			continue
+		}
+		checker.consumeRootAtInstruction(state, argPlace, instr, "restore")
+	}
+	for _, lhs := range binding.LhsPlaces {
+		if lhs.Root == nil || lhs.Key().Path != "" {
+			continue
+		}
+		key := lhs.Key()
+		state.UnconsumeRoot(key)
+		state.UnfrontierRoot(key)
+		state.SetFlowValue(key, SSAFlowValue{Cap: CapIso})
+	}
 }
 
 func (checker *ssaGWN001Checker) applyIntrinsicTransfer(binding IntrinsicBinding, state *SSAFunctionState, instr ssa.Instruction) {

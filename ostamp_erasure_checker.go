@@ -122,6 +122,9 @@ func (checker *ostampErasureChecker) checkCall(call *ast.CallExpr) {
 	if _, ok := checker.caps.IntrinsicBinding(call); ok {
 		return
 	}
+	if _, ok := checker.caps.RestoreBinding(call); ok {
+		return
+	}
 	if isObserverCall(checker.pkg, checker.caps, call) {
 		return
 	}

@@ -368,6 +368,12 @@ func nilRootsForStatement(pkg *packages.Package, caps *OstampIndex, stmt ast.Stm
 			add(binding.Value)
 		}
 	case *ast.AssignStmt:
+		if binding, ok := caps.RestoreBindingForAssign(stmt); ok {
+			for _, place := range restoreConsumedNilRoots(caps, binding) {
+				add(place)
+			}
+			break
+		}
 		for _, place := range assignmentMoveSources(caps, stmt.Lhs, stmt.Rhs) {
 			add(place)
 		}

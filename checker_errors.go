@@ -27,6 +27,7 @@ const (
 	GWN010 CheckerErrorCode = "GWN010"
 	GWN011 CheckerErrorCode = "GWN011"
 	GWN012 CheckerErrorCode = "GWN012"
+	GWN013 CheckerErrorCode = "GWN013"
 )
 
 type CheckerError struct {

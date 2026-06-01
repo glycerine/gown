@@ -9,6 +9,7 @@ type gownFile struct {
 	intrinsics    []*IntrinsicAnnotation
 	unsafeUses    []*UnsafeBoundaryAnnotation
 	observers     []*ObserverAnnotation
+	restores      []*RestoreAnnotation
 	iso           []*isoAnnotation
 	create        []*createAnew
 	boundary      []*boundaryCrossing

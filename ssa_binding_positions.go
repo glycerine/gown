@@ -19,6 +19,7 @@ type SSABindingIndex struct {
 	Sends      map[sourcePosKey]SendBinding
 	Calls      map[sourcePosKey]CallBinding
 	Intrinsics map[sourcePosKey]IntrinsicBinding
+	Restores   map[sourcePosKey]RestoreBinding
 }
 
 func NewSSABindingIndex(caps *OstampIndex) *SSABindingIndex {
@@ -26,6 +27,7 @@ func NewSSABindingIndex(caps *OstampIndex) *SSABindingIndex {
 		Sends:      sendBindingsByPosition(caps),
 		Calls:      callBindingsByPosition(caps),
 		Intrinsics: intrinsicBindingsByPosition(caps),
+		Restores:   restoreBindingsByPosition(caps),
 	}
 }
 
@@ -62,6 +64,22 @@ func intrinsicBindingsByPosition(caps *OstampIndex) map[sourcePosKey]IntrinsicBi
 		return byPos
 	}
 	for _, binding := range caps.IntrinsicBindings {
+		byPos[sourcePosKey{
+			Path:   binding.Path,
+			Offset: binding.Offset,
+			Line:   binding.Line,
+			Col:    binding.Col,
+		}] = binding
+	}
+	return byPos
+}
+
+func restoreBindingsByPosition(caps *OstampIndex) map[sourcePosKey]RestoreBinding {
+	byPos := make(map[sourcePosKey]RestoreBinding)
+	if caps == nil {
+		return byPos
+	}
+	for _, binding := range caps.RestoreBindings {
 		byPos[sourcePosKey{
 			Path:   binding.Path,
 			Offset: binding.Offset,
@@ -118,6 +136,26 @@ func (idx *SSABindingIndex) Intrinsic(pkg *packages.Package, call *ssa.Call) (In
 		}
 	}
 	return IntrinsicBinding{}, false
+}
+
+func (idx *SSABindingIndex) Restore(pkg *packages.Package, call *ssa.Call) (RestoreBinding, bool) {
+	if idx == nil || pkg == nil || call == nil {
+		return RestoreBinding{}, false
+	}
+	pos := sourcePositionKey(pkg.Fset.Position(call.Pos()))
+	if binding, ok := idx.Restores[pos]; ok {
+		return binding, true
+	}
+	for _, binding := range idx.Restores {
+		if binding.Path != pos.Path || binding.Call == nil {
+			continue
+		}
+		end := sourcePositionKey(pkg.Fset.Position(binding.Call.End()))
+		if pos.Offset >= binding.Offset && pos.Offset <= end.Offset {
+			return binding, true
+		}
+	}
+	return RestoreBinding{}, false
 }
 
 func (idx *SSABindingIndex) GoCall(pkg *packages.Package, goInstr *ssa.Go) (CallBinding, bool) {

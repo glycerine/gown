@@ -146,6 +146,14 @@ func scanGownToken(gf *gownFile, emit, analysis, gownSrc []byte, lineStarts []in
 			return end, scanError(gf.path, span, `\swap must be used as a call`)
 		}
 		recordIntrinsic(gf, emit, analysis, span, IntrinsicSwap)
+	case "restore":
+		if hasCall {
+			return end, scanError(gf.path, span, `\restore must prefix a func literal, not a call`)
+		}
+		if !followedByKeyword(gownSrc, end, "func") {
+			return end, scanError(gf.path, span, `\restore must be followed by a func literal`)
+		}
+		recordRestoreAnnotation(gf, emit, analysis, span)
 	case "observer":
 		return end, scanError(gf.path, span, fmt.Sprintf(`observer directive must be spelled %s`, observerDirectiveLexeme))
 	default:
