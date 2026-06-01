@@ -66,7 +66,13 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	}
 	//vv("GOWN AnalyzeWithOptions start path=%q checkOnly=%v gownOverlay=%d", gp.path, opts.CheckOnly, len(opts.GownOverlay))
 
-	entries, err := os.ReadDir(gp.path)
+	pkgPath, err := canonicalPackagePath(gp.path)
+	if err != nil {
+		return nil, fmt.Errorf("resolving package directory %s: %w", gp.path, err)
+	}
+	vv("GOWN canonical package path input=%q canonical=%q", gp.path, pkgPath)
+
+	entries, err := os.ReadDir(pkgPath)
 	if err != nil {
 		//vv("GOWN AnalyzeWithOptions return: os.ReadDir failed path=%q err=%v", gp.path, err)
 		return nil, fmt.Errorf("reading directory %s: %w", gp.path, err)
@@ -81,7 +87,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		}
 	}
 	for path := range opts.GownOverlay {
-		if isGownSourceFileName(filepath.Base(path)) && samePackagePath(gp.path, path) {
+		if isGownSourceFileName(filepath.Base(path)) && samePackagePath(pkgPath, path) {
 			gownNames[filepath.Base(path)] = true
 			vv("GOWN discovered overlay .gown file path=%q base=%q", path, filepath.Base(path)) // not seen
 		}
@@ -93,7 +99,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	needIntrinsicHelpers := false
 	firstOverlayPath := ""
 	for name := range gownNames {
-		gownPath := filepath.Join(gp.path, name)
+		gownPath := filepath.Join(pkgPath, name)
 		src, ok := lookupGownOverlay(opts.GownOverlay, gownPath)
 		if !ok {
 			src, err = os.ReadFile(gownPath)
@@ -117,7 +123,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		vv("GOWN classified file=%q iso=%d intrinsics=%d boundary=%d creates=%d", gf.path, len(gf.iso), len(gf.intrinsics), len(gf.boundary), len(gf.create))
 
 		goName := strings.TrimSuffix(name, ".gown") + ".go"
-		goPath := filepath.Join(gp.path, goName)
+		goPath := filepath.Join(pkgPath, goName)
 		absGoPath, err := filepath.Abs(goPath)
 		if err != nil {
 			vv("GOWN AnalyzeWithOptions return: filepath.Abs failed path=%q err=%v", goPath, err)
@@ -151,7 +157,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		Mode: packages.NeedSyntax | packages.NeedTypes |
 			packages.NeedTypesInfo | packages.NeedName |
 			packages.NeedImports | packages.NeedTypesSizes,
-		Dir: gp.path,
+		Dir: pkgPath,
 	}
 	if len(overlay) > 0 {
 		cfg.Overlay = overlay
@@ -161,10 +167,8 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		_, statErr := os.Stat(path)
 		vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr) // check.go:162 [goID 1] 2026-06-01 02:31:38.196248938 +0000 UTC GOWN packages.Load overlay path="/home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go" bytes=3089 diskExists=false statErr=stat /home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go: no such file or directory
 	}
-	absPkgPath, err := filepath.Abs(gp.path)
-	panicOn(err)
 	vv(`about to packages.Load(cfg, ".") with cfg = '%#v'`, cfg)
-	pkgs, err := packages.Load(cfg, absPkgPath)
+	pkgs, err := packages.Load(cfg, pkgPath)
 	//pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
 		vv("GOWN AnalyzeWithOptions return: packages.Load failed dir=%q err=%v", cfg.Dir, err)
@@ -274,7 +278,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 
 	if !opts.CheckOnly {
 		for _, gf := range gp.files {
-			goPath := filepath.Join(gp.path, generatedGoName(gf.path))
+			goPath := filepath.Join(pkgPath, generatedGoName(gf.path))
 			absGoPath, err := filepath.Abs(goPath)
 			if err != nil {
 				//vv("GOWN AnalyzeWithOptions return: filepath.Abs emit failed path=%q err=%v", goPath, err)
@@ -323,15 +327,15 @@ func (gp *GownPackage) analysis() *GownAnalysis {
 }
 
 func samePackagePath(pkgPath, filePath string) bool {
-	absPkg, err := filepath.Abs(pkgPath)
+	realPkg, err := canonicalPackagePath(pkgPath)
 	if err != nil {
 		return false
 	}
-	absFile, err := filepath.Abs(filePath)
+	realFile, err := canonicalFilePath(filePath)
 	if err != nil {
 		return false
 	}
-	return filepath.Dir(absFile) == absPkg
+	return filepath.Dir(realFile) == realPkg
 }
 
 func lookupGownOverlay(overlay map[string][]byte, path string) ([]byte, bool) {
@@ -347,10 +351,43 @@ func lookupGownOverlay(overlay map[string][]byte, path string) ([]byte, bool) {
 			return src, true
 		}
 	}
+	realPath, err := canonicalFilePath(path)
+	if err == nil {
+		if src, ok := overlay[realPath]; ok {
+			return src, true
+		}
+		for overlayPath, src := range overlay {
+			realOverlayPath, err := canonicalFilePath(overlayPath)
+			if err == nil && realOverlayPath == realPath {
+				return src, true
+			}
+		}
+	}
 	if src, ok := overlay[filepath.Base(path)]; ok {
 		return src, true
 	}
 	return nil, false
+}
+
+func canonicalPackagePath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(absPath)
+}
+
+func canonicalFilePath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	dir, name := filepath.Dir(absPath), filepath.Base(absPath)
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(realDir, name), nil
 }
 
 func isGownSourceFileName(name string) bool {
