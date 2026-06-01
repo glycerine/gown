@@ -49,10 +49,17 @@ def Coherent (cfg : Config) : Prop :=
 
 def WF (cfg : Config) : Prop := Iso cfg /\ Fresh cfg /\ Coherent cfg
 
-structure RestoreOK (pre post : Config) (g : GoroutineId) : Prop where
+structure RestoreOK (pre post : Config) (g : GoroutineId)
+    (resultSlot : Nat -> Prop) (resultLoc : Nat -> Loc) : Prop where
   sameCounter : post.nextLoc = pre.nextLoc
   otherGoroutinesUnchanged :
     forall g' l c, g' ≠ g -> (post.owns g' l c ↔ pre.owns g' l c)
+  resultSlotExists :
+    Exists fun i => resultSlot i
+  resultSlotsAreIso :
+    forall i, resultSlot i -> post.owns g (resultLoc i) iso
+  resultSlotsDistinct :
+    forall i j, resultSlot i -> resultSlot j -> resultLoc i = resultLoc j -> i = j
   noNewLocations :
     forall g' l c, post.owns g' l c -> l < post.nextLoc
   noCrossGoroutineMutable :
@@ -62,23 +69,25 @@ structure RestoreOK (pre post : Config) (g : GoroutineId) : Prop where
     forall g' l c, post.owns g' l c -> Mutable c -> Not (post.owns g' l imm)
 
 inductive RestoreStep : Config -> Config -> Prop where
-  | restore_iso (pre post : Config) (g : GoroutineId) (_ : RestoreOK pre post g) :
+  | restore_iso_many (pre post : Config) (g : GoroutineId)
+      (resultSlot : Nat -> Prop) (resultLoc : Nat -> Loc)
+      (_ : RestoreOK pre post g resultSlot resultLoc) :
       RestoreStep pre post
 
 theorem restore_iso_pres (cfg cfg' : Config)
     (h : RestoreStep cfg cfg') (_ : WF cfg) : Iso cfg' := by
   cases h with
-  | restore_iso _ ok => exact ok.noCrossGoroutineMutable
+  | restore_iso_many _ _ _ ok => exact ok.noCrossGoroutineMutable
 
 theorem restore_fresh_pres (cfg cfg' : Config)
     (h : RestoreStep cfg cfg') (_ : WF cfg) : Fresh cfg' := by
   cases h with
-  | restore_iso _ ok => exact ok.noNewLocations
+  | restore_iso_many _ _ _ ok => exact ok.noNewLocations
 
 theorem restore_coherent_pres (cfg cfg' : Config)
     (h : RestoreStep cfg cfg') (_ : WF cfg) : Coherent cfg' := by
   cases h with
-  | restore_iso _ ok => exact ok.noMutableImmCoexistence
+  | restore_iso_many _ _ _ ok => exact ok.noMutableImmCoexistence
 
 theorem restore_wf_pres (cfg cfg' : Config)
     (h : RestoreStep cfg cfg') (hw : WF cfg) : WF cfg' :=
@@ -87,6 +96,16 @@ theorem restore_wf_pres (cfg cfg' : Config)
     (And.intro
       (restore_fresh_pres cfg cfg' h hw)
       (restore_coherent_pres cfg cfg' h hw))
+
+theorem restore_has_result_root (cfg cfg' : Config)
+    (h : RestoreStep cfg cfg') :
+    Exists fun g => Exists fun (resultSlot : Nat -> Prop) =>
+      Exists fun (resultLoc : Nat -> Loc) => Exists fun i =>
+        resultSlot i /\ cfg'.owns g (resultLoc i) iso := by
+  cases h with
+  | restore_iso_many g resultSlot resultLoc ok =>
+      rcases ok.resultSlotExists with ⟨i, hslot⟩
+      exact ⟨g, resultSlot, resultLoc, i, hslot, ok.resultSlotsAreIso i hslot⟩
 
 structure Access where
   goroutine : GoroutineId
@@ -136,7 +155,7 @@ theorem restore_multi_race_free (c0 cf : Config) (a1 a2 : Access)
   Summary:
 
   * RestoreOK records the semantic facts the checker must establish at the
-    boundary of a `\restore` IIFE.
+    boundary of a `\restore` IIFE, including one or more returned iso roots.
   * RestoreStep is same-goroutine re-isolation as one atomic transition.
   * restore_wf_pres proves that the transition preserves Iso, Fresh, and
     Coherent.

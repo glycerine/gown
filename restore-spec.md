@@ -12,29 +12,29 @@ surgery on `\iso` object graphs.
 `\restore` is a scoped, auditable way to temporarily open one or more `\iso`
 roots, perform local pointer rewiring, and return to ordinary checked `\iso`
 ownership. It is not an escape hatch. A restore region is accepted only when the
-checker can prove that all temporary aliases are dead, no alias escaped, and the
-single returned value is again a valid `\iso` root.
+checker can prove that all temporary aliases are dead, no alias escaped, and each
+returned value is again a valid `\iso` root.
 
 V1 deliberately favors proof simplicity over expressiveness. The accepted source
 form is an immediately invoked function literal (IIFE):
 
 ```go
-dst = \restore func(x \iso *T, y \iso *U) \iso *T {
+dstX, dstY = \restore func(x \iso *T, y \iso *U) (\iso *T, \iso *U) {
     // local pointer surgery
-    return x
+    return x, y
 }(srcX, srcY)
 ```
 
 `\restore` erases to nothing. Ownerstamps erase as usual, leaving plain Go:
 
 ```go
-dst = func(x *T, y *U) *T {
-    return x
+dstX, dstY = func(x *T, y *U) (*T, *U) {
+    return x, y
 }(srcX, srcY)
 ```
 
 The closure boundary is part of the design. Restore arguments are explicit, the
-result is explicit, and local aliases have ordinary Go function scope.
+results are explicit, and local aliases have ordinary Go function scope.
 
 ---
 
@@ -44,26 +44,35 @@ A v1 restore expression must appear as the complete right-hand side of a simple
 assignment or short variable declaration:
 
 ```go
-lhs =  \restore func(params...) \iso *T { body }(args...)
-lhs := \restore func(params...) \iso *T { body }(args...)
+lhs1, lhs2 =  \restore func(params...) (\iso *T1, \iso *T2) { body }(args...)
+lhs1, lhs2 := \restore func(params...) (\iso *T1, \iso *T2) { body }(args...)
+```
+
+For a single result, the ordinary Go shorthand is allowed:
+
+```go
+lhs = \restore func(params...) \iso *T { body }(args...)
 ```
 
 Required shape:
 
-- The assignment has exactly one left-hand side and exactly one right-hand side.
-- The right-hand side is exactly `\restore` followed by an immediately invoked
-  function literal.
-- The function literal has exactly one result.
-- The result is an unnamed `\iso *T`.
+- The assignment has one or more left-hand sides and exactly one right-hand side
+  expression.
+- The right-hand side expression is exactly `\restore` followed by an
+  immediately invoked function literal.
+- The function literal has one or more results.
+- Every result is an unnamed `\iso *T`.
+- The number of left-hand sides equals the number of function results.
 - At least one parameter is an `\iso` pointer opened by the restore region.
 - Pointer parameters must be ownerstamp-typed. V1 allows `\iso` roots and
   read-only `\imm` inputs; it rejects `\mub`, `\rob`, and untracked pointer
   parameters.
 - Non-pointer scalar parameters are allowed for read-only metadata such as
   counters or enum-like values.
-- `lhs` must be an assignable ownerstamp destination. For `:=`, the new local is
-  bound as `\iso *T`. For `=`, the existing destination must be compatible with
-  the returned `\iso *T`.
+- Each left-hand side must be an assignable ownerstamp destination. For `:=`,
+  each newly declared local is bound to the corresponding `\iso` result. For
+  `=`, each existing destination must be compatible with the corresponding
+  returned `\iso *T`.
 
 The outer restore IIFE call is the only call expression allowed by the construct.
 No call expression is allowed inside the body.
@@ -78,15 +87,15 @@ Each `\iso` argument is moved into the restore closure:
   `\iso` move.
 - The corresponding parameter becomes an opened restore root.
 - During the body, aliases derived from opened roots are restore-local aliases.
-- On normal completion, exactly one `\iso` result is returned and assigned to
-  `lhs`.
+- On normal completion, one or more `\iso` results are returned and assigned to
+  the matching left-hand sides.
 
-An opened root that is not part of the returned graph must be consumed, set to
-nil, or otherwise proven unreachable from any live restore-local alias. No
-opened root may remain available through its old outside binding.
+An opened root that is not part of any returned graph must be consumed, set to
+nil, or otherwise proven unreachable from any live restore-local alias. No opened
+root may remain available through its old outside binding.
 
-V1 has one returned `\iso`. Multiple return values and multiple restored output
-roots are deferred.
+V1 supports one or more returned `\iso` roots. Mixed result lists containing
+non-`\iso` values are deferred.
 
 ---
 
@@ -102,7 +111,8 @@ Allowed statements:
 - Assignments of `nil` to restore-local pointer variables or tracked pointer
   fields.
 - `if` statements whose condition is made from allowed expressions.
-- One final explicit `return expr` statement.
+- One final explicit `return exprs` statement with one returned expression per
+  function result.
 
 Allowed expressions:
 
@@ -121,19 +131,15 @@ the field is safe to write:
 - `\iso` pointer fields may be written with `nil` or restore-local aliases.
 - `\imm`, `\mub`, `\rob`, and untracked pointer fields may not be written in v1.
 
-This allows tracked pointer surgery such as:
+This allows tracked pointer surgery with multiple restored outputs, such as:
 
 ```go
-l = \restore func(l \iso *list, n \iso *node) \iso *list {
-    if l.head == nil {
-        l.head = n
-    } else {
-        old := l.head.next
-        n.next = old
-        l.head.next = n
-    }
-    return l
-}(l, n)
+a, b = \restore func(a \iso *node, b \iso *node) (\iso *node, \iso *node) {
+    old := a.next
+    a.next = b.next
+    b.next = old
+    return a, b
+}(a, b)
 ```
 
 It rejects untracked backlink updates such as:
@@ -180,17 +186,17 @@ preferred because it keeps the restore boundary inspectable.
 
 At the final return, the checker must prove the restore boundary condition:
 
-1. The returned expression has capability `\iso *T`.
+1. Each returned expression has the corresponding result capability `\iso *T`.
 2. Every restore-local pointer alias is dead after the IIFE returns.
 3. No restore-local alias was stored outside the opened graph.
 4. No restore-local alias was sent, captured by a goroutine, captured by an
    escaping closure, boxed into an interface, passed to a function, or exposed
    through `\unsafe`.
-5. Every durable pointer edge in the returned graph respects ownerstamp rules.
-6. Each non-nil location in the restored `\iso` graph has at most one durable
+5. Every durable pointer edge in every returned graph respects ownerstamp rules.
+6. Across all returned graphs, each non-nil location has at most one durable
    `\iso` owner path.
-7. Opened `\iso` roots are either incorporated into the returned graph, consumed,
-   nil, or otherwise unreachable from live checked state.
+7. Opened `\iso` roots are either incorporated into exactly one returned graph,
+   consumed, nil, or otherwise unreachable from live checked state.
 8. No `\imm` location became mutable, and no mutable location gained an `\imm`
    alias.
 
@@ -222,7 +228,7 @@ The semantic side conditions are:
 - Restore does not introduce locations beyond the allocation counter.
 - The post-restore state has no cross-goroutine mutable reachability.
 - The post-restore state has no mutable capability coexisting with `\imm`.
-- The result is a single restored `\iso` root in the current goroutine.
+- The results are one or more restored `\iso` roots in the current goroutine.
 
 The proof does not model Go syntax, heap connectivity, or field paths directly.
 Those are checker obligations. The checker must conservatively reject source
@@ -237,6 +243,7 @@ Acceptance tests should include:
 
 - A tracked linked-list insertion that rewires only `\iso` next pointers.
 - A restore with `:=` binding a fresh local `\iso`.
+- A restore returning multiple `\iso` roots assigned to multiple left-hand sides.
 - A restore with an `if` and one final return.
 
 Rejection tests should include:
@@ -251,6 +258,6 @@ Rejection tests should include:
 - Mutation of package globals.
 - Stores into untracked pointer fields such as linked-list `prev` backlinks.
 - Storing a restore-local alias outside the opened graph.
-- Returning multiple values or a non-`\iso` result.
-- Returning a graph with duplicate durable `\iso` owner paths.
-
+- Returning the wrong number of values or a non-`\iso` result.
+- Returning duplicate roots or overlapping graphs with duplicate durable `\iso`
+  owner paths.
