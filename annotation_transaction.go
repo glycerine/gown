@@ -118,6 +118,7 @@ type annotationGraph struct {
 	quals      map[string]map[int]*CapQualifierAnnotation
 	analysis   *GownAnalysis
 	sourceByFn map[string][]byte
+	pathAlias  map[string]string
 }
 
 func PlanAnnotationTransaction(opts AnnotationTransactionOptions) (*PlannedAnnotationTransaction, error) {
@@ -290,6 +291,7 @@ func buildAnnotationGraph(analysis *GownAnalysis, overlay map[string][]byte) *an
 		quals:      capQualifiersByGeneratedFile(analysis.Files),
 		analysis:   analysis,
 		sourceByFn: sourceByFilename(analysis, overlay),
+		pathAlias:  pathAliasesFromOverlay(overlay),
 	}
 	graph.collectSites()
 	graph.collectEdges()
@@ -453,7 +455,7 @@ func (graph *annotationGraph) newSite(key, label, kind string, obj types.Object,
 	if ann != nil {
 		cap = ann.Cap
 	}
-	path := gownSourcePath(pos.Filename)
+	path := graph.displayPath(gownSourcePath(pos.Filename))
 	site := &annotationSite{
 		key:          key,
 		label:        label,
@@ -674,7 +676,7 @@ func (graph *annotationGraph) placeSiteKey(place Place) string {
 func (graph *annotationGraph) rootSite(delta annotationDelta) *annotationSite {
 	if delta.kind == "add" || delta.kind == "convert" {
 		for _, site := range graph.sites {
-			if site.path != delta.path {
+			if !sameFilePath(site.path, delta.path) {
 				continue
 			}
 			if site.ann != nil && site.ann.Span.Offset == delta.newOffset {
@@ -687,7 +689,7 @@ func (graph *annotationGraph) rootSite(delta annotationDelta) *annotationSite {
 		offset = delta.newOffset
 	}
 	for _, site := range graph.sites {
-		if site.path != delta.path {
+		if !sameFilePath(site.path, delta.path) {
 			continue
 		}
 		if site.insertOffset >= offset && site.insertOffset <= offset+len(delta.newLexeme)+2 {
@@ -906,12 +908,29 @@ func (graph *annotationGraph) textAt(path string, start, end int) string {
 	return string(src[start:end])
 }
 
+func (graph *annotationGraph) displayPath(path string) string {
+	if graph == nil || len(graph.pathAlias) == 0 {
+		return path
+	}
+	realPath, err := canonicalFilePath(path)
+	if err != nil {
+		return path
+	}
+	if alias := graph.pathAlias[realPath]; alias != "" {
+		return alias
+	}
+	return path
+}
+
 func sourceByFilename(analysis *GownAnalysis, overlay map[string][]byte) map[string][]byte {
 	out := make(map[string][]byte)
 	for path, src := range overlay {
 		abs, err := filepath.Abs(path)
 		if err == nil {
 			out[abs] = src
+		}
+		if realPath, err := canonicalFilePath(path); err == nil {
+			out[realPath] = src
 		}
 		out[path] = src
 	}
@@ -927,6 +946,33 @@ func sourceByFilename(analysis *GownAnalysis, overlay map[string][]byte) map[str
 		}
 	}
 	return out
+}
+
+func pathAliasesFromOverlay(overlay map[string][]byte) map[string]string {
+	aliases := make(map[string]string)
+	for path := range overlay {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			absPath = path
+		}
+		realPath, err := canonicalFilePath(path)
+		if err != nil {
+			continue
+		}
+		if _, ok := aliases[realPath]; !ok {
+			aliases[realPath] = absPath
+		}
+	}
+	return aliases
+}
+
+func sameFilePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	realA, errA := canonicalFilePath(a)
+	realB, errB := canonicalFilePath(b)
+	return errA == nil && errB == nil && realA == realB
 }
 
 func sourceHashes(overlay map[string][]byte, rootPath string, before, after []byte) map[string]string {
