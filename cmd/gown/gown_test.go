@@ -131,13 +131,16 @@ func TestRunFormatsOriginalGownLineForAnnotatedCheckerError(t *testing.T) {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
 	got := stderr.String()
-	if !strings.Contains(got, "GWN003") {
-		t.Fatalf("stderr %q does not contain GWN003", got)
+	if !strings.Contains(got, "GWN010") {
+		t.Fatalf("stderr %q does not contain GWN010", got)
 	}
-	if !strings.Contains(got, `var a \mub *payload`) {
-		t.Fatalf("stderr %q does not contain original .gown annotation line", got)
+	if !strings.Contains(got, `ch <- a`) {
+		t.Fatalf("stderr %q does not contain source context", got)
 	}
-	if strings.Contains(got, "var a      *payload") {
+	if strings.Contains(got, "ch <- a") && strings.Contains(got, "and ") && strings.Contains(got, "more checker errors") {
+		t.Fatalf("stderr %q includes cascaded checker errors", got)
+	}
+	if strings.Contains(got, `var a      *payload`) {
 		t.Fatalf("stderr %q appears to contain stripped .go line", got)
 	}
 }

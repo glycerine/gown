@@ -1,6 +1,9 @@
 package gown
 
 import (
+	"reflect"
+	"runtime"
+
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 )
@@ -29,11 +32,31 @@ var checkerPasses = []CheckerPass{
 
 func runCheckerPasses(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampIndex) CheckerErrors {
 	ctx := &CheckerContext{Pkg: pkg, SSAPkg: ssaPkg, Caps: caps}
-	var errs CheckerErrors
-	for _, pass := range checkerPasses {
-		errs = append(errs, pass(ctx)...)
+	vv("GOWN checker runner start passes=%d ssaPkgNil=%v", len(checkerPasses), ssaPkg == nil)
+	for i, pass := range checkerPasses {
+		name := checkerPassName(pass)
+		vv("GOWN checker pass[%d] begin name=%s", i, name)
+		passErrs := pass(ctx)
+		vv("GOWN checker pass[%d] complete name=%s errors=%d", i, name, len(passErrs))
+		if len(passErrs) > 0 {
+			vv("GOWN checker pass[%d] first error name=%s err=%v", i, name, passErrs[0])
+			vv("GOWN checker runner stop after first error pass[%d] name=%s", i, name)
+			return CheckerErrors{passErrs[0]}
+		}
 	}
-	return errs
+	vv("GOWN checker runner complete totalErrors=0")
+	return nil
+}
+
+func checkerPassName(pass CheckerPass) string {
+	if pass == nil {
+		return "<nil>"
+	}
+	fn := runtime.FuncForPC(reflect.ValueOf(pass).Pointer())
+	if fn == nil {
+		return "<unknown>"
+	}
+	return fn.Name()
 }
 
 func checkMovedUses(ctx *CheckerContext) CheckerErrors {
