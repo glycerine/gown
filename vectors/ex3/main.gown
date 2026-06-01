@@ -25,4 +25,5 @@ func main() {
   \swap(a, j.front)
 
   fmt.Printf("a='%#v'", a)
+  fmt.Printf("j.front='%#v'", j.front)
 }

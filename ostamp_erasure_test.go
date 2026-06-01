@@ -43,6 +43,32 @@ func main() {
 }
 `
 
+const gownTrackedToUntrackedFieldSource = `package example
+
+type node struct {
+	prev *node
+	next \iso *node
+}
+
+func main() {
+	n := \new(node{next: &node{}})
+	n.prev = n.next
+}
+`
+
+const gownUnsafeTrackedToUntrackedFieldSource = `package example
+
+type node struct {
+	prev *node
+	next \iso *node
+}
+
+func main() {
+	n := \new(node{next: &node{}})
+	n.prev = \unsafe(n.next)
+}
+`
+
 const gownIsoMoveFromIntrinsicResultToShortDeclSource = `package example
 
 type payload struct{}
@@ -266,6 +292,18 @@ func TestGWN010RejectsTrackedValueToExplicitPlainLocal(t *testing.T) {
 
 func TestGWN010AllowsUnsafeTrackedValueToExplicitPlainLocal(t *testing.T) {
 	err := checkGownSource(t, "unsafe_tracked_plain_local.gown", gownUnsafeTrackedToExplicitPlainLocalSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGWN010RejectsTrackedValueToUntrackedField(t *testing.T) {
+	err := checkGownSource(t, "tracked_untracked_field.gown", gownTrackedToUntrackedFieldSource)
+	requireCheckerCode(t, err, GWN010)
+}
+
+func TestGWN010AllowsUnsafeTrackedValueToUntrackedField(t *testing.T) {
+	err := checkGownSource(t, "unsafe_tracked_untracked_field.gown", gownUnsafeTrackedToUntrackedFieldSource)
 	if err != nil {
 		t.Fatal(err)
 	}

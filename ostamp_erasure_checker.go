@@ -203,7 +203,7 @@ func (checker *ostampErasureChecker) checkValueIntoDestination(src ast.Expr, dst
 		return
 	}
 	if place, ok := checker.caps.PlaceForExpr(dst); ok && place.Root != nil {
-		checker.checkValueIntoObject(src, capObjectForSSAPlace(checker.caps, place), dst)
+		checker.checkValueIntoObject(src, erasureDestinationObject(place), dst)
 		return
 	}
 	if checker.mode&ostampErasureInterfaces != 0 && isInterfaceExpr(checker.pkg, dst) {
@@ -221,11 +221,30 @@ func (checker *ostampErasureChecker) checkValueIntoObject(src ast.Expr, obj type
 	}
 	code := GWN010
 	message := "cannot store %s value %q in untracked destination"
-	if v, ok := obj.(*types.Var); ok && isInterfaceType(v.Type()) {
-		code = GWN009
-		message = "cannot erase %s value %q into interface"
+	if v, ok := obj.(*types.Var); ok {
+		if v.IsField() {
+			message = "cannot store %s value %q in untracked field " + v.Name()
+		}
+		if isInterfaceType(v.Type()) {
+			code = GWN009
+			if v.IsField() {
+				message = "cannot erase %s value %q into interface field " + v.Name()
+			} else {
+				message = "cannot erase %s value %q into interface"
+			}
+		}
 	}
 	checker.checkValueIntoCap(src, dstCap, code, dst, message)
+}
+
+func erasureDestinationObject(place Place) types.Object {
+	if len(place.Projection) > 0 {
+		field := place.Projection[len(place.Projection)-1].Field
+		if field != nil {
+			return field
+		}
+	}
+	return place.Root
 }
 
 func (checker *ostampErasureChecker) checkValueIntoCap(src ast.Expr, dstCap Cap, code CheckerErrorCode, dst ast.Node, message string) {

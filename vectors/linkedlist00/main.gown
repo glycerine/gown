@@ -76,9 +76,9 @@ func insertAfterHead(l \iso *list, n \iso *node) \iso *list {
 	//   n.next       <-> l.head.next
 	//   l.head.next  <-> n
 	\swap(n.next, l.head.next)
-	n.prev = \unsafe(l.head)
+	n.prev = l.head 
 	if n.next != nil {
-		n.next.prev = \unsafe(n)
+		n.next.prev = n
 	}
 	\swap(l.head.next, n)
 	return l
