@@ -910,4 +910,4 @@ Use `\freeze` to turn isolated mutable data into immutable shared data.
 Use `\unsafe` only when deliberately crossing into unchecked Go code.
 
 Use `\swap`, `\restore`, or a local `\mub` borrow in a helper function
-to manage related \iso pointers.
+to manage related `\iso` pointers.
