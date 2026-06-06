@@ -23,6 +23,23 @@ However if you annotate all your code and avoid all `\unsafe`
 usage, then Gown -- like Pony -- gives you a guarantee 
 of data-race freedom at compile time.
 
+## status
+
+The design and initial implementation is done. We now need vigorous testing
+and feedback from actual usage to catch implementation errors and
+to address any sharp edges. 
+
+We did a formal machine checked proof of correctness, so we are
+fairly confident the design is sound. There may still be implementation
+bugs that do not catch all data races. 
+
+Call for testing: Help us polish and refine Gown by trying it out. File
+bug report issues to help us improve.
+
+## installation
+
+go install github.com/glycerine/gown/cmd/gown@latest
+
 ## overview
 
 Inspired a little by Rust, and alot by Pony's 
