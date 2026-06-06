@@ -1,7 +1,5 @@
-![Image of the Go gopher pulled by a pony](./gown_gopher2.png)
-Gopher in a gown, on patrol. 
-Caption: No trespassing: data-races keep out! 
-(No shotgun wedding jokes, please :)
+![Image of the Go gopher pulled by a pony](./gown_sign.png)
+Gopher in a gown, on patrol. (No shotgun wedding jokes, please :)
 
 # Go + Ownership = Gown
 
