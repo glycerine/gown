@@ -1,4 +1,5 @@
-![Image of the Go gopher pulled by a pony](./golang_pony.png)
+![Image of the Go gopher pulled by a pony](./gopher_pony_rust.png)
+No trespassing: data-races keep out!
 
 # Go + Ownership = Gown
 
@@ -948,3 +949,6 @@ License: BSD 3-clause license, same as Go. See the LICENSE file.
 The Go gopher was designed by Renee French. (http://reneefrench.blogspot.com/)
 The design is licensed under the Creative Commons 4.0 Attributions license.
 Read this article for more details: https://go.dev/blog/gopher
+
+Ferris the crab, unofficial mascot for Rust, per https://www.rustacean.net/ is:
+"To the extent possible under law, Karen Rustad Tölva has waived all copyright and related or neighboring rights to Ferris the Rustacean. This work is published from: United States."
