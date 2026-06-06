@@ -28,7 +28,7 @@ traditional use of postage stamps on the outside of
 an envelope (pointer). Depending on the destination 
 (country/goroutine/function), you need different stamps.
 Moreover the stamp can change while the envelope stays the same.
-Ownerstamp is easier to say, and says we are talking 
+Ownerstamp is easier to say out loud, and it means we are talking 
 about Gown specifically.
 
 In one line, the summary of Gown would be: 
@@ -72,8 +72,8 @@ on the ownerstamp definitions.
 
 Each ownerstamp tells the Gown checker what kind of 
 access a piece of code has to a value: unique ownership (\iso),
-local mutation (\mub), read-only access (\rob), or 
-immutable and thus safe for sharing (\imm)
+local mutation (\mub), local read-only access (\rob), or 
+globally immutable and thus safe for sharing (\imm)
 
 As a pre-processor, Gown aims to check for data-races before Go
 compilation starts. You write `.gown` files, Gown checks them, 
@@ -91,11 +91,11 @@ Thus there can be multiple aliases of the same pointer outstanding at
 once. If you want to be sure only a single goroutine is accessing
 that pointer, the compiler does not help you. In regular Go, one goroutine can be
 mutating the pointed-to value, while another is reading it. We
-want to be able to forbid this and prove some memory will only be
-accessed by its current owner; that there are no aliases.
+want to be able to forbid this and prove some memory can only be
+accessed by one goroutine, current owner; that there are no aliases.
 
 >  "There can be only one." 
->     -- with apologies to Connor MacLeod, Highlander, 1986
+>     -- with apologies to Connor MacLeod from the film Highlander, 1986
 
 Gown lets you write \iso to rule out all other aliases. The goroutine
 with an \iso pointer knows it has exclusive access; there are no other 
@@ -409,6 +409,7 @@ they are preprocessor constructs.
 | `\rob(x)` | make an explicit read-only borrow | `x` |
 | `\swap(a, b)` | exchange two `\iso` owner cells | `a, b = b, a` |
 | `\unsafe(x)` | cross an unchecked boundary explicitly | `x` |
+| `\restore`   | like Pony's `recover`: temporary rule suspension | see restore-spec.md |
 
 ### `\new`
 
@@ -538,8 +539,7 @@ programmer says, "I know something the checker cannot verify."
 
 ## function patterns
 
-A useful way to learn Gown is to compare the same API shape under different
-annotations.
+Lets compare the same API shape under different annotations.
 
 ```go
 func Own(b \iso *Ticket) {
@@ -577,7 +577,7 @@ func main() {
 }
 ```
 
-The key distinction:
+The distinctions:
 
 | Callee wants | Caller effect |
 | --- | --- |
@@ -588,8 +588,8 @@ The key distinction:
 
 ## channel patterns
 
-Channels are where the difference between moving and sharing becomes very
-important.
+Channels can either move (transfer) \iso poitners, or share \imm immutable ones.
+The local-only \mub and \rob borrowed pointers can never be sent on a channel.
 
 ### Ownership Transfer Channel
 
@@ -627,8 +627,8 @@ func publish(ch chan \imm *Ticket) {
 
 ### sending a clone
 
-When you want to keep a local value but send a fresh owned copy, clone at the
-send site.
+When you want to keep a local value but send a fresh owned copy, clone before
+sending.
 
 ```go
 func publishCopies(ch chan \iso *Ticket, template \rob *Ticket) {
@@ -639,12 +639,14 @@ func publishCopies(ch chan \iso *Ticket, template \rob *Ticket) {
 
 The channel receives fresh `\iso` values. The template is not consumed.
 
-### stable reply channels
+### stable reply channels (composition and projection)
 
-Sometimes an owned value needs to carry a reply channel with it. The worker gets
+In the common Ticket (promise) pattern, an owned value needs 
+to carry a reply channel with it. The worker gets
 ownership of the value, does some work, and then sends the value back.
 
-The reply channel field should be declared `\imm`:
+The reply channel field should be declared `\imm`. This allows
+the original owner to still receive on on it.
 
 ```go
 type Ticket struct {
@@ -695,43 +697,38 @@ read-only (while the channel itself is always goroutine safe).
 Struct fields may also carry ownerstamps.
 
 ```go
-type Job struct {
-    Input  \iso *Ticket
-    Config \imm *Ticket
-    Done   \imm chan \iso *Job
+type Ticket struct {
+    Input  \iso *Input
+    Cfg    \imm *Config
+    Done   \imm chan \iso *Ticket
 }
 ```
 
-If you own a `\iso *Job`, then moving `job.Input` out directly is restricted:
+If you own a `tkt \iso *Ticket`, then moving `tkt.Input` out directly is restricted:
 moving from a field projection can leave the containing object partially moved.
 The gown checker will reject this.
 
-A common pattern is to expose operations as methods or functions that preserve
-the ownership story:
+In this situations, the three possible solutions are: use \swap, use \restore, 
+or write a helper function that does a local borrow:
 
 ```go
-func UseConfig(j \rob *Job) int {
-    return len(j.Config.Data)
-}
-
-func ReplaceInput(j \mub *Job, next \iso *Ticket) {
-    j.Input = next
+func ReplaceInput(tkt \mub *Ticket, nextInput \iso *Input) {
+    tkt.Input = nextInput
 }
 ```
 
-In summary:
+Summary:
 
 - Put ownerstamps on fields that store tracked pointers.
 - Read-only or immutable access through the outer object makes reachable fields
   read-only too.
 - Use `\imm chan ...` for stable channel fields that must be read after the
   parent object moves.
-- helper functions may be needed
+- helpers, \restore, and \swap help maintain \iso uniqueness
 
-## common errors
+## errors
 
-Gown reports structured errors with codes. These are the ones beginners usually
-hit first.
+Gown reports structured errors with codes.
 
 | Code | Meaning | Common fix |
 | --- | --- | --- |
@@ -757,7 +754,7 @@ of the parent \iso ticket.
 
 The '\\\\observer' line declares that fmt.Printf promises to
 look but not modify its arguments. This is an ergonomic addition
-to avoid having to annotate all logging/debug/xdump helpers.
+to avoid having to annotate all logging/debug/dump helpers.
 
 ```go
 package main
@@ -783,9 +780,8 @@ func (t *bigTree) clone() *bigTree {
 }
 
 type ticket struct {
-    tree \iso *bigTree
-
-    outcome string
+    tree           \iso *bigTree
+    outcome             string
     done \imm chan \iso *ticket
 }
 
@@ -912,3 +908,6 @@ Use `\clone` to make trusted fresh isolated copies.
 Use `\freeze` to turn isolated mutable data into immutable shared data.
 
 Use `\unsafe` only when deliberately crossing into unchecked Go code.
+
+Use `\swap`, `\restore`, or a local `\mub` borrow in a helper function
+to manage related \iso pointers.
