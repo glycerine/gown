@@ -1,4 +1,4 @@
-![Image of the Go gopher pulled by a pony](./gopher_pony_rust.png)
+![Image of the Go gopher pulled by a pony](./gown_gopher2.png)
 No trespassing: data-races keep out!
 
 # Go + Ownership = Gown
