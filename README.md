@@ -118,7 +118,7 @@ once. If you want to be sure only a single goroutine is accessing
 that pointer, the compiler does not help you. In regular Go, one goroutine can be
 mutating the pointed-to value, while another is reading it. We
 want to be able to forbid this and prove some memory can only be
-accessed by one goroutine, current owner; that there are no aliases.
+accessed by one goroutine, the current owner; that there are no aliases.
 
 >  "There can be only one." 
 >     -- with apologies to Connor MacLeod from the film Highlander, 1986
