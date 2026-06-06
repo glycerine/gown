@@ -1,14 +1,27 @@
 # Go + Ownership = Gown
 
-Welcome to the gown tutorial. A command line
-program, gown is a Go source 
-pre-processor allows the Go developer
+The one line summary of Gown is:
+channel sends can now enforce at compile time the former 
+"convention only" transfer of ownership.
+
+Welcome to the gown tutorial. As a command line
+pre-processor, gown is a Go source-to-source 
+translator that allows the Go developer
 to describe pointer ownership and data immutability. 
 
-Since gown catches data-races at compile time by
-static analysis, it provides stronger protection than
-the (valuable but incomplete) detection offered by
-the Go race detector.
+Gown is backwards compatability with existing Go. 
+Gown allows you to incrementally add stronger ownership
+and data-race freedom to an existing Go codebase.
+
+Since Gown catches data-races at compile time by
+static analysis, it provides stronger protection against 
+data races than the (valuable but incomplete) detection offered by
+the Go race detector. We say stronger rather than
+absolute because legacy (unannotated) code and `\unsafe`
+code can block gown's proof of data-race freedom.
+However if you annotate all your code and avoid all `\unsafe`
+usage, then Gown gives you a guarantee of data race freedom
+at compile time.
 
 ## overview
 
@@ -30,10 +43,6 @@ an envelope (pointer). Depending on the destination
 Moreover the stamp can change while the envelope stays the same.
 Ownerstamp is easier to say out loud, and it means we are talking 
 about Gown specifically.
-
-In one line, the summary of Gown would be: 
-channel sends can now enforce at compile time the former 
-"convention only" transfer of ownership.
 
 The most common data race in my own Go programs is simultaneous access after
 I have sent data to another goroutine over a channel. 
