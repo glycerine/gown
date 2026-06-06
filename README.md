@@ -4,6 +4,10 @@ Gopher in a gown, on patrol, pulled by a pony, with a crab sidekick.
 
 # Go + Ownership = Gown
 
+Author: Jason E. Aten, Ph.D.
+
+First release: 2026 June 5
+
 The one line summary of Gown is:
 channel sends can now enforce at compile time the former 
 "convention only" transfer of ownership.
