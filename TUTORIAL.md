@@ -44,12 +44,12 @@ To do this Gown analyzes the SSA form of a Go package. It
 will conservatively reject programs that it cannot prove
 correct. Thus some re-arrangement of pointer manipulation,
 aiming for provable safety, may be required, particularly
-after a select{} statement that sends an\ `\iso` pointer. 
+after a select{} statement that sends an `\iso` pointer. 
 To my thinking, this is a small inconvenience in exchange for data-race freedom.
 
 In detail: since the select case is chosen at runtime rather than
 known at compile time, Gown's static analysis must assume 
-that after a select statement an\ `\iso` pointer could have
+that after a select statement an `\iso` pointer could have
 been sent away. After the select statement, it is therefore
 illegal to reference the \iso, even if it has not been
 sent. This may prompt you to \clone the pointer before
@@ -61,19 +61,19 @@ and complains if you forget.
 ## introduction
 
 In Gown there are only four core ownerstamps
-on pointers:\ `\iso` for single-owner (isolated) mutable data, \imm for
-immutable data, \mub for mutable borrow, and \rob for read-only borrowed data.
+on pointers: `\iso` for single-owner (isolated) mutable data, `\imm` for
+immutable data, `\mub` for mutable borrow, and `\rob` for read-only borrowed data.
 
 An ownerstamp is Gown's term of art for an ownership annotation: a small mark on
 a Go type that says who may own, mutate, borrow, or share the pointed-to value.
-There are also some helpers like \new and \clone which create new \iso
+There are also some helpers like `\new` and `\clone` which create new `\iso`
 pointers that we will get to later in this tutorial. For now we concentrate
 on the ownerstamp definitions.
 
 Each ownerstamp tells the Gown checker what kind of 
-access a piece of code has to a value: unique ownership (\iso),
-local mutation (\mub), local read-only access (\rob), or 
-globally immutable and thus safe for sharing (\imm)
+access a piece of code has to a value: unique ownership (`\iso`),
+local mutation (`\mub`), local read-only access (`\rob`), or 
+globally, deeply immutable and thus always safe for sharing (`\imm`)
 
 As a pre-processor, Gown aims to check for data-races before Go
 compilation starts. You write `.gown` files, Gown checks them, 
@@ -97,8 +97,8 @@ accessed by one goroutine, current owner; that there are no aliases.
 >  "There can be only one." 
 >     -- with apologies to Connor MacLeod from the film Highlander, 1986
 
-Gown lets you write\ `\iso` to rule out all other aliases. The goroutine
-with an\ `\iso` pointer knows it has exclusive access; there are no other 
+Gown lets you write `\iso` to rule out all other aliases. The goroutine
+with an `\iso` pointer knows it has exclusive access; there are no other 
 copies of that pointer. The goroutine owns the pointed to value until
 it gives the pointer away. 
 
@@ -588,7 +588,7 @@ The distinctions:
 
 ## channel patterns
 
-Channels can either move (transfer)\ `\iso` poitners, or share `\imm` immutable ones.
+Channels can either move (transfer) `\iso` poitners, or share `\imm` immutable ones.
 The local-only `\mub` and `\rob` borrowed pointers can never be sent on a channel.
 
 ### Ownership Transfer Channel
@@ -750,7 +750,7 @@ The pattern of having an \imm channel field is useful. The worker
 cannot accidentally change the reply channel that the supervisor
 is expecting to hear back on. The supervisor (main) can
 receive on the \imm channel tkt.done even though it gave away ownership
-of the parent\ `\iso` ticket.
+of the parent `\iso` ticket.
 
 The '\\\\observer' line declares that fmt.Printf promises to
 look but not modify its arguments. This is an ergonomic addition
