@@ -1,3 +1,5 @@
+![Image of the Go gopher pulled by a pony](./golang_pony.png)
+
 # Go + Ownership = Gown
 
 The one line summary of Gown is:
@@ -942,3 +944,7 @@ to manage related `\iso` pointers.
 gown is Copyright (C) 2026, Jason E. Aten, Ph.D. All rights reserved.
 
 License: BSD 3-clause license, same as Go. See the LICENSE file.
+
+The Go gopher was designed by Renee French. (http://reneefrench.blogspot.com/)
+The design is licensed under the Creative Commons 4.0 Attributions license.
+Read this article for more details: https://go.dev/blog/gopher
