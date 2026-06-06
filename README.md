@@ -17,7 +17,7 @@ pre-processor, gown is a Go source-to-source
 translator that allows the Go developer
 to describe pointer ownership and data immutability. 
 
-Gown is backwards compatability with existing Go. 
+Gown is backwards compatible with existing Go. 
 Gown allows you to incrementally add stronger ownership
 and data-race freedom to an existing Go codebase.
 
@@ -680,7 +680,7 @@ to carry a reply channel with it. The worker gets
 ownership of the value, does some work, and then sends the value back.
 
 The reply channel field should be declared `\imm`. This allows
-the original owner to still receive on on it.
+the original owner to still receive on it.
 
 ```go
 type Ticket struct {
