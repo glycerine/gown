@@ -20,8 +20,8 @@ the Go race detector. We say stronger rather than
 absolute because legacy (unannotated) code and `\unsafe`
 code can block gown's proof of data-race freedom.
 However if you annotate all your code and avoid all `\unsafe`
-usage, then Gown gives you a guarantee of data race freedom
-at compile time.
+usage, then Gown -- like Pony -- gives you a guarantee 
+of data-race freedom at compile time.
 
 ## overview
 
