@@ -1,5 +1,5 @@
 ![Image of the Go gopher pulled by a pony](./gown_sign.png)
-Gopher in a gown, on patrol, pulled a pony, with a crab sidekick.
+Gopher in a gown, on patrol, pulled by a pony, with a crab sidekick.
 (No shotgun wedding jokes, please :)
 
 # Go + Ownership = Gown
