@@ -963,7 +963,7 @@ Use `\swap`, `\restore`, or a local `\mub` borrow in a helper function
 to manage related `\iso` pointers.
 
 ----------
-gown is Copyright (C) 2026, Jason E. Aten, Ph.D. All rights reserved.
+Gown is Copyright (C) 2026, Jason E. Aten, Ph.D. All rights reserved.
 
 License: BSD 3-clause license, same as Go. See the LICENSE file.
 
