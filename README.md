@@ -48,6 +48,8 @@ bug report issues to help us improve.
 
 go install github.com/glycerine/gown/cmd/gown@latest
 
+Use: gown <path to package to check>
+
 ## overview
 
 Inspired a little by Rust, and alot by Pony's 
@@ -444,6 +446,7 @@ they are preprocessor constructs.
 | `\swap(a, b)` | exchange two `\iso` owner cells | `a, b = b, a` |
 | `\unsafe(x)` | cross an unchecked boundary explicitly | `x` |
 | `\restore`   | like Pony's `recover`: temporary rule suspension | see restore-spec.md |
+| `\\\\observer` | designate access (e.g. \rob fmt.Printf) as safe | avoids changing stdlib |
 
 ### `\new`
 
@@ -570,6 +573,17 @@ func main() {
 
 `\unsafe` is intentionally visible and searchable. It is the place where the
 programmer says, "I know something the checker cannot verify."
+
+See also `\\\\observer`
+
+## `\\\\observer`
+
+For example, the `\\\\observer fmt.Printf` stand alone comment is used to designate the 
+debug helpers like fmt.Printf are doing read-only borrows and should not cause alarm.
+
+The observer annotation turns off strict checking on a per-function basis. This is a practical
+affordance to avoid having to annotate the declarations of the standard "fmt"
+library.
 
 ## function patterns
 
