@@ -2,6 +2,7 @@
 
 all:
 	go install ./cmd/gown
+	go install ./cmd/gownfmt
 
 lean:
 	lean Gown.lean > lean.run.log 2>&1

@@ -12,8 +12,8 @@ The one line summary of Gown is:
 channel sends can now enforce at compile time the former 
 "convention only" transfer of ownership.
 
-Welcome to the gown tutorial. As a command line
-pre-processor, gown is a Go source-to-source 
+Welcome to the Gown tutorial. As a command line
+pre-processor, Gown is a Go source-to-source 
 translator that allows the Go developer
 to describe pointer ownership and data immutability. 
 
@@ -26,7 +26,7 @@ static analysis, it provides stronger protection against
 data races than the (valuable but incomplete) detection offered by
 the Go race detector. We say stronger rather than
 absolute because legacy (unannotated) code and `\unsafe`
-code can block gown's proof of data-race freedom.
+code can block Gown's proof of data-race freedom.
 However if you annotate all your code and avoid all `\unsafe`
 usage, then Gown -- like Pony -- gives you a guarantee 
 of data-race freedom at compile time.
@@ -55,7 +55,7 @@ Example: `cd gown/vectors/ex3 && gown . && go run .`
 ## overview
 
 Inspired a little by Rust, and alot by Pony's 
-ownership system, gown is a pre-processor 
+ownership system, Gown is a pre-processor 
 for Go source that statically detects use-after-move
 data-races at compile time. 
 
@@ -756,7 +756,7 @@ type Ticket struct {
 
 If you own a `tkt \iso *Ticket`, then moving `tkt.Input` out directly is restricted:
 moving from a field projection can leave the containing object partially moved.
-The gown checker will reject this.
+The Gown checker will reject this.
 
 In this situations, the three possible solutions are: use \swap, use \restore, 
 or write a helper function that does a local borrow:
@@ -962,6 +962,20 @@ Use `\unsafe` only when deliberately crossing into unchecked Go code.
 Use `\swap`, `\restore`, or a local `\mub` borrow in a helper function
 to manage related `\iso` pointers.
 
+## gownfmt
+
+Running make (the default `all` target of the gown/Makefile) also 
+installs a version of `gofmt` called `gownfmt` (see cmd/gownfmt) that allows 
+standard formating of Gown-annotated files while allowing and preserving
+the Gown annotations. 
+
+Regular `gofmt` cannot handle .gown files. This was intentional. The
+design of the annotations was intentionally unparsable by standard
+Go tooling to insure no Gown ownerstamps are missed during processing. 
+
+Since `gownfmt` can also process regular .go files, it can fully
+replace `gofmt` in Gown projects.
+
 ----------
 Gown is Copyright (C) 2026, Jason E. Aten, Ph.D. All rights reserved.
 
@@ -973,3 +987,4 @@ Read this article for more details: https://go.dev/blog/gopher
 
 Ferris the crab, unofficial mascot for Rust, per https://www.rustacean.net/ is:
 "To the extent possible under law, Karen Rustad Tölva has waived all copyright and related or neighboring rights to Ferris the Rustacean. This work is published from: United States."
+
