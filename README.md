@@ -48,7 +48,7 @@ bug report issues to help us improve.
 
 go install github.com/glycerine/gown/cmd/gown@latest
 
-Use: gown <path to package to check>
+Use: `gown <path to package to check>`
 
 ## overview
 
