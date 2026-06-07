@@ -50,6 +50,8 @@ go install github.com/glycerine/gown/cmd/gown@latest
 
 Use: `gown <path to package to check>`
 
+Example: `cd gown/vectors/ex3 && gown . && go run .`
+
 ## overview
 
 Inspired a little by Rust, and alot by Pony's 
