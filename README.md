@@ -31,6 +31,14 @@ However if you annotate all your code and avoid all `\unsafe`
 usage, then Gown -- like Pony -- gives you a guarantee 
 of data-race freedom at compile time.
 
+Natually the caveat is: that guarantee is predicated on your code
+using \iso or \imm annotated channels to transfer
+ownership or share immutables. Obviously if you evade the system by 
+sharing data across goroutines by other means (globals,
+closure captures on goroutine start, etc), naturally
+you are back to normal (data-racey by default) Go and 
+Gown cannot help you.
+
 ## status
 
 The design and initial implementation is done. We now need vigorous testing
@@ -740,7 +748,7 @@ type BadTicket struct {
 After `BadTicket` moves to another goroutine, the new owner could reassign
 `Done` at the same time the old owner tries to read it. That would be a race on
 the field slot. `\imm chan ...` prevents that by making the field slot
-read-only (while the channel itself is always goroutine safe).
+read-only. The channel value itself is always goroutine safe, as is normal in Go.
 
 ## struct fields
 
