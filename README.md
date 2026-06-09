@@ -52,17 +52,19 @@ bugs that do not catch all data races.
 Call for testing: Help us polish and refine Gown by trying it out. File
 bug report issues to help us improve.
 
-### comment branch to attempt to improve usabilty
+### //gown: comments instead of inline ownerships
 
-On branch 'comment' we try an experiment. Instead of 
-pre-processing .gown files into .go files, we add
+This README has not been converted to the comment syntax in .go files;
+most of it is still in the old inline syntax of .gown files.
+
+Instead of pre-processing .gown files into .go files, we added
 comments starting with 'gown:' to annotate standard .go
 files. These are lowered to .gown files automatically
 in the .gown/ directory, and then checked.
 
-This makes reading the ownerstamps harder, but 
-might be easier to adopt incrementally into existing Go
-codebases. We are working with it to gain experience.
+The idea is to make it easier to adopt incrementally into existing Go
+codebases. By commenting .go files, we do not break IDEs and editors
+that know how to format and highlight .go code.
 
 Some examples of annotations are in the vector/ subdir, such as:
 
@@ -116,6 +118,13 @@ in this tutorial.)
 //gown:new
 //gown:swap
 ~~~
+
+## warning: rest of tutorial is slightly out of date.
+
+We are working to revise the rest of the tutorial. Be warned that
+from here on the .gown inline syntax is shown, rather than the new
+//gown: comment style syntax for .go files. The concepts are 
+accurate, its just the examples need to be revised for the new syntax.
 
 ## installation
 
@@ -658,6 +667,13 @@ debug helpers like fmt.Printf are doing read-only borrows and should not cause a
 
 The observer annotation turns off strict checking on a per-function basis. This is a practical affordance to avoid having to annotate the declarations of the standard "fmt"
 library.
+
+In essence, if we do not annotate Printf as an innocuous observer, then it 
+will terminate Gown's proof of for iso uniqueness; because we cannot otherwise 
+know that it does not store or send away the pointer on a channel. Since
+fmt.Printf are frequently used simply for debugging, we do not want the debug
+prints to accidentally create false alarms about use of iso after proof
+has been terminated.
 
 ## function patterns
 
