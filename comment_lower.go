@@ -195,6 +195,9 @@ func (ctx *commentLoweringContext) applyTrailingDirective(directive GownCommentD
 	if kv := ctx.keyValueEndingOnLine(line); kv != nil {
 		return ctx.applyKeyValueDirective(directive, commands, kv)
 	}
+	if assign := ctx.assignStartingOnLine(line); assign != nil {
+		return ctx.applyAssignDirective(directive, commands, assign)
+	}
 	return ctx.directiveError(directive, "could not find a same-line declaration, assignment, or composite literal field for Gown directive")
 }
 

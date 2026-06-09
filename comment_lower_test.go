@@ -110,6 +110,28 @@ func TestLowerGoCommentsToGown(t *testing.T) {
 	}
 }
 
+func TestCommentModeTrailingDirectiveOnMultilineAssignmentStart(t *testing.T) {
+	result, err := LowerGoCommentsToGown("comment.go", []byte(`package example
+
+type Job struct {
+	Input *int
+}
+
+func Use() {
+	j := &Job{ //gown:new
+		Input: new(int),
+	}
+	_ = j
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result.GownSrc), `j := \new(Job{`) {
+		t.Fatalf("lowered source missing multiline new directive:\n%s", result.GownSrc)
+	}
+}
+
 const commentModeCheckSource = `package example
 
 type payload struct {
