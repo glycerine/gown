@@ -223,8 +223,8 @@ func (ctx *commentLoweringContext) applyTrailingDirective(directive GownCommentD
 	if kv := ctx.keyValueEndingOnLine(line); kv != nil {
 		return ctx.applyKeyValueDirective(directive, commands, kv)
 	}
-	if ret := ctx.returnEndingOnLine(line); ret != nil {
-		return ctx.applyReturnDirective(directive, commands, ret)
+	if result := ctx.returnResultEndingOnLine(line, directive.Span.Offset); result != nil {
+		return ctx.applyReturnExprDirective(directive, commands, result)
 	}
 	if assign := ctx.assignStartingOnLine(line); assign != nil {
 		return ctx.applyAssignDirective(directive, commands, assign)
@@ -320,21 +320,18 @@ func (ctx *commentLoweringContext) applyKeyValueDirective(directive GownCommentD
 	}
 }
 
-func (ctx *commentLoweringContext) applyReturnDirective(directive GownCommentDirective, commands []gownCommentCommand, ret *ast.ReturnStmt) error {
+func (ctx *commentLoweringContext) applyReturnExprDirective(directive GownCommentDirective, commands []gownCommentCommand, result ast.Expr) error {
 	for _, cmd := range commands {
 		switch cmd.Name {
 		case "new":
 			if len(cmd.Args) != 0 {
 				return ctx.directiveError(directive, "new directive does not take arguments")
 			}
-			if len(ret.Results) != 1 {
-				return ctx.directiveError(directive, "new return directive requires exactly one result expression")
-			}
-			if err := ctx.lowerNewExpr(directive, ret.Results[0]); err != nil {
+			if err := ctx.lowerNewExpr(directive, result); err != nil {
 				return err
 			}
 		default:
-			return ctx.directiveError(directive, fmt.Sprintf("unsupported return directive %q", cmd.Name))
+			return ctx.directiveError(directive, fmt.Sprintf("unsupported return expression directive %q", cmd.Name))
 		}
 	}
 	return nil
@@ -854,15 +851,26 @@ func (ctx *commentLoweringContext) keyValueEndingOnLine(line int) *ast.KeyValueE
 	return out
 }
 
-func (ctx *commentLoweringContext) returnEndingOnLine(line int) *ast.ReturnStmt {
-	var out *ast.ReturnStmt
+func (ctx *commentLoweringContext) returnResultEndingOnLine(line, beforeOffset int) ast.Expr {
+	var out ast.Expr
+	bestEnd := -1
 	ast.Inspect(ctx.file, func(n ast.Node) bool {
 		ret, ok := n.(*ast.ReturnStmt)
-		if !ok || ctx.line(ret.End()) != line {
+		if !ok {
 			return true
 		}
-		if out == nil || ctx.offset(ret.Pos()) > ctx.offset(out.Pos()) {
-			out = ret
+		for _, result := range ret.Results {
+			if ctx.line(result.End()) != line {
+				continue
+			}
+			end := ctx.offset(result.End())
+			if end > beforeOffset {
+				continue
+			}
+			if end > bestEnd {
+				out = result
+				bestEnd = end
+			}
 		}
 		return true
 	})

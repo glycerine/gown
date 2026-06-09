@@ -240,6 +240,53 @@ func f() *bicycle {
 	}
 }
 
+func TestCommentModeReturnNewDirectiveOnMultiResultReturn(t *testing.T) {
+	result, err := LowerGoCommentsToGown("comment.go", []byte(`package example
+
+type bicycle struct{}
+
+// gown: result 3 iso
+func gg() (int, int, string, *bicycle) {
+	return 1, 2, "new bikes are fun", &bicycle{} //gown:new
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(result.GownSrc)
+	if !strings.Contains(got, `func gg() (int, int, string, \iso *bicycle)`) {
+		t.Fatalf("lowered source missing indexed result ownerstamp:\n%s", got)
+	}
+	if !strings.Contains(got, `return 1, 2, "new bikes are fun", \new(bicycle{})`) {
+		t.Fatalf("lowered source missing nearest return new intrinsic:\n%s", got)
+	}
+}
+
+func TestCommentModeReturnNewDirectiveOnMultilineResult(t *testing.T) {
+	result, err := LowerGoCommentsToGown("comment.go", []byte(`package example
+
+type bicycle struct{}
+
+// gown: result 2 iso
+func ggg() (int, int, *bicycle, string) {
+	return 1,
+		2,
+		&bicycle{}, //gown:new
+		"new bikes are fun"
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(result.GownSrc)
+	if !strings.Contains(got, `func ggg() (int, int, \iso *bicycle, string)`) {
+		t.Fatalf("lowered source missing indexed multiline result ownerstamp:\n%s", got)
+	}
+	if !strings.Contains(got, "\t\t\\new(bicycle{}), //gown:new") {
+		t.Fatalf("lowered source missing multiline return new intrinsic:\n%s", got)
+	}
+}
+
 func TestCommentModeCheckerErrorsReportOriginGoPath(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"main.go": `package example
 
