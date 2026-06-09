@@ -18,7 +18,7 @@ type Z struct{}
 
 type Holder struct {
 	Owned *X      //gown: iso
-	Done  chan *X //gown: cap imm; elem iso
+	Done  chan *X //gown: imm; elem iso
 	//gown: rob
 	Read *Y
 }
@@ -145,5 +145,15 @@ func TestGownCommentRequiresAsciiSpaceAfterPrefix(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ASCII spaces") {
 		t.Fatalf("error = %q, want ASCII spaces diagnostic", err)
+	}
+}
+
+func TestGownCommentRejectsCapDirectiveAlias(t *testing.T) {
+	_, err := LowerGoCommentsToGown("bad.go", []byte("package p\ntype Ticket struct {\n\tDone chan *Ticket //gown: cap imm; elem iso\n}\n"))
+	if err == nil {
+		t.Fatal("expected cap directive alias to fail")
+	}
+	if !strings.Contains(err.Error(), `unsupported type directive "cap"`) {
+		t.Fatalf("error = %q, want unsupported cap diagnostic", err)
 	}
 }

@@ -291,13 +291,6 @@ func (ctx *commentLoweringContext) applyTypeCommands(directive GownCommentDirect
 			if err := ctx.insertDirectCap(directive, typ, capFromWord(cmd.Name)); err != nil {
 				return err
 			}
-		case cmd.Name == "cap":
-			if len(cmd.Args) != 1 || !isCapWord(cmd.Args[0]) {
-				return ctx.directiveError(directive, "cap directive requires one ownerstamp")
-			}
-			if err := ctx.insertDirectCap(directive, typ, capFromWord(cmd.Args[0])); err != nil {
-				return err
-			}
 		case cmd.Name == "elem":
 			if len(cmd.Args) != 1 || !isCapWord(cmd.Args[0]) {
 				return ctx.directiveError(directive, "elem directive requires one ownerstamp")

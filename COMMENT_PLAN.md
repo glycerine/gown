@@ -46,7 +46,7 @@ func F(x *X, y *Y) *Z
 ```go
 type Holder struct {
     Owned *Msg      //gown: iso
-    Done chan *Msg  //gown: cap imm; elem iso
+    Done chan *Msg  //gown: imm; elem iso
 }
 ```
 
