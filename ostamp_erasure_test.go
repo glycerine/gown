@@ -121,6 +121,58 @@ func main() {
 }
 `
 
+const gownPlainValueToIsoCompositeFieldSource = `package example
+
+type payload struct{}
+
+type holder struct {
+	Item \iso *payload
+}
+
+func main(p *payload) {
+	h := \new(holder{
+		Item: p,
+	})
+	_ = h
+}
+`
+
+const gownPlainValueToIsoAssignedFieldSource = `package example
+
+type payload struct{}
+
+type holder struct {
+	Item \iso *payload
+}
+
+func main(p *payload) {
+	h := \new(holder{})
+	h.Item = p
+}
+`
+
+const gownCloneResultToIsoFieldSource = `package example
+
+type payload struct {
+	Data string
+}
+
+func (p *payload) clone() *payload {
+	return &payload{Data: p.Data}
+}
+
+type holder struct {
+	Item \iso *payload
+}
+
+func main(p *payload) {
+	h := \new(holder{
+		Item: p.clone(),
+	})
+	_ = h
+}
+`
+
 const gownSelectReceivedIsoToPlainHelperSource = `package example
 
 type ticket struct{}
@@ -353,6 +405,23 @@ func TestOstampErasureAllowsFreshAllocationInIsoContexts(t *testing.T) {
 
 func TestOstampErasureAllowsFreshAllocationInOstampFields(t *testing.T) {
 	err := checkGownSource(t, "fresh_ostamp_fields.gown", gownFreshAllocationToOstampFieldsSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGWN010RejectsPlainValueToIsoCompositeField(t *testing.T) {
+	err := checkGownSource(t, "plain_iso_composite_field.gown", gownPlainValueToIsoCompositeFieldSource)
+	requireCheckerCode(t, err, GWN010)
+}
+
+func TestGWN010RejectsPlainValueToIsoAssignedField(t *testing.T) {
+	err := checkGownSource(t, "plain_iso_assigned_field.gown", gownPlainValueToIsoAssignedFieldSource)
+	requireCheckerCode(t, err, GWN010)
+}
+
+func TestOstampErasureAllowsCloneResultToIsoField(t *testing.T) {
+	err := checkGownSource(t, "clone_iso_field.gown", gownCloneResultToIsoFieldSource)
 	if err != nil {
 		t.Fatal(err)
 	}

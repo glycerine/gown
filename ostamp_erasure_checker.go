@@ -3,6 +3,7 @@ package gown
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/packages"
@@ -219,6 +220,12 @@ func (checker *ostampErasureChecker) checkValueIntoObject(src ast.Expr, obj type
 		return
 	}
 	dstCap := checker.caps.ObjectCap(obj)
+	if dstCap == CapIso {
+		if field, ok := obj.(*types.Var); ok && field.IsField() {
+			checker.checkValueIntoIsoField(src, field)
+		}
+		return
+	}
 	if dstCap != CapUntracked {
 		return
 	}
@@ -238,6 +245,89 @@ func (checker *ostampErasureChecker) checkValueIntoObject(src ast.Expr, obj type
 		}
 	}
 	checker.checkValueIntoCap(src, dstCap, code, dst, message)
+}
+
+func (checker *ostampErasureChecker) checkValueIntoIsoField(src ast.Expr, field *types.Var) {
+	if src == nil || field == nil || isNilIdent(src) {
+		return
+	}
+	value := ownedDestinationValueOstamp(checker.pkg, checker.caps, src)
+	if value.Cap == CapIso {
+		return
+	}
+	name := valueName(value)
+	if value.Cap == CapInvalid {
+		name = "<expression>"
+	}
+	checker.reportAtNode(
+		GWN010,
+		valueDiagnosticNode(src, value),
+		fmt.Sprintf("cannot store %s value %q in \\iso field %s; requires a fresh or moved \\iso value", value.Cap, name, field.Name()),
+	)
+}
+
+func ownedDestinationValueOstamp(pkg *packages.Package, caps *OstampIndex, expr ast.Expr) ValueOstamp {
+	value := assignmentValueOstamp(pkg, caps, expr)
+	if value.Cap != CapInvalid {
+		return value
+	}
+	if isFreshOwnedCreationExpr(expr) {
+		return ValueOstamp{Cap: CapIso, Fresh: true}
+	}
+	if isSameTypeCloneCall(pkg, expr) {
+		return ValueOstamp{Cap: CapIso, Fresh: true}
+	}
+	return value
+}
+
+func isFreshOwnedCreationExpr(expr ast.Expr) bool {
+	switch expr := unparenExpr(expr).(type) {
+	case *ast.CompositeLit:
+		return true
+	case *ast.UnaryExpr:
+		_, ok := unparenExpr(expr.X).(*ast.CompositeLit)
+		return expr.Op == token.AND && ok
+	case *ast.CallExpr:
+		fun, ok := expr.Fun.(*ast.Ident)
+		return ok && (fun.Name == "new" || fun.Name == "make")
+	default:
+		return false
+	}
+}
+
+func isSameTypeCloneCall(pkg *packages.Package, expr ast.Expr) bool {
+	if pkg == nil || pkg.TypesInfo == nil {
+		return false
+	}
+	call, ok := unparenExpr(expr).(*ast.CallExpr)
+	if !ok || len(call.Args) != 0 {
+		return false
+	}
+	selector, ok := unparenExpr(call.Fun).(*ast.SelectorExpr)
+	if !ok || selector.Sel == nil {
+		return false
+	}
+	methodName := selector.Sel.Name
+	if methodName != "clone" && methodName != "Clone" {
+		return false
+	}
+	recvType := pkg.TypesInfo.TypeOf(selector.X)
+	if recvType == nil {
+		return false
+	}
+	selection := pkg.TypesInfo.Selections[selector]
+	if selection == nil {
+		return false
+	}
+	fn, _ := selection.Obj().(*types.Func)
+	if fn == nil {
+		return false
+	}
+	sig, _ := fn.Type().(*types.Signature)
+	if sig == nil || sig.Params().Len() != 0 || sig.Results().Len() != 1 {
+		return false
+	}
+	return types.Identical(sig.Results().At(0).Type(), recvType)
 }
 
 func erasureDestinationObject(place Place) types.Object {
@@ -298,26 +388,12 @@ func (checker *ostampErasureChecker) checkCompositeLit(lit *ast.CompositeLit) {
 	if structType == nil {
 		return
 	}
-	for _, elt := range lit.Elts {
-		kv, ok := elt.(*ast.KeyValueExpr)
-		if !ok {
+	for index, elt := range lit.Elts {
+		field, value := compositeLiteralFieldValue(structType, index, elt)
+		if field == nil || value == nil {
 			continue
 		}
-		name, ok := kv.Key.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		field := fieldByName(structType, name.Name)
-		if field == nil || checker.caps.ObjectCap(field) != CapUntracked {
-			continue
-		}
-		code := GWN010
-		message := "cannot store %s value %q in untracked field " + name.Name + ""
-		if isInterfaceType(field.Type()) {
-			code = GWN009
-			message = "cannot erase %s value %q into interface field " + name.Name
-		}
-		checker.checkValueIntoCap(kv.Value, CapUntracked, code, kv.Value, message)
+		checker.checkValueIntoObject(value, field, value)
 	}
 }
 
