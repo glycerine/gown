@@ -13,6 +13,7 @@ type bicycle struct {
 }
 
 // dispose of goner *wheel
+
 // gown: param goner iso
 func puncture(goner *wheel) {}
 
@@ -23,7 +24,9 @@ func main() {
 
 	a := j
 
-	puncture(a.front) // this should not be allowed since a retains a.front afterwards
+	puncture(a.front)
 
-	fmt.Printf("a='%#v'", a)
+	b := a.front // this should not be allowed since a.front was consumed in puncture()
+
+	fmt.Printf("b='%#v'", b)
 }

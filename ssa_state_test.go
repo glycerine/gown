@@ -21,6 +21,21 @@ func TestSSAFunctionStateRejectsProjectedMoves(t *testing.T) {
 	}
 }
 
+func TestSSAFunctionStateConsumesProjectedPlacePrecisely(t *testing.T) {
+	x := ssaStateTestRoot("x")
+	state := NewSSAFunctionState()
+
+	if violation, ok := state.ConsumePlace(PlaceKey{Root: x, Path: ".f"}, SSAMoveSite{Kind: "call"}); ok {
+		t.Fatalf("unexpected projected consume violation: %#v", violation)
+	}
+	if _, moved := state.CheckUse(PlaceKey{Root: x, Path: ".f"}); !moved {
+		t.Fatal("field use should be invalid after projected consume")
+	}
+	if _, moved := state.CheckUse(PlaceKey{Root: x, Path: ".g"}); moved {
+		t.Fatal("sibling field should remain usable after projected consume")
+	}
+}
+
 func TestSSAFunctionStateRootMoveInvalidatesRootAndFields(t *testing.T) {
 	x := ssaStateTestRoot("x")
 	y := ssaStateTestRoot("y")

@@ -53,6 +53,7 @@ type ssaGWN001Checker struct {
 	bindings                *SSABindingIndex
 	activeNamedBorrows      SSANamedBorrowInfo
 	activeDeferEffects      SSADeferredClosureEffectInfo
+	activeNamedFunction     bool
 	namedBorrowLiveness     *SSANamedBorrowLiveness
 	errs                    CheckerErrors
 	reported                map[string]bool
@@ -150,12 +151,14 @@ func (checker *ssaGWN001Checker) runFunctionBody(fn *ssa.Function, initial SSAFu
 func (checker *ssaGWN001Checker) beginFunction(fn *ssa.Function) {
 	checker.activeNamedBorrows = checker.namedBorrowInfoForFunction(fn)
 	checker.activeDeferEffects = checker.deferEffectInfoForFunction(fn)
+	_, checker.activeNamedFunction = fn.Syntax().(*ast.FuncDecl)
 	checker.namedBorrowLiveness = buildSSANamedBorrowLiveness(fn, checker.caps, checker.activeNamedBorrows)
 }
 
 func (checker *ssaGWN001Checker) endFunction() {
 	checker.activeNamedBorrows = SSANamedBorrowInfo{}
 	checker.activeDeferEffects = SSADeferredClosureEffectInfo{}
+	checker.activeNamedFunction = false
 	checker.namedBorrowLiveness = nil
 }
 
@@ -804,7 +807,7 @@ func (checker *ssaGWN001Checker) applyBoundCallTransfer(binding CallBinding, sta
 		switch paramCap {
 		case CapIso:
 			if placeCanTransferAsIso(checker.caps, argPlace) {
-				checker.consumeRootAtInstruction(state, argPlace, instr, kind)
+				checker.consumeCallArgumentAtInstruction(state, argPlace, instr, kind)
 			}
 		case CapMub, CapRob:
 			checker.applyTemporaryBorrow(state, argPlace, paramCap, instr)
@@ -916,7 +919,7 @@ func (checker *ssaGWN001Checker) applyCallCommonTransfer(call *ssa.CallCommon, s
 		switch paramCap {
 		case CapIso:
 			if placeCanTransferAsIso(checker.caps, argPlace) {
-				checker.consumeRootAtInstruction(state, argPlace, instr, kind)
+				checker.consumeCallArgumentAtInstruction(state, argPlace, instr, kind)
 			}
 		case CapMub, CapRob:
 			checker.applyTemporaryBorrow(state, argPlace, paramCap, instr)
@@ -1288,6 +1291,39 @@ func (checker *ssaGWN001Checker) consumeRootAtInstruction(state *SSAFunctionStat
 		return
 	}
 	violation, ok := state.ConsumeRoot(key, site)
+	if !ok {
+		return
+	}
+	checker.reportViolation(pos, violation)
+}
+
+func (checker *ssaGWN001Checker) consumeCallArgumentAtInstruction(state *SSAFunctionState, place Place, instr ssa.Instruction, kind string) {
+	if place.Key().Path == "" || kind != "call" || !checker.activeNamedFunction {
+		checker.consumeRootAtInstruction(state, place, instr, kind)
+		return
+	}
+	checker.consumePlaceAtInstruction(state, place, instr, kind)
+}
+
+func (checker *ssaGWN001Checker) consumePlaceAtInstruction(state *SSAFunctionState, place Place, instr ssa.Instruction, kind string) {
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	key := place.Key()
+	if site, frontiered := state.CheckFrontier(key); frontiered {
+		checker.reportFrontierViolation(pos, place, site, kind)
+		return
+	}
+	if violation, ok := checker.namedBorrowMoveViolation(key, instr); ok {
+		checker.reportViolation(pos, violation)
+		return
+	}
+	violation, ok := state.ConsumePlace(key, SSAMoveSite{
+		Name:   placeName(place),
+		Kind:   kind,
+		Path:   gownSourcePath(pos.Filename),
+		Offset: pos.Offset,
+		Line:   sourceLine(pos),
+		Col:    sourceColumn(pos),
+	})
 	if !ok {
 		return
 	}

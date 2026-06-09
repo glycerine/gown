@@ -399,6 +399,37 @@ func TestGownCommentAllowsOptionalWhitespaceAfterPrefix(t *testing.T) {
 	}
 }
 
+func TestGownCommentAllowsGofmtSpaceAfterSlashes(t *testing.T) {
+	source := []byte(`package p
+
+// gown: param goner iso
+func puncture(goner *wheel) {}
+
+func use() {
+	var x *int // gown:iso
+	_ = x
+}
+
+type wheel struct{}
+`)
+	if !ContainsGownComment(source) {
+		t.Fatal("ContainsGownComment did not recognize // gown:")
+	}
+	result, err := LowerGoCommentsToGown("comment.go", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(result.GownSrc)
+	for _, want := range []string{
+		`func puncture(goner \iso *wheel)`,
+		`var x \iso *int`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("lowered source missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestGownCommentLimitsWhitespaceAfterPrefix(t *testing.T) {
 	_, err := LowerGoCommentsToGown("bad.go", []byte("package p\nvar x *int //gown:"+strings.Repeat(" ", maxGownCommentPrefixWhitespace+1)+"iso\n"))
 	if err == nil {

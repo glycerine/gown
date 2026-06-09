@@ -80,6 +80,19 @@ func TestSSAGWN001RejectsAssignmentMoveThenSourceSend(t *testing.T) {
 }`, GWN001)
 }
 
+func TestSSAGWN001RejectsIsoFieldCallMoveThenFieldUse(t *testing.T) {
+	requireHardeningCheckerCode(t, `type bicycle struct {
+	front \iso *payload
+}
+
+func main() {
+	j := \new(bicycle{front: &payload{}})
+	a := j
+	Take(a.front)
+	_ = a.front
+}`, GWN001)
+}
+
 func TestSSAGWN001RejectsCompositeLiteralIsoFieldMoveThenSourceUse(t *testing.T) {
 	body := `type job struct {
 	Input \iso *payload

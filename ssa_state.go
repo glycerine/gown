@@ -96,6 +96,30 @@ func (state *SSAFunctionState) ConsumeRoot(place PlaceKey, site SSAMoveSite) (SS
 	return SSAStateViolation{}, false
 }
 
+func (state *SSAFunctionState) ConsumePlace(place PlaceKey, site SSAMoveSite) (SSAStateViolation, bool) {
+	if place.Root == nil {
+		return SSAStateViolation{}, false
+	}
+	if _, moved := state.CheckUse(place); moved {
+		return SSAStateViolation{
+			Code:    GWN001,
+			Place:   place,
+			Message: "cannot move already moved place",
+		}, true
+	}
+	for _, borrow := range state.Borrows {
+		if borrow.Place.Overlaps(place) {
+			return SSAStateViolation{
+				Code:    GWN002,
+				Place:   place,
+				Message: "cannot move place while borrow is active",
+			}, true
+		}
+	}
+	state.Consumed[place] = site
+	return SSAStateViolation{}, false
+}
+
 func (state *SSAFunctionState) CheckUse(place PlaceKey) (SSAMoveSite, bool) {
 	for consumed, site := range state.Consumed {
 		if consumed.Overlaps(place) {

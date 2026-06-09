@@ -96,6 +96,26 @@ func main() {
 	requireContains(t, out, "Take(x)\n\tx = nil"+generatedNilOwnershipTransferComment)
 }
 
+func TestEmitNilAfterIsoFieldCall(t *testing.T) {
+	out := emitGownSource(t, "field_call.gown", `package example
+
+type payload struct{ Data string }
+
+type bicycle struct {
+	front \iso *payload
+}
+
+func Take(x \iso *payload) {}
+
+func main() {
+	a := \new(bicycle{front: &payload{}})
+	Take(a.front)
+}
+`)
+
+	requireContains(t, out, "Take(a.front)\n\ta.front = nil"+generatedNilOwnershipTransferComment)
+}
+
 func TestEmitNilAfterIsoAssignmentMove(t *testing.T) {
 	out := emitGownSource(t, "assign.gown", `package example
 

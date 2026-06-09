@@ -346,13 +346,13 @@ func nilRootsForStatement(pkg *packages.Package, caps *OstampIndex, stmt ast.Stm
 	seen := make(map[string]bool)
 	var roots []string
 	add := func(place Place) {
-		if place.Root == nil || place.Key().Path != "" {
+		if place.Root == nil {
 			return
 		}
 		if suppressNilRoots[place.Root] {
 			return
 		}
-		name := place.Root.Name()
+		name := placeName(place)
 		if name == "" || seen[name] {
 			return
 		}

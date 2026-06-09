@@ -13,6 +13,7 @@ import (
 
 const (
 	gownCommentPrefix              = "//gown:"
+	gofmtGownCommentPrefix         = "// gown:"
 	maxGownCommentPrefixWhitespace = 20
 )
 
@@ -77,13 +78,14 @@ func LowerGoCommentsToGown(path string, src []byte) (*CommentLoweringResult, err
 }
 
 func ContainsGownComment(src []byte) bool {
-	return bytes.Contains(src, []byte(gownCommentPrefix))
+	return bytes.Contains(src, []byte(gownCommentPrefix)) ||
+		bytes.Contains(src, []byte(gofmtGownCommentPrefix))
 }
 
 func (ctx *commentLoweringContext) collectDirectives() error {
 	for _, group := range ctx.file.Comments {
 		for _, comment := range group.List {
-			if !strings.HasPrefix(comment.Text, gownCommentPrefix) {
+			if _, ok := gownCommentPrefixForText(comment.Text); !ok {
 				continue
 			}
 			body, err := parseGownCommentBody(comment.Text)
@@ -109,21 +111,33 @@ func (ctx *commentLoweringContext) collectDirectives() error {
 }
 
 func parseGownCommentBody(text string) (string, error) {
-	rest := strings.TrimPrefix(text, gownCommentPrefix)
-	if rest == text {
-		return "", fmt.Errorf("Gown comment must start with %q", gownCommentPrefix)
+	prefix, ok := gownCommentPrefixForText(text)
+	if !ok {
+		return "", fmt.Errorf("Gown comment must start with %q or %q", gownCommentPrefix, gofmtGownCommentPrefix)
 	}
+	rest := strings.TrimPrefix(text, prefix)
 	i := 0
 	for i < len(rest) && isGownCommentPrefixWhitespace(rest[i]) {
 		i++
 		if i > maxGownCommentPrefixWhitespace {
-			return "", fmt.Errorf("%s allows at most %d whitespace characters before the directive", gownCommentPrefix, maxGownCommentPrefixWhitespace)
+			return "", fmt.Errorf("%s allows at most %d whitespace characters before the directive", prefix, maxGownCommentPrefixWhitespace)
 		}
 	}
 	if i >= len(rest) {
-		return "", fmt.Errorf("%s requires a directive", gownCommentPrefix)
+		return "", fmt.Errorf("%s requires a directive", prefix)
 	}
 	return rest[i:], nil
+}
+
+func gownCommentPrefixForText(text string) (string, bool) {
+	switch {
+	case strings.HasPrefix(text, gownCommentPrefix):
+		return gownCommentPrefix, true
+	case strings.HasPrefix(text, gofmtGownCommentPrefix):
+		return gofmtGownCommentPrefix, true
+	default:
+		return "", false
+	}
 }
 
 func isGownCommentPrefixWhitespace(ch byte) bool {
