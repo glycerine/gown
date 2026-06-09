@@ -22,8 +22,10 @@ type GownPackage struct {
 }
 
 type CheckOptions struct {
-	CheckOnly   bool
-	GownOverlay map[string][]byte
+	CheckOnly            bool
+	GownOverlay          map[string][]byte
+	GoOverlay            map[string][]byte
+	DisableGoCommentMode bool
 }
 
 type GownAnalysis struct {
@@ -104,6 +106,28 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		return nil, fmt.Errorf("resolving package directory %s: %w", gp.path, err)
 	}
 	//vv("GOWN canonical package path input=%q canonical=%q", gp.path, pkgPath)
+
+	if !opts.DisableGoCommentMode {
+		mirror, ok, err := MaterializeCommentMirror(pkgPath, opts)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			mirrorOpts := opts
+			mirrorOpts.GownOverlay = nil
+			mirrorOpts.GoOverlay = nil
+			mirrorOpts.CheckOnly = false
+			mirrorOpts.DisableGoCommentMode = true
+			mirrorPkg := NewGownPackage(mirror.Dir)
+			analysis, err := mirrorPkg.AnalyzeWithOptions(mirrorOpts)
+			gp.pkg = mirrorPkg.pkg
+			gp.files = mirrorPkg.files
+			gp.caps = mirrorPkg.caps
+			gp.ssaProg = mirrorPkg.ssaProg
+			gp.ssaPkg = mirrorPkg.ssaPkg
+			return analysis, err
+		}
+	}
 
 	entries, err := os.ReadDir(pkgPath)
 	if err != nil {

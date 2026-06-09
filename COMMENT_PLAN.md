@@ -7,9 +7,10 @@ Implement `//gown:` comment-mode as a front-end lowering pass from ordinary
 `.gown -> analysis .go -> checker` pipeline remains the semantic source of
 truth, so current checker passes and most tests stay unchanged.
 
-Normal comment-mode checking is non-mutating. Existing `.go` files are never
-rewritten. Add a CLI print flag to visualize the virtual `.gown` source that
-Gown actually checks.
+Normal comment-mode checking never rewrites source `.go` files. Instead, Gown
+materializes a package-local `.gown/` mirror containing copied `.go` files and
+lowered `.gown` files, then runs the existing checker against that mirror. Add a
+CLI print flag to visualize the lowered `.gown` source that Gown checks.
 
 ## Key Changes
 
@@ -19,9 +20,12 @@ Gown actually checks.
   - `LowerGoCommentsToGown(path string, src []byte) (*CommentLoweringResult, error)`
   - Result includes virtual `.gown` bytes, original path, and optional source
     mapping.
-- Feed lowered virtual `.gown` through existing `scanAndClassify`,
+- Feed lowered `.gown` mirror files through existing `scanAndClassify`,
   `assignCapabilities`, intrinsic binding, restore binding, SSA, and checker
   passes.
+- Materialize `.gown/` on each comment-mode run and leave it in place for
+  debugging. The mirror is refreshed from the current source and old Gown-managed
+  mirror files are removed by manifest.
 - Preserve existing `.gown` behavior. Mixed packages are allowed unless a
   `.gown` generated path collides with an annotated `.go` file of the same
   basename.
@@ -35,6 +39,8 @@ Gown actually checks.
 Use `//` comments only. No `/* */` comment syntax.
 
 Supported forms:
+
+All start with `//gown:` followed by one or more spaces before the first non-space character (tabs are not counted as space; by space I mean only ASCII decimal 32).
 
 ```go
 //gown: param x iso; param y rob; result 0 imm
@@ -131,8 +137,9 @@ the expected Go shape, or would invent runtime behavior not present in the
 
 ## Assumptions
 
-- Comment-mode is check-only and non-mutating by default.
-- The virtual `.gown` view is the checker input and the visualization surface.
+- Comment-mode is non-mutating for source `.go` files by default.
+- The materialized `.gown/` mirror is the checker input and the visualization
+  surface.
 - Only `.go` files containing `//gown:` are lowered.
 - `.gown` syntax remains supported as-is.
 - Block comments are intentionally unsupported for Gown annotations.

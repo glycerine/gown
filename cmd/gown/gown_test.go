@@ -182,6 +182,32 @@ func TestRunCheckAcceptsIntrinsicSyntaxForAnalysis(t *testing.T) {
 	}
 }
 
+func TestRunPrintGownMaterializesCommentModeView(t *testing.T) {
+	dir := writeCLIGownDir(t, "comment.go", `package example
+
+type payload struct{}
+
+func main() {
+	p := &payload{} //gown: new
+	_ = p
+}
+`)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := runWithWriters([]string{"-print-gown", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `p := \new(payload{})`) {
+		t.Fatalf("stdout missing lowered .gown source:\n%s", stdout.String())
+	}
+	gownPath := filepath.Join(dir, ".gown", "comment.gown")
+	if _, err := os.Stat(gownPath); err != nil {
+		t.Fatalf("-print-gown did not materialize %s: %v", gownPath, err)
+	}
+}
+
 func TestRunVersionPrintsBuildInfoWithoutPackageArgs(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
