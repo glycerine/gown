@@ -21,8 +21,8 @@ func main() {
 		front: &wheel{},
 	}
 
-	var a *wheel //gown: iso
-	a, j.front = j.front, a
+	var a *wheel            //gown: iso
+	a, j.front = j.front, a // this is an auto-swap test case
 
 	fmt.Printf("a='%#v'\n", a)
 	fmt.Printf("j.front='%#v'\n", j.front)
