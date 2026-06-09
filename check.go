@@ -123,6 +123,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 			gp.caps = mirrorPkg.caps
 			gp.ssaProg = mirrorPkg.ssaProg
 			gp.ssaPkg = mirrorPkg.ssaPkg
+			err = mirror.RemapError(err)
 			return analysis, err
 		}
 	}

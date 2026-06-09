@@ -1,6 +1,7 @@
 package gown
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,6 +202,45 @@ func TestCommentModeCompositeLiteralFieldDirective(t *testing.T) {
 	}
 	if !strings.Contains(string(gownBytes), `done: make(chan \iso *ticket)`) {
 		t.Fatalf("materialized .gown missing composite literal channel ownerstamp:\n%s", gownBytes)
+	}
+}
+
+func TestCommentModeCheckerErrorsReportOriginGoPath(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"main.go": `package example
+
+type wheel struct{}
+
+type bicycle struct {
+	front *wheel //gown: iso
+}
+
+func main() {
+	j := &bicycle{front: &wheel{}}
+	var a *wheel //gown: iso
+	a, j.front = j.front, a
+	_, _ = a, j
+}
+`})
+
+	err := NewGownPackage(dir).Check()
+	requireCheckerCode(t, err, GWN010)
+
+	var checkerErrs CheckerErrors
+	if !errors.As(err, &checkerErrs) {
+		t.Fatalf("got error %T %v, want CheckerErrors", err, err)
+	}
+	if len(checkerErrs) == 0 {
+		t.Fatal("expected at least one checker error")
+	}
+	wantPath, pathErr := canonicalFilePath(filepath.Join(dir, "main.go"))
+	if pathErr != nil {
+		t.Fatal(pathErr)
+	}
+	if got := checkerErrs[0].Path; got != wantPath {
+		t.Fatalf("checker error path = %q, want origin %q", got, wantPath)
+	}
+	if got := FormatError(err); strings.Contains(got, string(filepath.Separator)+".gown"+string(filepath.Separator)) {
+		t.Fatalf("formatted error still points at mirror path:\n%s", got)
 	}
 }
 

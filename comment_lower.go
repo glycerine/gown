@@ -20,7 +20,9 @@ const (
 type CommentLoweringResult struct {
 	Path       string
 	GownPath   string
+	GoSrc      []byte
 	GownSrc    []byte
+	Edits      []EmitEdit
 	Directives []GownCommentDirective
 }
 
@@ -66,15 +68,27 @@ func LowerGoCommentsToGown(path string, src []byte) (*CommentLoweringResult, err
 			return nil, err
 		}
 	}
-	out, err := applyEmitEdits(src, ctx.edits)
+	edits := cloneEmitEdits(ctx.edits)
+	out, err := applyEmitEdits(src, edits)
 	if err != nil {
 		return nil, err
 	}
 	return &CommentLoweringResult{
 		Path:       path,
+		GoSrc:      append([]byte(nil), src...),
 		GownSrc:    out,
+		Edits:      cloneEmitEdits(ctx.edits),
 		Directives: append([]GownCommentDirective(nil), ctx.directives...),
 	}, nil
+}
+
+func cloneEmitEdits(edits []EmitEdit) []EmitEdit {
+	out := make([]EmitEdit, len(edits))
+	for i, edit := range edits {
+		out[i] = edit
+		out[i].NewText = append([]byte(nil), edit.NewText...)
+	}
+	return out
 }
 
 func ContainsGownComment(src []byte) bool {

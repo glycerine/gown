@@ -2,6 +2,7 @@ package gown
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,15 @@ const (
 type CommentMirror struct {
 	Dir     string
 	Lowered []CommentLoweringResult
+}
+
+type commentMirrorOrigin struct {
+	path           string
+	goSrc          []byte
+	gownSrc        []byte
+	edits          []EmitEdit
+	goLineStarts   []int
+	gownLineStarts []int
 }
 
 func MaterializeCommentMirror(dir string, opts CheckOptions) (*CommentMirror, bool, error) {
@@ -133,6 +143,182 @@ func MaterializeCommentMirror(dir string, opts CheckOptions) (*CommentMirror, bo
 	}
 	sortLoweringResults(lowered)
 	return &CommentMirror{Dir: mirrorDir, Lowered: lowered}, true, nil
+}
+
+func (mirror *CommentMirror) RemapError(err error) error {
+	if err == nil || mirror == nil || len(mirror.Lowered) == 0 {
+		return err
+	}
+	origins := mirror.originAliases()
+	if len(origins) == 0 {
+		return err
+	}
+
+	switch typed := err.(type) {
+	case CheckerErrors:
+		return remapCheckerErrors(typed, origins)
+	case CheckerError:
+		return remapCheckerError(typed, origins)
+	}
+
+	var checkerErrs CheckerErrors
+	if errors.As(err, &checkerErrs) {
+		return remapCheckerErrors(checkerErrs, origins)
+	}
+	return err
+}
+
+func remapCheckerErrors(errs CheckerErrors, origins map[string]commentMirrorOrigin) CheckerErrors {
+	out := make(CheckerErrors, len(errs))
+	for i, err := range errs {
+		out[i] = remapCheckerError(err, origins)
+	}
+	return out
+}
+
+func remapCheckerError(err CheckerError, origins map[string]commentMirrorOrigin) CheckerError {
+	if origin, ok := lookupCommentMirrorOrigin(origins, err.Path); ok {
+		err.Path, err.Offset, err.Line, err.Col = remapCommentMirrorLocation(origin, err.Offset, err.Line, err.Col)
+	}
+	for i, note := range err.Notes {
+		if origin, ok := lookupCommentMirrorOrigin(origins, note.Path); ok {
+			note.Path, note.Offset, note.Line, note.Col = remapCommentMirrorLocation(origin, note.Offset, note.Line, note.Col)
+			err.Notes[i] = note
+		}
+	}
+	return err
+}
+
+func (mirror *CommentMirror) originAliases() map[string]commentMirrorOrigin {
+	origins := make(map[string]commentMirrorOrigin)
+	for _, result := range mirror.Lowered {
+		origin := commentMirrorOrigin{
+			path:           result.Path,
+			goSrc:          result.GoSrc,
+			gownSrc:        result.GownSrc,
+			edits:          cloneEmitEdits(result.Edits),
+			goLineStarts:   buildLineStarts(result.GoSrc),
+			gownLineStarts: buildLineStarts(result.GownSrc),
+		}
+		if len(origin.goSrc) == 0 {
+			if src, err := os.ReadFile(origin.path); err == nil {
+				origin.goSrc = src
+				origin.goLineStarts = buildLineStarts(src)
+			}
+		}
+		addCommentMirrorAlias(origins, result.GownPath, origin)
+		addCommentMirrorAlias(origins, filepath.Join(mirror.Dir, generatedGoName(result.GownPath)), origin)
+	}
+	return origins
+}
+
+func addCommentMirrorAlias(origins map[string]commentMirrorOrigin, path string, origin commentMirrorOrigin) {
+	if path == "" {
+		return
+	}
+	origins[path] = origin
+	if abs, err := filepath.Abs(path); err == nil {
+		origins[abs] = origin
+	}
+	if real, err := canonicalFilePath(path); err == nil {
+		origins[real] = origin
+	}
+}
+
+func lookupCommentMirrorOrigin(origins map[string]commentMirrorOrigin, path string) (commentMirrorOrigin, bool) {
+	if origin, ok := origins[path]; ok {
+		return origin, true
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		if origin, ok := origins[abs]; ok {
+			return origin, true
+		}
+	}
+	if real, err := canonicalFilePath(path); err == nil {
+		if origin, ok := origins[real]; ok {
+			return origin, true
+		}
+	}
+	return commentMirrorOrigin{}, false
+}
+
+func remapCommentMirrorLocation(origin commentMirrorOrigin, offset, line, col int) (string, int, int, int) {
+	if len(origin.goSrc) == 0 || len(origin.gownSrc) == 0 {
+		return origin.path, offset, line, col
+	}
+	gownOffset, ok := commentMirrorGeneratedOffset(origin, offset, line, col)
+	if !ok {
+		return origin.path, offset, line, col
+	}
+	goOffset := originalOffsetForGeneratedOffset(gownOffset, origin.edits)
+	if goOffset < 0 {
+		goOffset = 0
+	}
+	if goOffset > len(origin.goSrc) {
+		goOffset = len(origin.goSrc)
+	}
+	lc := lineColFromStarts(origin.goLineStarts, goOffset)
+	return origin.path, goOffset, lc.line, lc.col
+}
+
+func commentMirrorGeneratedOffset(origin commentMirrorOrigin, offset, line, col int) (int, bool) {
+	if offset > 0 || (offset == 0 && line == 1 && col == 1) {
+		if offset >= 0 && offset <= len(origin.gownSrc) {
+			return offset, true
+		}
+	}
+	if line > 0 && col > 0 {
+		return offsetForLineCol(origin.gownLineStarts, origin.gownSrc, line, col)
+	}
+	return 0, false
+}
+
+func offsetForLineCol(lineStarts []int, src []byte, line, col int) (int, bool) {
+	if line <= 0 || line > len(lineStarts) {
+		return 0, false
+	}
+	if col <= 0 {
+		col = 1
+	}
+	lineStart := lineStarts[line-1]
+	lineEnd := len(src)
+	if line < len(lineStarts) {
+		lineEnd = lineStarts[line] - 1
+	}
+	offset := lineStart + col - 1
+	if offset > lineEnd {
+		offset = lineEnd
+	}
+	return offset, true
+}
+
+func originalOffsetForGeneratedOffset(generatedOffset int, edits []EmitEdit) int {
+	if len(edits) == 0 {
+		return generatedOffset
+	}
+	sorted := cloneEmitEdits(edits)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].Start < sorted[j].Start
+	})
+	delta := 0
+	for _, edit := range sorted {
+		oldLen := edit.End - edit.Start
+		newLen := len(edit.NewText)
+		generatedStart := edit.Start + delta
+		generatedEnd := generatedStart + newLen
+		if generatedOffset < generatedStart {
+			return generatedOffset - delta
+		}
+		if generatedOffset < generatedEnd {
+			relative := generatedOffset - generatedStart
+			if relative > oldLen {
+				relative = oldLen
+			}
+			return edit.Start + relative
+		}
+		delta += newLen - oldLen
+	}
+	return generatedOffset - delta
 }
 
 func syncCommentMirror(mirrorDir string, files map[string][]byte, managed map[string]bool) error {
