@@ -23,6 +23,7 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampInde
 		places:                  places,
 		assignments:             assignments,
 		flowAssignments:         flowAssignments,
+		compositeFieldMoves:     collectSSACompositeFieldMoves(pkg, caps),
 		immutableProjectionUses: collectSSAImmutableProjectionUseSpans(pkg, caps),
 		namedBorrows:            collectSSANamedBorrows(pkg, caps),
 		deferEffects:            collectSSADeferredClosureEffects(pkg, caps),
@@ -43,6 +44,7 @@ type ssaGWN001Checker struct {
 	places                  *SSAPlaceIndex
 	assignments             map[ast.Expr]ssaAssignment
 	flowAssignments         map[ast.Expr]ssaFlowAssignment
+	compositeFieldMoves     map[ast.Expr]ssaCompositeFieldMove
 	immutableProjectionUses []ssaImmutableProjectionUseSpan
 	namedBorrows            map[*types.Func]SSANamedBorrowInfo
 	deferEffects            map[*types.Func]SSADeferredClosureEffectInfo
@@ -65,6 +67,16 @@ type ssaAssignment struct {
 type ssaFlowAssignment struct {
 	Dst   Place
 	Value ValueOstamp
+}
+
+type ssaCompositeFieldMove struct {
+	FieldCap Cap
+	Value    ValueOstamp
+}
+
+type ssaPendingCompositeFieldMove struct {
+	Move ssaCompositeFieldMove
+	Ok   bool
 }
 
 type ssaImmutableProjectionUseSpan struct {
@@ -99,9 +111,10 @@ func (checker *ssaGWN001Checker) runFunctionBody(fn *ssa.Function, initial SSAFu
 
 		state := in[block].Clone()
 		returned := false
+		var pendingCompositeFieldMove ssaPendingCompositeFieldMove
 		for _, instr := range block.Instrs {
 			checker.checkInstructionUses(instr, &state)
-			checker.applyInstructionTransfer(instr, &state)
+			checker.applyInstructionTransfer(instr, &state, &pendingCompositeFieldMove)
 			if _, ok := instr.(*ssa.Return); ok {
 				returned = true
 			}
@@ -194,6 +207,9 @@ func (checker *ssaGWN001Checker) checkDebugRefUse(debug *ssa.DebugRef, state *SS
 	if checker.isAssignmentTargetDebugRef(debug) {
 		return
 	}
+	if checker.isCompositeFieldMoveDebugRef(debug) {
+		return
+	}
 	place, ok := checker.caps.PlaceForExpr(debug.Expr)
 	if !ok || place.Root == nil {
 		return
@@ -217,6 +233,14 @@ func (checker *ssaGWN001Checker) isAssignmentTargetDebugRef(debug *ssa.DebugRef)
 		return true
 	}
 	_, ok := checker.flowAssignments[key]
+	return ok
+}
+
+func (checker *ssaGWN001Checker) isCompositeFieldMoveDebugRef(debug *ssa.DebugRef) bool {
+	if checker == nil || debug == nil {
+		return false
+	}
+	_, ok := checker.compositeFieldMoves[debugRefExprKey(debug.Expr)]
 	return ok
 }
 
@@ -298,29 +322,41 @@ func (checker *ssaGWN001Checker) operandIsDefinition(instr ssa.Instruction, valu
 	return types.Identical(ptr.Elem(), place.Root.Type())
 }
 
-func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction, state *SSAFunctionState) {
+func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction, state *SSAFunctionState, pendingCompositeFieldMove *ssaPendingCompositeFieldMove) {
 	switch instr := instr.(type) {
 	case *ssa.Send:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applySendTransfer(instr, state)
 	case *ssa.Call:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applyCallTransfer(instr, state)
 	case *ssa.Defer:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applyDeferTransfer(instr, state)
 	case *ssa.DebugRef:
 		checker.applyFlowAssignmentTransfer(instr, state)
 		checker.applyAssignmentTransfer(instr, state)
+		checker.stageCompositeFieldMoveTransfer(instr, pendingCompositeFieldMove)
 	case *ssa.Go:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applyGoTransfer(instr, state)
 	case *ssa.MakeInterface:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applyInterfaceFrontier(instr, state)
 	case *ssa.Return:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applyReturnTransfer(instr, state)
 	case *ssa.Select:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applySelectTransfer(instr, state)
 	case *ssa.Store:
+		checker.applyCompositeFieldMoveStoreTransfer(instr, state, pendingCompositeFieldMove)
 		checker.applyStoreFrontierTransfer(instr, state)
 	case *ssa.MapUpdate:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applyMapUpdateFrontierTransfer(instr, state)
+	default:
+		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 	}
 }
 
@@ -453,15 +489,106 @@ func (checker *ssaGWN001Checker) applyAssignmentTransfer(instr *ssa.DebugRef, st
 	state.UnfrontierRoot(assignment.Dst.Key())
 }
 
+func (checker *ssaGWN001Checker) stageCompositeFieldMoveTransfer(instr *ssa.DebugRef, pending *ssaPendingCompositeFieldMove) {
+	if instr == nil || pending == nil {
+		return
+	}
+	clearPendingCompositeFieldMove(pending)
+	move, ok := checker.compositeFieldMoves[debugRefExprKey(instr.Expr)]
+	if !ok {
+		return
+	}
+	pending.Move = move
+	pending.Ok = true
+}
+
+func (checker *ssaGWN001Checker) applyCompositeFieldMoveStoreTransfer(instr *ssa.Store, state *SSAFunctionState, pending *ssaPendingCompositeFieldMove) {
+	if instr == nil || state == nil || pending == nil || !pending.Ok {
+		return
+	}
+	move := pending.Move
+	clearPendingCompositeFieldMove(pending)
+	value := checker.valueWithFlowValue(move.Value, state)
+	if value.Fresh {
+		return
+	}
+	switch move.FieldCap {
+	case CapIso:
+		if value.Cap != CapIso {
+			return
+		}
+	case CapImm:
+		if value.Cap == CapImm {
+			return
+		}
+		if value.Cap != CapIso {
+			return
+		}
+	default:
+		return
+	}
+	src := value.Place
+	if src.Root == nil || !checker.placeCanTransferAsIsoInState(state, src) {
+		return
+	}
+	storeValue, ok := checker.places.PlaceForValue(instr.Val)
+	if !ok || storeValue.Key() != src.Key() {
+		return
+	}
+	pos := checker.pkg.Fset.Position(instr.Pos())
+	if site, frontiered := state.CheckFrontier(src.Key()); frontiered {
+		checker.reportFrontierViolation(pos, src, site, "field initializer")
+		return
+	}
+	if site, moved := state.CheckUse(src.Key()); moved {
+		checker.reportUseAfterMoveAtPosition(pos, src, site)
+		return
+	}
+	if violation, ok := checker.namedBorrowMoveViolation(src.Key(), instr); ok {
+		checker.reportViolation(pos, violation)
+		return
+	}
+	kind := "field initializer"
+	if move.FieldCap == CapImm {
+		kind = "field freeze"
+	}
+	violation, ok := state.ConsumeRoot(src.Key(), SSAMoveSite{
+		Name:   src.Root.Name(),
+		Kind:   kind,
+		Path:   gownSourcePath(pos.Filename),
+		Offset: pos.Offset,
+		Line:   sourceLine(pos),
+		Col:    sourceColumn(pos),
+	})
+	if ok {
+		checker.reportViolation(pos, violation)
+	}
+}
+
+func clearPendingCompositeFieldMove(pending *ssaPendingCompositeFieldMove) {
+	if pending == nil {
+		return
+	}
+	*pending = ssaPendingCompositeFieldMove{}
+}
+
 func (checker *ssaGWN001Checker) assignmentWithFlowValue(assignment ssaAssignment, state *SSAFunctionState) ssaAssignment {
 	if state == nil || capTracked(assignment.Value.Cap) || assignment.Value.Place.Root == nil {
 		return assignment
 	}
-	if value, ok := state.FlowValue(assignment.Value.Place.Key()); ok {
-		assignment.Value.Cap = value.Cap
-		assignment.Value.Fresh = false
-	}
+	assignment.Value = checker.valueWithFlowValue(assignment.Value, state)
 	return assignment
+}
+
+func (checker *ssaGWN001Checker) valueWithFlowValue(value ValueOstamp, state *SSAFunctionState) ValueOstamp {
+	if state == nil || capTracked(value.Cap) || value.Place.Root == nil {
+		return value
+	}
+	if flow, ok := state.FlowValue(value.Place.Key()); ok {
+		value.Cap = flow.Cap
+		value.Fresh = false
+	}
+	return value
 }
 
 func (checker *ssaGWN001Checker) placeCanTransferAsIsoInState(state *SSAFunctionState, place Place) bool {
@@ -1356,6 +1483,58 @@ func flowAssignmentDstAllowed(pkg *packages.Package, caps *OstampIndex, dst Plac
 		return false
 	}
 	return obj.Parent() != pkg.Types.Scope()
+}
+
+func collectSSACompositeFieldMoves(pkg *packages.Package, caps *OstampIndex) map[ast.Expr]ssaCompositeFieldMove {
+	moves := make(map[ast.Expr]ssaCompositeFieldMove)
+	if pkg == nil || caps == nil {
+		return moves
+	}
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			structType := compositeStructType(pkg, lit)
+			if structType == nil {
+				return true
+			}
+			for index, elt := range lit.Elts {
+				field, value := compositeLiteralFieldValue(structType, index, elt)
+				if field == nil || value == nil {
+					continue
+				}
+				fieldCap := caps.ObjectCap(field)
+				if fieldCap != CapIso && fieldCap != CapImm {
+					continue
+				}
+				moves[debugRefExprKey(value)] = ssaCompositeFieldMove{
+					FieldCap: fieldCap,
+					Value:    assignmentValueOstamp(pkg, caps, value),
+				}
+			}
+			return true
+		})
+	}
+	return moves
+}
+
+func compositeLiteralFieldValue(structType *types.Struct, index int, elt ast.Expr) (*types.Var, ast.Expr) {
+	if structType == nil || elt == nil {
+		return nil, nil
+	}
+	if kv, ok := elt.(*ast.KeyValueExpr); ok {
+		name, ok := kv.Key.(*ast.Ident)
+		if !ok {
+			return nil, nil
+		}
+		return fieldByName(structType, name.Name), kv.Value
+	}
+	if index < 0 || index >= structType.NumFields() {
+		return nil, nil
+	}
+	return structType.Field(index), elt
 }
 
 func collectSSAImmutableProjectionUseSpans(pkg *packages.Package, caps *OstampIndex) []ssaImmutableProjectionUseSpan {

@@ -1,6 +1,7 @@
 package gown
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -77,6 +78,32 @@ func TestSSAGWN001RejectsAssignmentMoveThenSourceSend(t *testing.T) {
 	ch <- x
 	_ = y
 }`, GWN001)
+}
+
+func TestSSAGWN001RejectsCompositeLiteralIsoFieldMoveThenSourceUse(t *testing.T) {
+	body := `type job struct {
+	Input \iso *payload
+}
+
+func main() {
+	var x \iso *payload
+	j := \new(job{
+		Input: x,
+	})
+	_ = j
+	_ = x
+}`
+	err := checkGownSource(t, hardeningTestName(t), gownHardeningPreamble+"\n"+body+"\n")
+	requireCheckerCode(t, err, GWN001)
+
+	var checkerErrs CheckerErrors
+	if !errors.As(err, &checkerErrs) || len(checkerErrs) == 0 {
+		t.Fatalf("got error %T %v, want CheckerErrors", err, err)
+	}
+	line, ok := readSourceLine(checkerErrs[0].Path, checkerErrs[0].Line)
+	if !ok || !strings.Contains(line, "_ = x") {
+		t.Fatalf("GWN001 line = %q, want post-move use line", line)
+	}
 }
 
 func TestSSAGWN001RejectsSelectorReadAfterSend(t *testing.T) {

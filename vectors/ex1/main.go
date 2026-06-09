@@ -21,7 +21,10 @@ func main() {
 		//		}(),
 	}
 
-	fmt.Printf("j='%#v'", j)
+	fmt.Printf("j='%#v'", j) // ok
+
+	_ = nine                          // should not be okay to use nine again.
+	fmt.Printf("*nine ='%#v'", *nine) // should not be okay to even read it in an observer, nine was moved into iso j.Input
 
 	// hopefully not allowed some how:
 	//k := &nine //gown:iso
