@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-//\\observer fmt.Printf
+//gown:observer fmt.Printf
 
 type bigTree struct {
 	name string
@@ -105,7 +105,6 @@ func main() {
 		// also okay:
 		tkt3 := <-tkt.done
 		tkt = tkt3
-		tkt3 = nil // gown added: nil out because ownership transferred
 	}
 
 	fmt.Printf("tkt.tree.name = '%v'\n", tkt.tree.name)
