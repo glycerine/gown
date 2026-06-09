@@ -36,7 +36,8 @@ Use `//` comments only. No `/* */` comment syntax.
 
 Supported forms:
 
-All start with `//gown:` followed by one or more spaces before the first non-space character (tabs are not counted as space; by space I mean only ASCII decimal 32).
+All start with `//gown:` followed by zero to twenty horizontal whitespace
+characters before the directive.
 
 ```go
 //gown: param x iso; param y rob; result 0 imm

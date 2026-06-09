@@ -310,13 +310,36 @@ func Use() {
 	}
 }
 
-func TestGownCommentRequiresAsciiSpaceAfterPrefix(t *testing.T) {
-	_, err := LowerGoCommentsToGown("bad.go", []byte("package p\nvar x *int //gown:\tiso\n"))
-	if err == nil {
-		t.Fatal("expected malformed //gown: spacing to fail")
+func TestGownCommentAllowsOptionalWhitespaceAfterPrefix(t *testing.T) {
+	cases := []struct {
+		name    string
+		spacing string
+	}{
+		{name: "none", spacing: ""},
+		{name: "one space", spacing: " "},
+		{name: "tab", spacing: "\t"},
+		{name: "twenty spaces", spacing: strings.Repeat(" ", maxGownCommentPrefixWhitespace)},
 	}
-	if !strings.Contains(err.Error(), "ASCII spaces") {
-		t.Fatalf("error = %q, want ASCII spaces diagnostic", err)
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := LowerGoCommentsToGown("comment.go", []byte("package p\nvar x *int //gown:"+tt.spacing+"iso\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(result.GownSrc), `var x \iso *int`) {
+				t.Fatalf("lowered source missing ownerstamp:\n%s", result.GownSrc)
+			}
+		})
+	}
+}
+
+func TestGownCommentLimitsWhitespaceAfterPrefix(t *testing.T) {
+	_, err := LowerGoCommentsToGown("bad.go", []byte("package p\nvar x *int //gown:"+strings.Repeat(" ", maxGownCommentPrefixWhitespace+1)+"iso\n"))
+	if err == nil {
+		t.Fatal("expected too much //gown: spacing to fail")
+	}
+	if !strings.Contains(err.Error(), "at most 20 whitespace") {
+		t.Fatalf("error = %q, want whitespace limit diagnostic", err)
 	}
 }
 

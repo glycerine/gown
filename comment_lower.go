@@ -11,7 +11,10 @@ import (
 	"strings"
 )
 
-const gownCommentPrefix = "//gown:"
+const (
+	gownCommentPrefix              = "//gown:"
+	maxGownCommentPrefixWhitespace = 20
+)
 
 type CommentLoweringResult struct {
 	Path       string
@@ -110,20 +113,21 @@ func parseGownCommentBody(text string) (string, error) {
 	if rest == text {
 		return "", fmt.Errorf("Gown comment must start with %q", gownCommentPrefix)
 	}
-	if len(rest) == 0 || rest[0] != ' ' {
-		return "", fmt.Errorf("%s must be followed by one or more ASCII spaces", gownCommentPrefix)
-	}
 	i := 0
-	for i < len(rest) && rest[i] == ' ' {
+	for i < len(rest) && isGownCommentPrefixWhitespace(rest[i]) {
 		i++
+		if i > maxGownCommentPrefixWhitespace {
+			return "", fmt.Errorf("%s allows at most %d whitespace characters before the directive", gownCommentPrefix, maxGownCommentPrefixWhitespace)
+		}
 	}
 	if i >= len(rest) {
 		return "", fmt.Errorf("%s requires a directive", gownCommentPrefix)
 	}
-	if rest[i] == '\t' {
-		return "", fmt.Errorf("%s spacing must use ASCII spaces, not tabs", gownCommentPrefix)
-	}
 	return rest[i:], nil
+}
+
+func isGownCommentPrefixWhitespace(ch byte) bool {
+	return ch == ' ' || ch == '\t'
 }
 
 func parseGownCommentCommands(body string) []gownCommentCommand {
