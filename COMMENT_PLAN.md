@@ -9,8 +9,9 @@ truth, so current checker passes and most tests stay unchanged.
 
 Normal comment-mode checking never rewrites source `.go` files. Instead, Gown
 materializes a package-local `.gown/` mirror containing copied `.go` files and
-lowered `.gown` files, then runs the existing checker against that mirror. Add a
-CLI print flag to visualize the lowered `.gown` source that Gown checks.
+lowered `.gown` files, then runs the existing checker against that mirror. The
+mirror is the visualization surface for the lowered `.gown` source that Gown
+checks.
 
 ## Key Changes
 
@@ -51,6 +52,11 @@ type Holder struct {
 
 ```go
 var x *Msg //gown: iso
+```
+
+```go
+ch := make(chan *Msg) //gown: iso
+ch := make(chan *Msg) //gown: elem iso
 ```
 
 ```go
@@ -97,6 +103,8 @@ the expected Go shape, or would invent runtime behavior not present in the
   preserving line numbers.
 - Lower ownerstamp comments by inserting `\iso`, `\mub`, `\rob`, or `\imm` at
   the corresponding type position.
+- On `make(chan *T)` assignments, `//gown: iso` and `//gown: elem iso` stamp
+  the channel element type, lowering to `make(chan \iso *T)`.
 - Lower intrinsic comments into existing backslash forms:
   - `new` over `&T{...}` becomes `\new(T{...})`.
   - `mub`, `rob`, `freeze`, and `unsafe` wrap the marked RHS.

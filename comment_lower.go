@@ -225,6 +225,16 @@ func (ctx *commentLoweringContext) applyAssignDirective(directive GownCommentDir
 	switch cmd.Name {
 	case "new":
 		return ctx.lowerNewDirective(directive, assign)
+	case "iso", "imm":
+		if len(cmd.Args) != 0 {
+			return ctx.directiveError(directive, fmt.Sprintf("%s directive does not take arguments", cmd.Name))
+		}
+		return ctx.lowerMakeChannelElemCapDirective(directive, assign, capFromWord(cmd.Name))
+	case "elem":
+		if len(cmd.Args) != 1 || !isCapWord(cmd.Args[0]) {
+			return ctx.directiveError(directive, "elem directive requires one ownerstamp")
+		}
+		return ctx.lowerMakeChannelElemCapDirective(directive, assign, capFromWord(cmd.Args[0]))
 	case "mub", "rob", "freeze", "unsafe":
 		if len(cmd.Args) != 0 {
 			return ctx.directiveError(directive, fmt.Sprintf("%s directive does not take arguments", cmd.Name))
@@ -243,6 +253,29 @@ func (ctx *commentLoweringContext) applyAssignDirective(directive GownCommentDir
 	default:
 		return ctx.directiveError(directive, fmt.Sprintf("unsupported assignment directive %q", cmd.Name))
 	}
+}
+
+func (ctx *commentLoweringContext) lowerMakeChannelElemCapDirective(directive GownCommentDirective, assign *ast.AssignStmt, cap Cap) error {
+	rhs, err := singleRHS(assign)
+	if err != nil {
+		return ctx.directiveError(directive, err.Error())
+	}
+	call, ok := unparenExpr(rhs).(*ast.CallExpr)
+	if !ok {
+		return ctx.directiveError(directive, "ownerstamp assignment directive requires make(chan ...)")
+	}
+	name, ok := unparenExpr(call.Fun).(*ast.Ident)
+	if !ok || name.Name != "make" {
+		return ctx.directiveError(directive, "ownerstamp assignment directive requires make(chan ...)")
+	}
+	if len(call.Args) == 0 {
+		return ctx.directiveError(directive, "ownerstamp assignment directive requires make(chan ...)")
+	}
+	ch, ok := unparenExpr(call.Args[0]).(*ast.ChanType)
+	if !ok {
+		return ctx.directiveError(directive, "ownerstamp assignment directive requires make(chan ...)")
+	}
+	return ctx.insertDirectCap(directive, ch.Value, cap)
 }
 
 func (ctx *commentLoweringContext) applyTypeCommands(directive GownCommentDirective, commands []gownCommentCommand, typ ast.Expr) error {

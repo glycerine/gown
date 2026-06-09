@@ -35,8 +35,10 @@ func Use() {
 	f := b //gown: freeze
 	u := b //gown: unsafe
 	copy := b.clone() //gown: clone b
+	ch := make(chan *X) //gown: iso
+	ch2 := make(chan *X) //gown: elem imm
 	x, b = b, x //gown: swap
-	_, _, _, _, _, _, _, _ = r, m, f, u, copy, x, y, c
+	_, _, _, _, _, _, _, _, _, _ = r, m, f, u, copy, ch, ch2, x, y, c
 }
 
 func (x *X) clone() *X { return &X{} }
@@ -79,6 +81,8 @@ func TestLowerGoCommentsToGown(t *testing.T) {
 		`f := \freeze(b)`,
 		`u := \unsafe(b)`,
 		`copy := \clone(b)`,
+		`ch := make(chan \iso *X)`,
+		`ch2 := make(chan \imm *X)`,
 		`\swap(x, b)`,
 		`a, b = \restore func(a \iso *node, b \iso *node) (\iso *node, \iso *node)`,
 		`next \iso *node`,
@@ -97,7 +101,7 @@ type payload struct {
 }
 
 func main() {
-	var ch chan *payload //gown: elem iso
+	ch := make(chan *payload) //gown: iso
 	a := &payload{} //gown: new
 	ch <- a
 	println(a)
@@ -116,7 +120,7 @@ func TestCommentModeMaterializesMirrorAndChecks(t *testing.T) {
 		t.Fatal(readErr)
 	}
 	gownSrc := string(gownBytes)
-	if !strings.Contains(gownSrc, `var ch chan \iso *payload`) {
+	if !strings.Contains(gownSrc, `ch := make(chan \iso *payload)`) {
 		t.Fatalf("materialized .gown missing channel ownerstamp:\n%s", gownSrc)
 	}
 	if !strings.Contains(gownSrc, `a := \new(payload{})`) {
