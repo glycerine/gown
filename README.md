@@ -65,25 +65,52 @@ might be easier to adopt incrementally into existing Go
 codebases. We are working with it to gain experience.
 
 Some examples of annotations are in the vector/ subdir, such as:
+
 ~~~
-// instead of this .gown syntax
-func puncture(goner \iso *wheel, spare \iso *wheel) (int, \imm *report) {}
+// gown: param goner iso
+func puncture(goner *wheel) {
+   // this consumes the iso, it is gone now and cannot be referenced again.
+}
 
-// we can add comments to our .go file like this:
+// gown: result answer iso
+func f() (answer *bicycle) {
+	return &bicycle{} //gown:new
+}
 
-//gown: param goner iso; param spare iso; result 1 imm
-func puncture2(goner *wheel, spare *wheel) (bool, *report) {}
+// gown: result answer iso
+func ff() (anum int, answer *bicycle) {
+	return 7, &bicycle{} //gown:new
+}
 
-// or replace
+// gown: result 0 iso
+func g() *bicycle {
+	return &bicycle{} //gown:new
+}
 
-func puncture(goner \iso *wheel) \imm *report {}
+// gown: result 1 iso
+func h() (int, *bicycle) {
+	return 12, &bicycle{} //gown:new
+}
 
-// with
+// gown: result 2 iso
+func gg() (int, int, *bicycle, string) {
+	return 1,
+		2,
+		&bicycle{}, //gown:new
+		"this string is last"
+}
 
-//gown: param goner iso; result 0 imm
-func puncture(goner *wheel) *report {}
+// gown: result 3 iso
+func ggg() (int, int, string, *bicycle) {
+	return 1, 2, "new bikes are fun", &bicycle{} //gown:new
+}
 
 //gown:observer fmt.Printf
+
+(observer avoids having to change the fmt package to declare Printf 
+as only doing read-only borows. See also the description futher down
+in this tutorial.)
+
 //gown:iso
 //gown:clone
 //gown:new
