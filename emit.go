@@ -374,6 +374,9 @@ func nilRootsForStatement(pkg *packages.Package, caps *OstampIndex, stmt ast.Stm
 			}
 			break
 		}
+		if _, ok := automaticSwapForAssign(pkg, caps, stmt); ok {
+			break
+		}
 		for _, place := range assignmentMoveSources(caps, stmt.Lhs, stmt.Rhs) {
 			add(place)
 		}

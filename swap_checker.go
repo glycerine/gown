@@ -43,6 +43,9 @@ func checkSwapIntrinsic(pkg *packages.Package, caps *OstampIndex, binding Intrin
 		}
 		cap := capForSSAPlace(caps, place)
 		if cap != CapIso {
+			if message, ok := swapUntrackedRootIsoFieldMessage(caps, i+1, place); ok {
+				return swapIntrinsicError(binding, message), true
+			}
 			return swapIntrinsicError(binding, fmt.Sprintf("\\swap argument %d %q has %s ownerstamp; \\swap requires \\iso", i+1, placeName(place), cap)), true
 		}
 		if pkg == nil || pkg.TypesInfo == nil {
@@ -69,6 +72,20 @@ func isSwapAssignablePlace(expr ast.Expr) bool {
 	default:
 		return false
 	}
+}
+
+func swapUntrackedRootIsoFieldMessage(caps *OstampIndex, index int, place Place) (string, bool) {
+	if caps == nil || place.Root == nil || len(place.Projection) == 0 {
+		return "", false
+	}
+	if caps.ObjectCap(place.Root) != CapUntracked {
+		return "", false
+	}
+	field := place.Projection[len(place.Projection)-1].Field
+	if field == nil || caps.ObjectCap(field) != CapIso {
+		return "", false
+	}
+	return fmt.Sprintf("\\swap argument %d %q names an \\iso field through untracked root %q; \\swap requires \\iso ownership of the container root", index, placeName(place), place.Root.Name()), true
 }
 
 func swapTypeString(pkg *packages.Package, typ types.Type) string {

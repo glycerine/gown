@@ -52,6 +52,30 @@ bugs that do not catch all data races.
 Call for testing: Help us polish and refine Gown by trying it out. File
 bug report issues to help us improve.
 
+### comment branch to attempt to imporove usabilty
+
+On branch 'comment' we try an experiment. Instead of 
+pre-processing .gown files into .go files, we add
+comments starting with 'gown:' to annotate standard .go
+files. These are lowered to .gown files automatically
+in the .gown/ directory, and then checked.
+
+This makes reading the ownerstamps harder, but 
+might be easier to adopt incrementally into existing Go
+codebases. We are working with it to gain experience.
+
+Some examples of annotations are in the vector/ subdir, such as:
+~~~
+//gown: param goner iso; param spare rob; result 0 imm
+func puncture(goner *wheel, spare *wheel) *report {}
+
+//gown:observer fmt.Printf
+//gown:iso
+//gown:clone
+//gown:new
+//gown:swap
+~~~
+
 ## installation
 
 go install github.com/glycerine/gown/cmd/gown@latest

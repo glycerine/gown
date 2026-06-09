@@ -23,6 +23,7 @@ func checkGWN001SSA(pkg *packages.Package, ssaPkg *ssa.Package, caps *OstampInde
 		places:                  places,
 		assignments:             assignments,
 		flowAssignments:         flowAssignments,
+		automaticSwaps:          collectSSAAutomaticSwaps(pkg, caps),
 		compositeFieldMoves:     collectSSACompositeFieldMoves(pkg, caps),
 		immutableProjectionUses: collectSSAImmutableProjectionUseSpans(pkg, caps),
 		namedBorrows:            collectSSANamedBorrows(pkg, caps),
@@ -44,6 +45,7 @@ type ssaGWN001Checker struct {
 	places                  *SSAPlaceIndex
 	assignments             map[ast.Expr]ssaAssignment
 	flowAssignments         map[ast.Expr]ssaFlowAssignment
+	automaticSwaps          map[ast.Expr]automaticSwap
 	compositeFieldMoves     map[ast.Expr]ssaCompositeFieldMove
 	immutableProjectionUses []ssaImmutableProjectionUseSpan
 	namedBorrows            map[*types.Func]SSANamedBorrowInfo
@@ -235,6 +237,9 @@ func (checker *ssaGWN001Checker) isAssignmentTargetDebugRef(debug *ssa.DebugRef)
 	if _, ok := checker.assignments[key]; ok {
 		return true
 	}
+	if _, ok := checker.automaticSwaps[key]; ok {
+		return true
+	}
 	_, ok := checker.flowAssignments[key]
 	return ok
 }
@@ -337,6 +342,9 @@ func (checker *ssaGWN001Checker) applyInstructionTransfer(instr ssa.Instruction,
 		clearPendingCompositeFieldMove(pendingCompositeFieldMove)
 		checker.applyDeferTransfer(instr, state)
 	case *ssa.DebugRef:
+		if checker.applyAutomaticSwapTransfer(instr, state) {
+			return
+		}
 		checker.applyFlowAssignmentTransfer(instr, state)
 		checker.applyAssignmentTransfer(instr, state)
 		checker.stageCompositeFieldMoveTransfer(instr, pendingCompositeFieldMove)
@@ -722,7 +730,26 @@ func (checker *ssaGWN001Checker) applySwapIntrinsic(binding IntrinsicBinding, st
 		return
 	}
 	pos := checker.pkg.Fset.Position(instr.Pos())
-	for _, place := range binding.ArgPlaces {
+	checker.checkSwapTransferAtPosition(state, binding.ArgPlaces, instr, pos)
+}
+
+func (checker *ssaGWN001Checker) applyAutomaticSwapTransfer(instr *ssa.DebugRef, state *SSAFunctionState) bool {
+	if checker == nil || instr == nil {
+		return false
+	}
+	swap, ok := checker.automaticSwaps[debugRefExprKey(instr.Expr)]
+	if !ok {
+		return false
+	}
+	checker.checkSwapTransferAtPosition(state, swap.Places[:], instr, swap.Pos)
+	return true
+}
+
+func (checker *ssaGWN001Checker) checkSwapTransferAtPosition(state *SSAFunctionState, places []Place, instr ssa.Instruction, pos token.Position) {
+	if state == nil {
+		return
+	}
+	for _, place := range places {
 		if place.Root == nil {
 			continue
 		}
@@ -1519,6 +1546,29 @@ func flowAssignmentDstAllowed(pkg *packages.Package, caps *OstampIndex, dst Plac
 		return false
 	}
 	return obj.Parent() != pkg.Types.Scope()
+}
+
+func collectSSAAutomaticSwaps(pkg *packages.Package, caps *OstampIndex) map[ast.Expr]automaticSwap {
+	swaps := make(map[ast.Expr]automaticSwap)
+	if pkg == nil || caps == nil {
+		return swaps
+	}
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			swap, ok := automaticSwapForAssign(pkg, caps, assign)
+			if !ok {
+				return true
+			}
+			swaps[debugRefExprKey(assign.Lhs[0])] = swap
+			swaps[debugRefExprKey(assign.Lhs[1])] = swap
+			return true
+		})
+	}
+	return swaps
 }
 
 func collectSSACompositeFieldMoves(pkg *packages.Package, caps *OstampIndex) map[ast.Expr]ssaCompositeFieldMove {

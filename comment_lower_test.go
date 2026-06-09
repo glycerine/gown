@@ -244,6 +244,74 @@ func main() {
 	}
 }
 
+func TestCommentModeSwapRejectsIsoFieldThroughUntrackedRoot(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"main.go": `package example
+
+type wheel struct{}
+
+type bicycle struct {
+	front *wheel //gown: iso
+}
+
+func main() {
+	j := &bicycle{front: &wheel{}}
+	var a *wheel            //gown: iso
+	a, j.front = j.front, a //gown: swap
+	_, _ = a, j
+}
+`})
+
+	err := NewGownPackage(dir).Check()
+	requireCheckerCode(t, err, GWN010)
+	if !strings.Contains(err.Error(), "through untracked root") {
+		t.Fatalf("swap error = %v, want untracked root detail", err)
+	}
+}
+
+func TestCommentModeSwapAllowsIsoRootAndIsoField(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"main.go": `package example
+
+type wheel struct{}
+
+type bicycle struct {
+	front *wheel //gown: iso
+}
+
+func main() {
+	j := &bicycle{front: &wheel{}} //gown: iso
+	var a *wheel                   //gown: iso
+	a, j.front = j.front, a        //gown: swap
+	_, _ = a, j
+}
+`})
+
+	if err := NewGownPackage(dir).Check(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCommentModeAutoSwapAllowsIsoRootAndIsoField(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"main.go": `package example
+
+type wheel struct{}
+
+type bicycle struct {
+	front *wheel //gown: iso
+}
+
+func main() {
+	j := &bicycle{front: &wheel{}} //gown: iso
+	var a *wheel                   //gown: iso
+	a, j.front = j.front, a
+	_, _ = a, j
+}
+`})
+
+	if err := NewGownPackage(dir).Check(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCommentModeIsoCreationStampsCreatedObjects(t *testing.T) {
 	cases := []struct {
 		name    string
