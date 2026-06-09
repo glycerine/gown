@@ -119,12 +119,18 @@ in this tutorial.)
 //gown:swap
 ~~~
 
-## warning: rest of tutorial is slightly out of date.
+## warning: rest of tutorial only shows .gown syntax
 
-We are working to revise the rest of the tutorial. Be warned that
+We are working to add .go //gown: comment syntax to
+the rest of the tutorial. Be warned that
 from here on the .gown inline syntax is shown, rather than the new
-//gown: comment style syntax for .go files. The concepts are 
-accurate, its just the examples need to be revised for the new syntax.
+//gown: comment style syntax for .go files. 
+
+The concepts are accurate, it is just the .go //gown: syntax 
+is missing and only the .gown inline syntax is given below.
+As the .go syntax is lowered to the .gown syntax, and the
+.gown inline syntax is much easier to understand, our aim
+is to add the .go comment syntax after the .gown is described.
 
 ## installation
 
