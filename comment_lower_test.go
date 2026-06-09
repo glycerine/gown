@@ -138,6 +138,178 @@ func TestCommentModeMaterializesMirrorAndChecks(t *testing.T) {
 	}
 }
 
+func TestCommentModeIsoCreationStampsCreatedObjects(t *testing.T) {
+	cases := []struct {
+		name    string
+		varName string
+		source  string
+	}{
+		{
+			name:    "make map",
+			varName: "m",
+			source: `package example
+
+type pointy *int
+
+func Use() {
+	m := make(map[pointy]int) //gown: iso
+	_ = m
+}
+`,
+		},
+		{
+			name:    "make slice",
+			varName: "s",
+			source: `package example
+
+type trickySlice []*int
+
+func Use() {
+	s := make(trickySlice, 10) //gown: iso
+	_ = s
+}
+`,
+		},
+		{
+			name:    "make builtin slice",
+			varName: "s",
+			source: `package example
+
+type payload struct{}
+
+func Use() {
+	s := make([]*payload, 0) //gown: iso
+	_ = s
+}
+`,
+		},
+		{
+			name:    "map literal",
+			varName: "m",
+			source: `package example
+
+type payload struct{}
+
+func Use() {
+	m := map[string]*payload{} //gown: iso
+	_ = m
+}
+`,
+		},
+		{
+			name:    "slice literal",
+			varName: "s",
+			source: `package example
+
+type payload struct{}
+
+func Use() {
+	s := []*payload{} //gown: iso
+	_ = s
+}
+`,
+		},
+		{
+			name:    "struct literal",
+			varName: "v",
+			source: `package example
+
+type payload struct {
+	next *payload
+}
+
+func Use() {
+	v := payload{} //gown: iso
+	_ = v
+}
+`,
+		},
+		{
+			name:    "address struct literal",
+			varName: "p",
+			source: `package example
+
+type payload struct{}
+
+func Use() {
+	p := &payload{} //gown: iso
+	_ = p
+}
+`,
+		},
+		{
+			name:    "new struct pointer",
+			varName: "p",
+			source: `package example
+
+type payload struct{}
+
+func Use() {
+	p := new(payload) //gown: iso
+	_ = p
+}
+`,
+		},
+		{
+			name:    "new primitive pointer",
+			varName: "p",
+			source: `package example
+
+func Use() {
+	p := new(int) //gown: iso
+	_ = p
+}
+`,
+		},
+		{
+			name:    "address slice literal",
+			varName: "p",
+			source: `package example
+
+type payload struct{}
+
+func Use() {
+	p := &[]*payload{} //gown: iso
+	_ = p
+}
+`,
+		},
+		{
+			name:    "address map literal",
+			varName: "p",
+			source: `package example
+
+type payload struct{}
+
+func Use() {
+	p := &map[string]*payload{} //gown: iso
+	_ = p
+}
+`,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := writeGownDir(t, map[string]string{"main.go": tt.source})
+			gp := NewGownPackage(dir)
+			if err := gp.Check(); err != nil {
+				t.Fatalf("//gown: iso creation should check: %v", err)
+			}
+			if got := gp.caps.ObjectCap(lookupLocalVar(t, gp, "Use", tt.varName)); got != CapIso {
+				t.Fatalf("%s cap = %v, want %v", tt.varName, got, CapIso)
+			}
+			gownBytes, err := os.ReadFile(filepath.Join(dir, ".gown", "main.gown"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(gownBytes), "var "+tt.varName+` \iso `) {
+				t.Fatalf("materialized .gown missing creation ownerstamp:\n%s", gownBytes)
+			}
+		})
+	}
+}
+
 func TestGownCommentRequiresAsciiSpaceAfterPrefix(t *testing.T) {
 	_, err := LowerGoCommentsToGown("bad.go", []byte("package p\nvar x *int //gown:\tiso\n"))
 	if err == nil {

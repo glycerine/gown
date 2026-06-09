@@ -229,7 +229,10 @@ func (ctx *commentLoweringContext) applyAssignDirective(directive GownCommentDir
 		if len(cmd.Args) != 0 {
 			return ctx.directiveError(directive, fmt.Sprintf("%s directive does not take arguments", cmd.Name))
 		}
-		return ctx.lowerMakeChannelElemCapDirective(directive, assign, capFromWord(cmd.Name))
+		if assignmentRHSIsMakeChannel(assign) {
+			return ctx.lowerMakeChannelElemCapDirective(directive, assign, capFromWord(cmd.Name))
+		}
+		return ctx.lowerCreationObjectCapDirective(directive, assign, capFromWord(cmd.Name))
 	case "elem":
 		if len(cmd.Args) != 1 || !isCapWord(cmd.Args[0]) {
 			return ctx.directiveError(directive, "elem directive requires one ownerstamp")
@@ -255,6 +258,22 @@ func (ctx *commentLoweringContext) applyAssignDirective(directive GownCommentDir
 	}
 }
 
+func assignmentRHSIsMakeChannel(assign *ast.AssignStmt) bool {
+	if assign == nil || len(assign.Rhs) != 1 {
+		return false
+	}
+	call, ok := unparenExpr(assign.Rhs[0]).(*ast.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return false
+	}
+	name, ok := unparenExpr(call.Fun).(*ast.Ident)
+	if !ok || name.Name != "make" {
+		return false
+	}
+	_, ok = unparenExpr(call.Args[0]).(*ast.ChanType)
+	return ok
+}
+
 func (ctx *commentLoweringContext) lowerMakeChannelElemCapDirective(directive GownCommentDirective, assign *ast.AssignStmt, cap Cap) error {
 	rhs, err := singleRHS(assign)
 	if err != nil {
@@ -276,6 +295,80 @@ func (ctx *commentLoweringContext) lowerMakeChannelElemCapDirective(directive Go
 		return ctx.directiveError(directive, "ownerstamp assignment directive requires make(chan ...)")
 	}
 	return ctx.insertDirectCap(directive, ch.Value, cap)
+}
+
+func (ctx *commentLoweringContext) lowerCreationObjectCapDirective(directive GownCommentDirective, assign *ast.AssignStmt, cap Cap) error {
+	if assign.Tok != token.DEFINE {
+		return ctx.directiveError(directive, "ownerstamp creation directive requires a short variable declaration")
+	}
+	if len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+		return ctx.directiveError(directive, "ownerstamp creation directive requires exactly one assigned identifier and one right-hand side")
+	}
+	lhs, ok := assign.Lhs[0].(*ast.Ident)
+	if !ok || lhs.Name == "_" {
+		return ctx.directiveError(directive, "ownerstamp creation directive requires an assigned identifier")
+	}
+	typeText, err := ctx.creationResultTypeText(directive, assign.Rhs[0])
+	if err != nil {
+		return err
+	}
+	rhsText := strings.TrimSpace(string(nodeTextFromSrc(ctx.src, ctx.nodeOffsetsPair(assign.Rhs[0]))))
+	if rhsText == "" {
+		return ctx.directiveError(directive, "invalid creation right-hand side range")
+	}
+	replacement := []byte("var " + lhs.Name + " " + cap.String() + " " + typeText + " = " + rhsText)
+	start, end := ctx.nodeOffsets(assign)
+	ctx.replace(start, end, replacement, "lower gown creation ownerstamp comment")
+	return nil
+}
+
+func (ctx *commentLoweringContext) creationResultTypeText(directive GownCommentDirective, rhs ast.Expr) (string, error) {
+	switch expr := unparenExpr(rhs).(type) {
+	case *ast.CallExpr:
+		name, ok := unparenExpr(expr.Fun).(*ast.Ident)
+		if !ok {
+			break
+		}
+		switch name.Name {
+		case "make":
+			if len(expr.Args) == 0 {
+				return "", ctx.directiveError(directive, "make creation directive requires a type argument")
+			}
+			return ctx.typeExprText(directive, expr.Args[0])
+		case "new":
+			if len(expr.Args) != 1 {
+				return "", ctx.directiveError(directive, "new creation directive requires exactly one type argument")
+			}
+			typeText, err := ctx.typeExprText(directive, expr.Args[0])
+			if err != nil {
+				return "", err
+			}
+			return "*" + typeText, nil
+		}
+	case *ast.UnaryExpr:
+		if expr.Op == token.AND {
+			if lit, ok := unparenExpr(expr.X).(*ast.CompositeLit); ok && lit.Type != nil {
+				typeText, err := ctx.typeExprText(directive, lit.Type)
+				if err != nil {
+					return "", err
+				}
+				return "*" + typeText, nil
+			}
+		}
+	case *ast.CompositeLit:
+		if expr.Type != nil {
+			return ctx.typeExprText(directive, expr.Type)
+		}
+	}
+	return "", ctx.directiveError(directive, "ownerstamp creation directive requires make(...), new(...), T{...}, or &T{...}")
+}
+
+func (ctx *commentLoweringContext) typeExprText(directive GownCommentDirective, typ ast.Expr) (string, error) {
+	text := strings.TrimSpace(string(nodeTextFromSrc(ctx.src, ctx.nodeOffsetsPair(typ))))
+	if text == "" {
+		return "", ctx.directiveError(directive, "invalid creation type range")
+	}
+	return text, nil
 }
 
 func (ctx *commentLoweringContext) applyTypeCommands(directive GownCommentDirective, commands []gownCommentCommand, typ ast.Expr) error {

@@ -57,6 +57,10 @@ var x *Msg //gown: iso
 ```go
 ch := make(chan *Msg) //gown: iso
 ch := make(chan *Msg) //gown: elem iso
+m := make(map[string]*Msg) //gown: iso
+s := make([]*Msg, 0)       //gown: iso
+p := new(Msg)              //gown: iso
+q := &Msg{}                //gown: iso
 ```
 
 ```go
@@ -105,6 +109,9 @@ the expected Go shape, or would invent runtime behavior not present in the
   the corresponding type position.
 - On `make(chan *T)` assignments, `//gown: iso` and `//gown: elem iso` stamp
   the channel element type, lowering to `make(chan \iso *T)`.
+- On other short-declaration creation assignments, `//gown: iso` stamps the
+  created object by lowering to an explicit declaration such as
+  `var m \iso map[string]*T = make(map[string]*T)`.
 - Lower intrinsic comments into existing backslash forms:
   - `new` over `&T{...}` becomes `\new(T{...})`.
   - `mub`, `rob`, `freeze`, and `unsafe` wrap the marked RHS.
