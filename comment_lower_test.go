@@ -205,6 +205,41 @@ func TestCommentModeCompositeLiteralFieldDirective(t *testing.T) {
 	}
 }
 
+func TestCommentModeNamedResultDirective(t *testing.T) {
+	result, err := LowerGoCommentsToGown("comment.go", []byte(`package example
+
+type bicycle struct{}
+
+// gown: result answer iso
+func f() (answer *bicycle) {
+	return nil
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result.GownSrc), `func f() (answer \iso *bicycle)`) {
+		t.Fatalf("lowered source missing named result ownerstamp:\n%s", result.GownSrc)
+	}
+}
+
+func TestCommentModeReturnNewDirective(t *testing.T) {
+	result, err := LowerGoCommentsToGown("comment.go", []byte(`package example
+
+type bicycle struct{}
+
+func f() *bicycle {
+	return &bicycle{} //gown:new
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result.GownSrc), `return \new(bicycle{})`) {
+		t.Fatalf("lowered source missing return new intrinsic:\n%s", result.GownSrc)
+	}
+}
+
 func TestCommentModeCheckerErrorsReportOriginGoPath(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"main.go": `package example
 

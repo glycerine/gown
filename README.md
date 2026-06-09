@@ -52,7 +52,7 @@ bugs that do not catch all data races.
 Call for testing: Help us polish and refine Gown by trying it out. File
 bug report issues to help us improve.
 
-### comment branch to attempt to imporove usabilty
+### comment branch to attempt to improve usabilty
 
 On branch 'comment' we try an experiment. Instead of 
 pre-processing .gown files into .go files, we add
@@ -66,8 +66,22 @@ codebases. We are working with it to gain experience.
 
 Some examples of annotations are in the vector/ subdir, such as:
 ~~~
-//gown: param goner iso; param spare rob; result 0 imm
-func puncture(goner *wheel, spare *wheel) *report {}
+// instead of this .gown syntax
+func puncture(goner \iso *wheel, spare \iso *wheel) (int, \imm *report) {}
+
+// we can add comments to our .go file like this:
+
+//gown: param goner iso; param spare iso; result 1 imm
+func puncture2(goner *wheel, spare *wheel) (bool, *report) {}
+
+// or replace
+
+func puncture(goner \iso *wheel) \imm *report {}
+
+// with
+
+//gown: param goner iso; result 0 imm
+func puncture(goner *wheel) *report {}
 
 //gown:observer fmt.Printf
 //gown:iso
@@ -615,8 +629,7 @@ See also `\\\\observer`
 For example, the `\\\\observer fmt.Printf` stand alone comment is used to designate the 
 debug helpers like fmt.Printf are doing read-only borrows and should not cause alarm.
 
-The observer annotation turns off strict checking on a per-function basis. This is a practical
-affordance to avoid having to annotate the declarations of the standard "fmt"
+The observer annotation turns off strict checking on a per-function basis. This is a practical affordance to avoid having to annotate the declarations of the standard "fmt"
 library.
 
 ## function patterns

@@ -223,10 +223,13 @@ func (ctx *commentLoweringContext) applyTrailingDirective(directive GownCommentD
 	if kv := ctx.keyValueEndingOnLine(line); kv != nil {
 		return ctx.applyKeyValueDirective(directive, commands, kv)
 	}
+	if ret := ctx.returnEndingOnLine(line); ret != nil {
+		return ctx.applyReturnDirective(directive, commands, ret)
+	}
 	if assign := ctx.assignStartingOnLine(line); assign != nil {
 		return ctx.applyAssignDirective(directive, commands, assign)
 	}
-	return ctx.directiveError(directive, "could not find a same-line declaration, assignment, or composite literal field for Gown directive")
+	return ctx.directiveError(directive, "could not find a same-line declaration, assignment, return, or composite literal field for Gown directive")
 }
 
 func (ctx *commentLoweringContext) applyLeadingDirective(directive GownCommentDirective, commands []gownCommentCommand) error {
@@ -315,6 +318,26 @@ func (ctx *commentLoweringContext) applyKeyValueDirective(directive GownCommentD
 	default:
 		return ctx.directiveError(directive, fmt.Sprintf("unsupported composite literal field directive %q", cmd.Name))
 	}
+}
+
+func (ctx *commentLoweringContext) applyReturnDirective(directive GownCommentDirective, commands []gownCommentCommand, ret *ast.ReturnStmt) error {
+	for _, cmd := range commands {
+		switch cmd.Name {
+		case "new":
+			if len(cmd.Args) != 0 {
+				return ctx.directiveError(directive, "new directive does not take arguments")
+			}
+			if len(ret.Results) != 1 {
+				return ctx.directiveError(directive, "new return directive requires exactly one result expression")
+			}
+			if err := ctx.lowerNewExpr(directive, ret.Results[0]); err != nil {
+				return err
+			}
+		default:
+			return ctx.directiveError(directive, fmt.Sprintf("unsupported return directive %q", cmd.Name))
+		}
+	}
+	return nil
 }
 
 func assignmentRHSIsMakeChannel(assign *ast.AssignStmt) bool {
@@ -476,7 +499,7 @@ func (ctx *commentLoweringContext) applyFuncSignatureCommands(directive GownComm
 			if len(cmd.Args) != 2 || !isCapWord(cmd.Args[1]) {
 				return ctx.directiveError(directive, "param directive must be: param NAME OWNERSTAMP")
 			}
-			field, err := fieldListFieldByName(params, cmd.Args[0])
+			field, err := fieldListFieldByName(params, cmd.Args[0], "parameter")
 			if err != nil {
 				return ctx.directiveError(directive, err.Error())
 			}
@@ -485,13 +508,9 @@ func (ctx *commentLoweringContext) applyFuncSignatureCommands(directive GownComm
 			}
 		case "result":
 			if len(cmd.Args) != 2 || !isCapWord(cmd.Args[1]) {
-				return ctx.directiveError(directive, "result directive must be: result INDEX OWNERSTAMP")
+				return ctx.directiveError(directive, "result directive must be: result INDEX_OR_NAME OWNERSTAMP")
 			}
-			index, err := strconv.Atoi(cmd.Args[0])
-			if err != nil || index < 0 {
-				return ctx.directiveError(directive, "result directive requires a zero-based result index")
-			}
-			field, err := fieldListFieldByIndex(results, index)
+			field, err := fieldListResultFieldByIndexOrName(results, cmd.Args[0])
 			if err != nil {
 				return ctx.directiveError(directive, err.Error())
 			}
@@ -532,7 +551,7 @@ func (ctx *commentLoweringContext) applyRestoreDirective(directive GownCommentDi
 			if len(cmd.Args) != 2 || !isCapWord(cmd.Args[1]) {
 				return ctx.directiveError(directive, "restore param directive must be: param NAME OWNERSTAMP")
 			}
-			field, err := fieldListFieldByName(fn.Type.Params, cmd.Args[0])
+			field, err := fieldListFieldByName(fn.Type.Params, cmd.Args[0], "parameter")
 			if err != nil {
 				return ctx.directiveError(directive, err.Error())
 			}
@@ -541,13 +560,9 @@ func (ctx *commentLoweringContext) applyRestoreDirective(directive GownCommentDi
 			}
 		case "result":
 			if len(cmd.Args) != 2 || !isCapWord(cmd.Args[1]) {
-				return ctx.directiveError(directive, "restore result directive must be: result INDEX OWNERSTAMP")
+				return ctx.directiveError(directive, "restore result directive must be: result INDEX_OR_NAME OWNERSTAMP")
 			}
-			index, err := strconv.Atoi(cmd.Args[0])
-			if err != nil || index < 0 {
-				return ctx.directiveError(directive, "restore result directive requires a zero-based result index")
-			}
-			field, err := fieldListFieldByIndex(fn.Type.Results, index)
+			field, err := fieldListResultFieldByIndexOrName(fn.Type.Results, cmd.Args[0])
 			if err != nil {
 				return ctx.directiveError(directive, err.Error())
 			}
@@ -566,7 +581,11 @@ func (ctx *commentLoweringContext) lowerNewDirective(directive GownCommentDirect
 	if err != nil {
 		return ctx.directiveError(directive, err.Error())
 	}
-	unary, ok := unparenExpr(rhs).(*ast.UnaryExpr)
+	return ctx.lowerNewExpr(directive, rhs)
+}
+
+func (ctx *commentLoweringContext) lowerNewExpr(directive GownCommentDirective, expr ast.Expr) error {
+	unary, ok := unparenExpr(expr).(*ast.UnaryExpr)
 	if !ok || unary.Op != token.AND {
 		return ctx.directiveError(directive, "new directive requires a right-hand side of the form &T{...}")
 	}
@@ -574,7 +593,7 @@ func (ctx *commentLoweringContext) lowerNewDirective(directive GownCommentDirect
 	if !ok {
 		return ctx.directiveError(directive, "new directive requires a right-hand side of the form &T{...}")
 	}
-	start, end := ctx.nodeOffsets(rhs)
+	start, end := ctx.nodeOffsets(expr)
 	litStart, litEnd := ctx.nodeOffsets(lit)
 	if !validRange(ctx.src, litStart, litEnd) {
 		return ctx.directiveError(directive, "invalid composite literal range for new directive")
@@ -647,9 +666,9 @@ func (ctx *commentLoweringContext) insertDirectCap(directive GownCommentDirectiv
 	return nil
 }
 
-func fieldListFieldByName(fields *ast.FieldList, name string) (*ast.Field, error) {
+func fieldListFieldByName(fields *ast.FieldList, name, kind string) (*ast.Field, error) {
 	if fields == nil {
-		return nil, fmt.Errorf("no parameter list available for %q", name)
+		return nil, fmt.Errorf("no %s list available for %q", kind, name)
 	}
 	for _, field := range fields.List {
 		for _, fieldName := range field.Names {
@@ -661,7 +680,18 @@ func fieldListFieldByName(fields *ast.FieldList, name string) (*ast.Field, error
 			}
 		}
 	}
-	return nil, fmt.Errorf("could not find parameter %q", name)
+	return nil, fmt.Errorf("could not find %s %q", kind, name)
+}
+
+func fieldListResultFieldByIndexOrName(fields *ast.FieldList, token string) (*ast.Field, error) {
+	index, err := strconv.Atoi(token)
+	if err == nil {
+		if index < 0 {
+			return nil, fmt.Errorf("result directive requires a zero-based result index or named result")
+		}
+		return fieldListFieldByIndex(fields, index)
+	}
+	return fieldListFieldByName(fields, token, "result")
 }
 
 func fieldListFieldByIndex(fields *ast.FieldList, index int) (*ast.Field, error) {
@@ -818,6 +848,21 @@ func (ctx *commentLoweringContext) keyValueEndingOnLine(line int) *ast.KeyValueE
 		}
 		if out == nil || ctx.offset(kv.Pos()) > ctx.offset(out.Pos()) {
 			out = kv
+		}
+		return true
+	})
+	return out
+}
+
+func (ctx *commentLoweringContext) returnEndingOnLine(line int) *ast.ReturnStmt {
+	var out *ast.ReturnStmt
+	ast.Inspect(ctx.file, func(n ast.Node) bool {
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok || ctx.line(ret.End()) != line {
+			return true
+		}
+		if out == nil || ctx.offset(ret.Pos()) > ctx.offset(out.Pos()) {
+			out = ret
 		}
 		return true
 	})
