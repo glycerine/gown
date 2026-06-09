@@ -62,9 +62,9 @@ Implemented:
 - Diagnostics report structured `GWN` errors against original `.gown` source
   and include source-line context. `GWN012` frontier diagnostics carry related
   notes that point back to the earlier proof-ending operation.
-- CLI `-check` mode validates with a `go/packages` overlay and does not write
-  generated `.go` files into the package directory.
-- Normal mode emits semantic Go for the current straightforward cases:
+- Gown validates with a `go/packages` overlay and does not write generated
+  sibling `.go` files into the package directory.
+- The internal emitter still lowers semantic Go for the current straightforward cases:
   capability qualifiers are erased, borrow/unsafe/freeze intrinsics lower to
   their argument, `\new(T{...})` lowers to `&T{...}`, `\clone(x)` lowers to
   `(x).Clone()` after same-type `Clone` validation, and direct consumed `\iso`
@@ -196,7 +196,8 @@ The target pipeline is:
    side tables, with full forward CFG dataflow currently concentrated in
    `GWN001`, including named borrow liveness and deferred borrow snapshots.
 9. Report structured GWN errors at original `.gown` positions.
-10. If checking succeeds and `-check` is false, emit final Go.
+10. Keep source files untouched; generated Go remains an internal/test helper
+    view rather than default CLI output.
 
 The analysis Go and emit Go views should be produced from the same annotation
 index so they cannot drift.
@@ -208,9 +209,9 @@ Current status:
   full CFG dataflow currently concentrated in `GWN001`, including named borrow
   liveness and deferred borrow snapshots.
 - Stage 9 exists.
-- Stage 10 partially exists: stripped Go is written in normal mode and avoided
-  in CLI `-check` mode through a `go/packages` overlay. Nil insertion after
-  consumed `\iso` moves remains open.
+- Stage 10 exists as non-mutating checking through a `go/packages` overlay.
+  Nil insertion after consumed `\iso` moves is still tested through the
+  internal emitter.
 
 ## Analysis Source Strategy
 
@@ -881,9 +882,9 @@ mapping generated `.go` paths back to original `.gown` paths.
 
 ## Open Implementation Notes
 
-- Normal `Check` still writes generated `.go` files; CLI `-check` uses an
-  overlay to avoid writing. Future library APIs may want a clearer split
-  between check-only analysis, emit, and combined check-and-emit workflows.
+- Normal `Check` does not write generated sibling `.go` files. Future library
+  APIs may expose explicit emission, but checking remains the default
+  non-mutating workflow.
 - Explicit expression syntax is recognized by the scanner and formatter, but
   most semantics are not implemented. It should not pollute final output or
   collide silently with user declarations.

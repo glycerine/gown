@@ -58,16 +58,13 @@ func TestPositionPrecision(t *testing.T) {
 	}
 
 	// Verify stripped .go has no \iso left.
-	goBytes, err := os.ReadFile(filepath.Join(dir, "example.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	goSrc, _ := scanAndStrip("", []byte(gownSource))
+	goBytes := goSrc
 	if bytes.Contains(goBytes, []byte(`\iso`)) {
 		t.Fatal("stripped .go still contains \\iso")
 	}
 
 	// Verify byte-precision: \iso at offset X → AST type at X+5.
-	goSrc, _ := scanAndStrip("", []byte(gownSource))
 	matched := 0
 	for _, ann := range gf.iso {
 		expected := ann.offset + 5

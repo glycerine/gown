@@ -22,7 +22,6 @@ type GownPackage struct {
 }
 
 type CheckOptions struct {
-	CheckOnly            bool
 	GownOverlay          map[string][]byte
 	GoOverlay            map[string][]byte
 	DisableGoCommentMode bool
@@ -40,17 +39,16 @@ func NewGownPackage(path string) *GownPackage {
 	return &GownPackage{path: path}
 }
 
-// Check finds all .gown files in the package directory, scans them
-// for \iso annotations, strips annotations to produce .go files
-// (overwriting any existing .go alongside each .gown), loads the
-// package with go/packages, and assigns regions/funcNames from the AST.
+// Check finds all Gown sources in the package directory, checks ownership, and
+// leaves ordinary source files untouched. For comment-mode .go files, it
+// materializes a package-local .gown/ mirror for inspection.
 func (gp *GownPackage) Check() error {
 	return gp.CheckWithOptions(CheckOptions{})
 }
 
-// CheckWithOptions runs the Gown checker. In normal mode it writes generated
-// .go files beside .gown files. In check-only mode it keeps generated sources
-// in a go/packages overlay so validation does not modify the package directory.
+// CheckWithOptions runs the Gown checker without writing generated sibling .go
+// files. .gown source is loaded through go/packages overlays; comment-mode .go
+// source is lowered into a materialized .gown/ mirror first.
 func (gp *GownPackage) CheckWithOptions(opts CheckOptions) error {
 	_, err := gp.AnalyzeWithOptions(opts)
 	return err
@@ -96,16 +94,17 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	gp.ssaProg = nil
 	gp.ssaPkg = nil
 
-	if len(opts.GownOverlay) > 0 {
-		opts.CheckOnly = true
-	}
-	//vv("GOWN AnalyzeWithOptions start path=%q checkOnly=%v gownOverlay=%d", gp.path, opts.CheckOnly, len(opts.GownOverlay))
+	//vv("GOWN AnalyzeWithOptions start path=%q gownOverlay=%d goOverlay=%d", gp.path, len(opts.GownOverlay), len(opts.GoOverlay))
 
 	pkgPath, err := canonicalPackagePath(gp.path)
 	if err != nil {
 		return nil, fmt.Errorf("resolving package directory %s: %w", gp.path, err)
 	}
 	//vv("GOWN canonical package path input=%q canonical=%q", gp.path, pkgPath)
+
+	if err := validateNoGoGownBasenameCollisions(pkgPath, opts.GownOverlay, opts.GoOverlay); err != nil {
+		return nil, err
+	}
 
 	if !opts.DisableGoCommentMode {
 		mirror, ok, err := MaterializeCommentMirror(pkgPath, opts)
@@ -116,7 +115,6 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 			mirrorOpts := opts
 			mirrorOpts.GownOverlay = nil
 			mirrorOpts.GoOverlay = nil
-			mirrorOpts.CheckOnly = false
 			mirrorOpts.DisableGoCommentMode = true
 			mirrorPkg := NewGownPackage(mirror.Dir)
 			analysis, err := mirrorPkg.AnalyzeWithOptions(mirrorOpts)
@@ -152,7 +150,6 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	//vv("GOWN .gown discovery complete gp.path=%q count=%d", gp.path, len(gownNames))
 
 	overlay := make(map[string][]byte)
-	emitSources := make(map[string][]byte)
 	needIntrinsicHelpers := false
 	firstOverlayPath := ""
 	for name := range gownNames {
@@ -167,7 +164,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 		}
 		//vv("GOWN loaded .gown source path=%q overlay=%v bytes=%d", gownPath, ok, len(src))
 
-		emitSrc, analysisSrc, gf, err := scanAndClassify(name, src)
+		_, analysisSrc, gf, err := scanAndClassify(name, src)
 		if err != nil {
 			//vv("GOWN AnalyzeWithOptions return: scanAndClassify failed file=%q err=%v", name, err) // not seen
 			return nil, err
@@ -187,7 +184,6 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 			return nil, fmt.Errorf("resolving %s: %w", goPath, err)
 		}
 		overlay[absGoPath] = analysisSrc
-		emitSources[absGoPath] = emitSrc
 		//vv("GOWN prepared generated source goPath=%q abs=%q analysisBytes=%d emitBytes=%d", goPath, absGoPath, len(analysisSrc), len(emitSrc))
 		if firstOverlayPath == "" {
 			firstOverlayPath = absGoPath
@@ -225,7 +221,7 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	//vv("GOWN packages.Load overlay path=%q bytes=%d diskExists=%v statErr=%v", path, len(src), statErr == nil, statErr) // check.go:162 [goID 1] 2026-06-01 02:31:38.196248938 +0000 UTC GOWN packages.Load overlay path="/home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go" bytes=3089 diskExists=false statErr=stat /home/jaten/go/src/github.com/glycerine/gown/vectors/linkedlist00/main.go: no such file or directory
 	//}
 	//vv(`about to packages.Load(cfg, ".") with cfg = '%#v'`, cfg)
-	pkgs, err := packages.Load(cfg, pkgPath)
+	pkgs, err := loadPackagesWithCacheRetry(cfg, pkgPath)
 	//pkgs, err := packages.Load(cfg, ".")
 	if err != nil {
 		//vv("GOWN AnalyzeWithOptions return: packages.Load failed dir=%q err=%v", cfg.Dir, err)
@@ -333,30 +329,6 @@ func (gp *GownPackage) AnalyzeWithOptions(opts CheckOptions) (*GownAnalysis, err
 	}
 	//vv("GOWN runCheckerPasses complete no errors")
 
-	if !opts.CheckOnly {
-		for _, gf := range gp.files {
-			goPath := filepath.Join(pkgPath, generatedGoName(gf.path))
-			absGoPath, err := filepath.Abs(goPath)
-			if err != nil {
-				//vv("GOWN AnalyzeWithOptions return: filepath.Abs emit failed path=%q err=%v", goPath, err)
-				return nil, fmt.Errorf("resolving %s: %w", goPath, err)
-			}
-			emitSrc := emitSources[absGoPath]
-			//vv("GOWN buildEmitSource begin file=%q goPath=%q emitBytes=%d", gf.path, goPath, len(emitSrc))
-			finalSrc, err := buildEmitSource(gp.pkg, gp.caps, gf, emitSrc)
-			if err != nil {
-				//vv("GOWN AnalyzeWithOptions return: buildEmitSource failed file=%q err=%v", gf.path, err)
-				return nil, err
-			}
-			//vv("GOWN write generated .go begin path=%q bytes=%d", goPath, len(finalSrc))
-			if err := os.WriteFile(goPath, finalSrc, 0644); err != nil {
-				//vv("GOWN AnalyzeWithOptions return: os.WriteFile failed path=%q err=%v", goPath, err)
-				return nil, fmt.Errorf("writing %s: %w", goPath, err)
-			}
-			//vv("GOWN write generated .go complete path=%q", goPath)
-		}
-	}
-
 	//vv("GOWN AnalyzeWithOptions success path=%q", gp.path)
 	return gp.analysis(), nil
 }
@@ -381,6 +353,131 @@ func (gp *GownPackage) analysis() *GownAnalysis {
 		Caps:    gp.caps,
 		SSAPkg:  gp.ssaPkg,
 	}
+}
+
+func loadPackagesWithCacheRetry(cfg *packages.Config, pattern string) ([]*packages.Package, error) {
+	pkgs, err := packages.Load(cfg, pattern)
+	if !needsFreshGoCacheRetry(pkgs, err) {
+		return pkgs, err
+	}
+
+	cacheDir, mkErr := os.MkdirTemp("", "gown-go-build-cache-*")
+	if mkErr != nil {
+		return pkgs, err
+	}
+	defer os.RemoveAll(cacheDir)
+
+	retryCfg := *cfg
+	retryCfg.Env = setEnv(retryCfg.Env, "GOCACHE", cacheDir)
+	return packages.Load(&retryCfg, pattern)
+}
+
+func needsFreshGoCacheRetry(pkgs []*packages.Package, err error) bool {
+	if isMissingGoCacheEntryError(err) {
+		return true
+	}
+	for _, pkg := range pkgs {
+		for _, pkgErr := range pkg.Errors {
+			if isMissingGoCacheEntryError(pkgErr) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isMissingGoCacheEntryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "loading compiled Go files from cache") &&
+		strings.Contains(msg, "cache entry not found")
+}
+
+func setEnv(env []string, key, value string) []string {
+	if len(env) == 0 {
+		env = os.Environ()
+	}
+	prefix := key + "="
+	next := make([]string, 0, len(env)+1)
+	replaced := false
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			if !replaced {
+				next = append(next, prefix+value)
+				replaced = true
+			}
+			continue
+		}
+		next = append(next, entry)
+	}
+	if !replaced {
+		next = append(next, prefix+value)
+	}
+	return next
+}
+
+func validateNoGoGownBasenameCollisions(pkgPath string, gownOverlay, goOverlay map[string][]byte) error {
+	if filepath.Base(pkgPath) == gownMirrorDirName {
+		return nil
+	}
+	type sourceFile struct {
+		name string
+		kind string
+	}
+	seen := make(map[string]sourceFile)
+	add := func(name, kind string) error {
+		base := strings.TrimSuffix(strings.TrimSuffix(name, ".go"), ".gown")
+		if prev, ok := seen[base]; ok && prev.kind != kind {
+			goName, gownName := name, prev.name
+			if kind == "gown" {
+				goName, gownName = prev.name, name
+			}
+			return fmt.Errorf("%s and %s may not coexist in %s: .go and .gown files with the same basename are not allowed",
+				goName, gownName, pkgPath)
+		}
+		seen[base] = sourceFile{name: name, kind: kind}
+		return nil
+	}
+
+	entries, err := os.ReadDir(pkgPath)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		switch {
+		case isGoSourceFileName(name):
+			if err := add(name, "go"); err != nil {
+				return err
+			}
+		case isGownSourceFileName(name):
+			if err := add(name, "gown"); err != nil {
+				return err
+			}
+		}
+	}
+	for path := range goOverlay {
+		name := filepath.Base(path)
+		if isGoSourceFileName(name) && samePackagePath(pkgPath, path) {
+			if err := add(name, "go"); err != nil {
+				return err
+			}
+		}
+	}
+	for path := range gownOverlay {
+		name := filepath.Base(path)
+		if isGownSourceFileName(name) && samePackagePath(pkgPath, path) {
+			if err := add(name, "gown"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func samePackagePath(pkgPath, filePath string) bool {

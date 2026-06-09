@@ -77,7 +77,7 @@ func TestRunReportsCheckerErrorWithoutPanic(t *testing.T) {
 	dir := writeCLIGownDir(t, "failing.gown", cliFailingSource)
 	var stderr bytes.Buffer
 
-	code := run([]string{"-check", dir}, &stderr)
+	code := run([]string{dir}, &stderr)
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
@@ -97,7 +97,7 @@ func TestRunReturnsZeroForPassingPackage(t *testing.T) {
 	dir := writeCLIGownDir(t, "passing.gown", cliPassingSource)
 	var stderr bytes.Buffer
 
-	code := run([]string{"-check", dir}, &stderr)
+	code := run([]string{dir}, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
@@ -106,17 +106,17 @@ func TestRunReturnsZeroForPassingPackage(t *testing.T) {
 	}
 }
 
-func TestRunCheckOnlyDoesNotWriteGeneratedGo(t *testing.T) {
+func TestRunDoesNotWriteGeneratedGo(t *testing.T) {
 	dir := writeCLIGownDir(t, "passing.gown", cliPassingSource)
 	var stderr bytes.Buffer
 
-	code := run([]string{"-check", dir}, &stderr)
+	code := run([]string{dir}, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
 	goPath := filepath.Join(dir, "passing.go")
 	if _, err := os.Stat(goPath); err == nil {
-		t.Fatalf("-check wrote generated file %s", goPath)
+		t.Fatalf("gown wrote generated file %s", goPath)
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestRunFormatsOriginalGownLineForAnnotatedCheckerError(t *testing.T) {
 	dir := writeCLIGownDir(t, "annotated.gown", cliAnnotatedCheckerErrorSource)
 	var stderr bytes.Buffer
 
-	code := run([]string{"-check", dir}, &stderr)
+	code := run([]string{dir}, &stderr)
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
@@ -150,7 +150,7 @@ func TestRunPropagateRewritesGownThenChecks(t *testing.T) {
 	path := filepath.Join(dir, "propagate.gown")
 	var stderr bytes.Buffer
 
-	code := run([]string{"-propagate", "-check", dir}, &stderr)
+	code := run([]string{"-propagate", dir}, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
@@ -166,7 +166,7 @@ func TestRunPropagateRewritesGownThenChecks(t *testing.T) {
 	}
 	goPath := filepath.Join(dir, "propagate.go")
 	if _, err := os.Stat(goPath); err == nil {
-		t.Fatalf("-propagate -check wrote generated file %s", goPath)
+		t.Fatalf("-propagate wrote generated file %s", goPath)
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
@@ -176,13 +176,13 @@ func TestRunCheckAcceptsIntrinsicSyntaxForAnalysis(t *testing.T) {
 	dir := writeCLIGownDir(t, "intrinsics.gown", cliIntrinsicSource)
 	var stderr bytes.Buffer
 
-	code := run([]string{"-check", dir}, &stderr)
+	code := run([]string{dir}, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
 }
 
-func TestRunPrintGownMaterializesCommentModeView(t *testing.T) {
+func TestRunMaterializesCommentModeView(t *testing.T) {
 	dir := writeCLIGownDir(t, "comment.go", `package example
 
 type payload struct{}
@@ -192,19 +192,19 @@ func main() {
 	_ = p
 }
 `)
-	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	code := runWithWriters([]string{"-print-gown", dir}, &stdout, &stderr)
+	code := run([]string{dir}, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), `p := \new(payload{})`) {
-		t.Fatalf("stdout missing lowered .gown source:\n%s", stdout.String())
-	}
 	gownPath := filepath.Join(dir, ".gown", "comment.gown")
-	if _, err := os.Stat(gownPath); err != nil {
-		t.Fatalf("-print-gown did not materialize %s: %v", gownPath, err)
+	got, err := os.ReadFile(gownPath)
+	if err != nil {
+		t.Fatalf("gown did not materialize %s: %v", gownPath, err)
+	}
+	if !strings.Contains(string(got), `p := \new(payload{})`) {
+		t.Fatalf("materialized .gown missing lowered source:\n%s", got)
 	}
 }
 
@@ -223,6 +223,19 @@ func TestRunVersionPrintsBuildInfoWithoutPackageArgs(t *testing.T) {
 	for _, want := range []string{"go\t", "path\t"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("version output %q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestRunRejectsRemovedFlags(t *testing.T) {
+	for _, flagName := range []string{"-check", "-print-gown"} {
+		var stderr bytes.Buffer
+		code := run([]string{flagName}, &stderr)
+		if code != 2 {
+			t.Fatalf("run(%q) exit code = %d, want 2", flagName, code)
+		}
+		if !strings.Contains(stderr.String(), "flag provided but not defined") {
+			t.Fatalf("run(%q) stderr = %q, want flag parse error", flagName, stderr.String())
 		}
 	}
 }

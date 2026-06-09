@@ -102,8 +102,8 @@ Key files:
   the analysis, causing all pointer-containing creation sites to be tracked.
 - `creates.go` records reachable creation sites: `new(T)`, pointer-bearing
   `make(...)`, and `&T{}`/container composite literals that can hold pointers.
-- `cmd/gown/gown.go` is the CLI. It accepts `-check`, but `Check()` currently
-  always writes `.go` files, so the flag is not implemented yet.
+- `cmd/gown/gown.go` is the CLI. `Check()` is non-mutating: it validates through
+  overlays and does not write generated sibling `.go` files.
 - `vprint.go` and `cmd/gown/vprint.go` are duplicated debug/printing helpers.
 
 What is not implemented yet:
@@ -157,8 +157,8 @@ go test -run TestRegionDetection ./
 make lean
 ```
 
-`make test` is currently narrower than `go test ./...`: it installs the CLI and
-runs `gown vectors/iso0/`.
+`make test` installs the CLI tools and runs `go test ./...`. The Go suite now
+covers the non-writing checker and CLI behavior directly.
 
 ## Likely Next Milestones
 
@@ -170,8 +170,7 @@ runs `gown vectors/iso0/`.
    and struct fields.
 4. Add the first negative checker errors: `\iso` consumed on send/move and
    use-after-consume (`GWN001`) is the most obvious end-to-end slice.
-5. Implement `-check` so analysis can run without overwriting generated `.go`
-   files.
+5. Keep analysis non-mutating so it cannot overwrite generated `.go` files.
 6. Add tests that assert rejected programs, not just inventory metadata.
 
 ## Mental Model

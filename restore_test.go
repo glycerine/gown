@@ -2,8 +2,6 @@ package gown
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -710,19 +708,12 @@ func TestRestoreEmissionNilsConsumedArgument(t *testing.T) {
 	return dst
 }
 `)
-	dir := writeGownDir(t, map[string]string{"restore_emit.gown": src})
-	if err := NewGownPackage(dir).Check(); err != nil {
-		t.Fatal(err)
+	goSrc := emitGownSource(t, "restore_emit.gown", src)
+	if strings.Contains(goSrc, `\restore`) {
+		t.Fatalf("generated Go still contains restore marker:\n%s", goSrc)
 	}
-	goBytes, err := os.ReadFile(filepath.Join(dir, "restore_emit.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(goBytes, []byte(`\restore`)) {
-		t.Fatalf("generated Go still contains restore marker:\n%s", goBytes)
-	}
-	if !bytes.Contains(goBytes, []byte(`src = nil`)) {
-		t.Fatalf("generated Go does not nil consumed restore argument:\n%s", goBytes)
+	if !strings.Contains(goSrc, `src = nil`) {
+		t.Fatalf("generated Go does not nil consumed restore argument:\n%s", goSrc)
 	}
 }
 
@@ -734,15 +725,8 @@ func TestRestoreEmissionDoesNotNilReassignedRoots(t *testing.T) {
 	return a, b
 }
 `)
-	dir := writeGownDir(t, map[string]string{"restore_emit_reassign.gown": src})
-	if err := NewGownPackage(dir).Check(); err != nil {
-		t.Fatal(err)
-	}
-	goBytes, err := os.ReadFile(filepath.Join(dir, "restore_emit_reassign.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(goBytes), "a = nil") || strings.Contains(string(goBytes), "b = nil") {
-		t.Fatalf("generated Go nilled roots that were restored on the LHS:\n%s", goBytes)
+	goSrc := emitGownSource(t, "restore_emit_reassign.gown", src)
+	if strings.Contains(goSrc, "a = nil") || strings.Contains(goSrc, "b = nil") {
+		t.Fatalf("generated Go nilled roots that were restored on the LHS:\n%s", goSrc)
 	}
 }

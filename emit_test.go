@@ -373,7 +373,7 @@ func main() {
 	}
 }
 
-func TestRunCheckDoesNotWriteSemanticGo(t *testing.T) {
+func TestCheckDoesNotWriteSemanticGo(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"check.gown": `package example
 
 type payload struct{ Data string }
@@ -384,11 +384,11 @@ func main() {
 }
 `})
 	gp := NewGownPackage(dir)
-	if err := gp.CheckWithOptions(CheckOptions{CheckOnly: true}); err != nil {
+	if err := gp.Check(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "check.go")); !os.IsNotExist(err) {
-		t.Fatalf("check-only wrote generated go file, stat err = %v", err)
+		t.Fatalf("check wrote generated go file, stat err = %v", err)
 	}
 }
 
@@ -396,11 +396,18 @@ func emitGownSource(t *testing.T, name, source string) string {
 	t.Helper()
 	dir := writeGownDir(t, map[string]string{name: source})
 	gp := NewGownPackage(dir)
-	if err := gp.Check(); err != nil {
+	analysis, err := gp.AnalyzeWithOptions(CheckOptions{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	goPath := filepath.Join(dir, strings.TrimSuffix(name, ".gown")+".go")
-	out, err := os.ReadFile(goPath)
+	if len(analysis.Files) != 1 {
+		t.Fatalf("analysis files = %d, want 1", len(analysis.Files))
+	}
+	emitSrc, _, _, err := scanAndClassify(name, []byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := buildEmitSource(analysis.Package, analysis.Caps, analysis.Files[0], emitSrc)
 	if err != nil {
 		t.Fatal(err)
 	}

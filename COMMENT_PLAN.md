@@ -26,13 +26,8 @@ CLI print flag to visualize the lowered `.gown` source that Gown checks.
 - Materialize `.gown/` on each comment-mode run and leave it in place for
   debugging. The mirror is refreshed from the current source and old Gown-managed
   mirror files are removed by manifest.
-- Preserve existing `.gown` behavior. Mixed packages are allowed unless a
-  `.gown` generated path collides with an annotated `.go` file of the same
-  basename.
-- Add CLI flag `-print-gown`:
-  - Prints the virtual `.gown` view for annotated `.go` files.
-  - Does not write files.
-  - Exits after lowering/printing unless lowering fails.
+- Reject same-basename `.go`/`.gown` pairs such as `foo.go` and `foo.gown`.
+  A package must have one source of truth for each basename.
 
 ## Comment Syntax
 
@@ -128,9 +123,9 @@ the expected Go shape, or would invent runtime behavior not present in the
   - `restore` success/failure.
 - Add CLI tests:
   - Annotated `.go` packages check without writing files.
-  - `-print-gown` emits the virtual `.gown` view.
+  - Normal checking materializes the `.gown/` mirror for annotated `.go` files.
   - Existing `.gown` tests still pass.
-  - Mixed `.go`/`.gown` packages work except basename collisions.
+  - Mixed `.go`/`.gown` packages reject basename collisions.
 - Run:
   - `go test ./...`
   - Targeted restore/swap/annotation tests while developing.

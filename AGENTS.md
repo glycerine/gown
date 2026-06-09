@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What is Gown
 
-Gown is a source code preprocessor for Go. The input is Go source with additional ownerstamp annotations. An ownerstamp is Gown's term for an ownership marking on a pointer such as `\iso`, `\mub`, `\rob`, or `\imm`. Gown accepts `.gown` files, rejects invalid ownership with a type error, or emits plain `.go` files with ownerstamps erased and code additions that assign nil to \iso pointers that have been consumed. The core guarantee is race freedom: if all source passes the Gown checker, no execution has a data race (except through explicit `\unsafe`).
+Gown is a source code preprocessor for Go. The input is Go source with additional ownerstamp annotations. An ownerstamp is Gown's term for an ownership marking on a pointer such as `\iso`, `\mub`, `\rob`, or `\imm`. Gown accepts `.gown` files, rejects invalid ownership with a type error, and checks through generated Go overlays without overwriting sibling `.go` files. Comment-mode `.go` sources are materialized into a package-local `.gown/` mirror for inspection before checking. The core guarantee is race freedom: if all source passes the Gown checker, no execution has a data race (except through explicit `\unsafe`).
 
 Note: Internally, ownerstamps were formerly referred by the now deprecated term "capability". Inside the gown implementation there are still many references to "cap" and "caps", which refer to ownerstamps. Do not update all of these type and variable names--that is too much churn. Also cap is nice and short. All external user-facing documentation has been updated. The TUTORIAL.md explains the meaning of ownerstamp.
 
@@ -12,7 +12,7 @@ Note: Internally, ownerstamps were formerly referred by the now deprecated term 
 
 ```bash
 make all        # go install ./cmd/gown
-make test       # builds, then runs: gown vectors/iso0/
+make test       # builds, then runs: go test ./...
 make lean       # runs Lean 4 proof verification on Gown.lean
 ```
 
@@ -25,9 +25,10 @@ go test -run TestRegionDetection ./
 
 The `gown` binary takes directory paths as arguments (each directory is one package):
 ```bash
-gown [-check] vectors/iso0/
+gown path/to/package
 ```
-`-check` means typecheck only, do not overwrite `.go` files.
+Gown checks only; it does not overwrite `.go` files. Comment-mode `.go` sources
+are lowered into a package-local `.gown/` mirror for inspection.
 
 ## Architecture
 
@@ -35,8 +36,8 @@ gown [-check] vectors/iso0/
 
 1. **CLI** (`cmd/gown/gown.go`) — parses flags and directory arguments, creates a `GownPackage` per directory.
 2. **Scan & strip** (`strip.go`) — `scanAndStrip()` finds `\iso` (and future `\mub`, `\rob`, `\imm`) keywords in `.gown` source, records each as an `isoAnnotation` (byte offset, line, column), and replaces them with spaces to produce valid `.go` source. Byte offsets are preserved so AST positions map back to annotation positions.
-3. **Write `.go`** (`check.go`) — stripped source is written alongside each `.gown` file.
-4. **Load package** (`check.go`) — uses `golang.org/x/tools/go/packages` to parse and type-check the generated `.go` files.
+3. **Analyze with overlay** (`check.go`) — stripped source is supplied to `go/packages` as an overlay; sibling `.go` files are not written.
+4. **Load package** (`check.go`) — uses `golang.org/x/tools/go/packages` to parse and type-check the generated overlay.
 5. **Assign regions** (`regions.go`) — `assignRegions()` walks the AST to populate each annotation's containing function name and innermost enclosing block scope (stored as a `region` byte range).
 
 ### Key types

@@ -14,16 +14,12 @@ const ProgramName = "gown"
 
 type Config struct {
 	Path      string
-	CheckOnly bool // true means do not overwrite/generate .go
 	Propagate bool // true means rewrite .gown annotations before checking
-	PrintGown bool // true means print virtual .gown sources for comment-mode .go
 	Version   bool // true means print build info and exit
 }
 
 func (c *Config) DefineFlags(fs *flag.FlagSet) {
-	fs.BoolVar(&c.CheckOnly, "check", false, "do not overwrite .go, only typecheck .gown")
 	fs.BoolVar(&c.Propagate, "propagate", false, "force-propagate implied ownerstamps before checking")
-	fs.BoolVar(&c.PrintGown, "print-gown", false, "print virtual .gown sources lowered from //gown: comments")
 	fs.BoolVar(&c.Version, "version", false, "print build information and exit")
 }
 
@@ -67,13 +63,6 @@ func runWithWriters(args []string, stdout, stderr io.Writer) int {
 	}
 
 	for _, dir := range dirs {
-		if cfg.PrintGown {
-			if err := gown.PrintCommentGownViews(dir, stdout); err != nil {
-				fmt.Fprintln(stderr, gown.FormatError(err))
-				return 1
-			}
-			continue
-		}
 		if cfg.Propagate {
 			result, err := gown.ForcePropagateAnnotations(dir)
 			if result != nil {
@@ -90,7 +79,7 @@ func runWithWriters(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		gp := gown.NewGownPackage(dir)
-		if err := gp.CheckWithOptions(gown.CheckOptions{CheckOnly: cfg.CheckOnly}); err != nil {
+		if err := gp.Check(); err != nil {
 			fmt.Fprintln(stderr, gown.FormatError(err))
 			return 1
 		}

@@ -3,7 +3,6 @@ package gown
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,31 +17,6 @@ const (
 type CommentMirror struct {
 	Dir     string
 	Lowered []CommentLoweringResult
-}
-
-func PrintCommentGownViews(dir string, w io.Writer) error {
-	mirror, ok, err := MaterializeCommentMirror(dir, CheckOptions{})
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("no %s comments found in %s", gownCommentPrefix, dir)
-	}
-	for i, result := range mirror.Lowered {
-		if len(mirror.Lowered) > 1 {
-			if i > 0 {
-				fmt.Fprintln(w)
-			}
-			fmt.Fprintf(w, "// %s\n", result.GownPath)
-		}
-		if _, err := w.Write(result.GownSrc); err != nil {
-			return err
-		}
-		if len(result.GownSrc) == 0 || result.GownSrc[len(result.GownSrc)-1] != '\n' {
-			fmt.Fprintln(w)
-		}
-	}
-	return nil
 }
 
 func MaterializeCommentMirror(dir string, opts CheckOptions) (*CommentMirror, bool, error) {

@@ -84,7 +84,7 @@ Red-first tests:
     undefined helper identifiers or type errors.
 - `cmd/gown/gown_test.go`
   - `TestRunCheckAcceptsIntrinsicSyntaxForAnalysis`
-  - Uses `run([]string{"-check", dir}, &stderr)` and asserts the package reaches
+  - Uses `run([]string{dir}, &stderr)` and asserts the package reaches
     checker diagnostics rather than failing as invalid Go.
 
 Implementation:
@@ -775,7 +775,7 @@ Refactor checkpoint:
 - Keep emit edits separate from checker diagnostics. The checker should decide
   legality and record move sites; the emitter should only rewrite legal
   programs.
-- Ensure `-check` never writes emit output.
+- Ensure normal checking never writes emit output.
 
 Focused verification:
 
@@ -892,7 +892,7 @@ when all of these are true:
   fields.
 - `GWN012` reports both the invalid later operation and the earlier proof
   frontier.
-- Normal `gown` output is semantically rewritten Go with nil insertion after
-  consumed `\iso` moves; `gown -check` remains non-writing.
+- Normal `gown` checking is non-writing; the internal emitter still verifies
+  semantic rewrites such as nil insertion after consumed `\iso` moves.
 - The architecture document and language spec no longer contradict the current
   implementation.

@@ -1,4 +1,4 @@
-.phony: all lean
+.PHONY: all lean test
 
 all:
 	go install ./cmd/gown
@@ -9,5 +9,4 @@ lean:
 	lean restore.lean >> lean.run.log 2>&1
 
 test: all
-	gown vectors/iso0/
-	cat vectors/iso0/basic.go
+	go test ./...

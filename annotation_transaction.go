@@ -148,7 +148,6 @@ func PlanAnnotationTransaction(opts AnnotationTransactionOptions) (*PlannedAnnot
 
 	gp := NewGownPackage(opts.Dir)
 	analysis, analyzeErr := gp.AnalyzeWithOptions(CheckOptions{
-		CheckOnly:   true,
 		GownOverlay: overlay,
 	})
 	if analysis == nil {
@@ -192,7 +191,7 @@ func PlanAnnotationTransaction(opts AnnotationTransactionOptions) (*PlannedAnnot
 
 func ForcePropagateAnnotations(dir string) (*ForcedAnnotationPropagation, error) {
 	gp := NewGownPackage(dir)
-	analysis, err := gp.AnalyzeWithOptions(CheckOptions{CheckOnly: true})
+	analysis, err := gp.AnalyzeWithOptions(CheckOptions{})
 	if analysis == nil {
 		return nil, err
 	}

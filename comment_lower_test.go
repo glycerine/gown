@@ -107,7 +107,7 @@ func main() {
 func TestCommentModeMaterializesMirrorAndChecks(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"main.go": commentModeCheckSource})
 
-	err := NewGownPackage(dir).CheckWithOptions(CheckOptions{CheckOnly: true})
+	err := NewGownPackage(dir).Check()
 	requireCheckerCode(t, err, GWN001)
 
 	gownPath := filepath.Join(dir, ".gown", "main.gown")

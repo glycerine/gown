@@ -325,7 +325,7 @@ func loadGownForSSACheck(t *testing.T, name, source string) *GownPackage {
 	t.Helper()
 	dir := writeGownDir(t, map[string]string{name: source})
 	gp := NewGownPackage(dir)
-	err := gp.CheckWithOptions(CheckOptions{CheckOnly: true})
+	err := gp.Check()
 	if err == nil {
 		return gp
 	}

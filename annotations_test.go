@@ -162,7 +162,7 @@ func TestAnalyzeIntrinsicCallsTypeCheckWithSyntheticHelpers(t *testing.T) {
 	dir := writeGownDir(t, map[string]string{"intrinsics.gown": gownIntrinsicSource})
 	gp := NewGownPackage(dir)
 
-	if err := gp.CheckWithOptions(CheckOptions{CheckOnly: true}); err != nil {
+	if err := gp.Check(); err != nil {
 		t.Fatal(err)
 	}
 }

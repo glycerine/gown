@@ -825,8 +825,7 @@ and where possible a suggested fix.
 ### Build
 
 ```bash
-gown ./...              # check and emit .go files for all .gown files
-gown -check ./...       # check only, no output
+gown ./...              # check packages; source .go files are not overwritten
 gown -watch ./...       # incremental, re-check on file change
 ```
 
