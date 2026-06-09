@@ -65,6 +65,12 @@ q := &Msg{}                //gown: iso
 ```
 
 ```go
+return &Ticket{
+    Done: make(chan *Ticket), //gown:iso
+}
+```
+
+```go
 b := &Ticket{} //gown: new
 r := b         //gown: rob
 m := b         //gown: mub
@@ -73,8 +79,8 @@ u := b         //gown: unsafe
 ```
 
 ```go
-copy := x.clone() //gown: clone x
-copy := x.Clone() //gown: Clone x
+copy := x.clone() //gown: clone
+copy := x.Clone() //gown: Clone
 ```
 
 ```go
@@ -113,11 +119,13 @@ the expected Go shape, or would invent runtime behavior not present in the
 - On other short-declaration creation assignments, `//gown: iso` stamps the
   created object by lowering to an explicit declaration such as
   `var m \iso map[string]*T = make(map[string]*T)`.
+- Same-line comments on composite literal fields are supported for channel
+  creation entries such as `Done: make(chan *T), //gown:iso`.
 - Lower intrinsic comments into existing backslash forms:
   - `new` over `&T{...}` becomes `\new(T{...})`.
   - `mub`, `rob`, `freeze`, and `unsafe` wrap the marked RHS.
-  - `clone` and `Clone` validate the method-call shape and lower to
-    `\clone(x)` / `\Clone(x)`.
+  - `clone` and `Clone` validate the method-call shape, infer the receiver,
+    and lower to `\clone(x)` / `\Clone(x)`.
   - `swap` validates `a, b = b, a` and lowers to `\swap(a, b)`.
   - `restore` inserts `\restore` before the IIFE and ownerstamps its
     params/results.

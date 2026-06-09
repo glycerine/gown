@@ -23,6 +23,11 @@ type Holder struct {
 	Read *Y
 }
 
+type LiteralHolder struct {
+	Done  chan *X
+	Other chan *X
+}
+
 func Use() {
 	var x *X //gown: iso
 	//gown: imm
@@ -34,14 +39,22 @@ func Use() {
 	m := b //gown: mub
 	f := b //gown: freeze
 	u := b //gown: unsafe
-	copy := b.clone() //gown: clone b
+	copy := b.clone() //gown: clone
+	copy2 := (b).clone() //gown:clone
 	ch := make(chan *X) //gown: iso
 	ch2 := make(chan *X) //gown: elem imm
 	x, b = b, x //gown: swap
-	_, _, _, _, _, _, _, _, _, _ = r, m, f, u, copy, ch, ch2, x, y, c
+	_, _, _, _, _, _, _, _, _, _, _ = r, m, f, u, copy, copy2, ch, ch2, x, y, c
 }
 
 func (x *X) clone() *X { return &X{} }
+
+func MakeLiteralHolder() *LiteralHolder {
+	return &LiteralHolder{
+		Done:  make(chan *X), //gown:iso
+		Other: make(chan *X), //gown: elem imm
+	}
+}
 
 func Restore(a *node, b *node) (*node, *node) {
 	//gown: restore; param a iso; param b iso; result 0 iso; result 1 iso
@@ -81,8 +94,11 @@ func TestLowerGoCommentsToGown(t *testing.T) {
 		`f := \freeze(b)`,
 		`u := \unsafe(b)`,
 		`copy := \clone(b)`,
+		`copy2 := \clone((b))`,
 		`ch := make(chan \iso *X)`,
 		`ch2 := make(chan \imm *X)`,
+		`Done:  make(chan \iso *X)`,
+		`Other: make(chan \imm *X)`,
 		`\swap(x, b)`,
 		`a, b = \restore func(a \iso *node, b \iso *node) (\iso *node, \iso *node)`,
 		`next \iso *node`,
@@ -105,6 +121,19 @@ func main() {
 	a := &payload{} //gown: new
 	ch <- a
 	println(a)
+}
+`
+
+const commentModeCompositeLiteralChannelSource = `package example
+
+type ticket struct {
+	done chan *ticket //gown: elem iso
+}
+
+func newTicket() *ticket {
+	return &ticket{
+		done: make(chan *ticket), //gown:iso
+	}
 }
 `
 
@@ -135,6 +164,21 @@ func TestCommentModeMaterializesMirrorAndChecks(t *testing.T) {
 	}
 	if string(originalBytes) != commentModeCheckSource {
 		t.Fatalf("original .go source was modified:\n%s", originalBytes)
+	}
+}
+
+func TestCommentModeCompositeLiteralFieldDirective(t *testing.T) {
+	dir := writeGownDir(t, map[string]string{"main.go": commentModeCompositeLiteralChannelSource})
+
+	if err := NewGownPackage(dir).Check(); err != nil {
+		t.Fatal(err)
+	}
+	gownBytes, err := os.ReadFile(filepath.Join(dir, ".gown", "main.gown"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gownBytes), `done: make(chan \iso *ticket)`) {
+		t.Fatalf("materialized .gown missing composite literal channel ownerstamp:\n%s", gownBytes)
 	}
 }
 

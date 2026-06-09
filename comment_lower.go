@@ -192,7 +192,10 @@ func (ctx *commentLoweringContext) applyTrailingDirective(directive GownCommentD
 	if assign := ctx.assignEndingOnLine(line); assign != nil {
 		return ctx.applyAssignDirective(directive, commands, assign)
 	}
-	return ctx.directiveError(directive, "could not find a same-line declaration or assignment for Gown directive")
+	if kv := ctx.keyValueEndingOnLine(line); kv != nil {
+		return ctx.applyKeyValueDirective(directive, commands, kv)
+	}
+	return ctx.directiveError(directive, "could not find a same-line declaration, assignment, or composite literal field for Gown directive")
 }
 
 func (ctx *commentLoweringContext) applyLeadingDirective(directive GownCommentDirective, commands []gownCommentCommand) error {
@@ -248,10 +251,10 @@ func (ctx *commentLoweringContext) applyAssignDirective(directive GownCommentDir
 		}
 		return ctx.wrapSingleRHS(directive, assign, `\`+cmd.Name)
 	case "clone", "Clone":
-		if len(cmd.Args) != 1 {
-			return ctx.directiveError(directive, fmt.Sprintf("%s directive requires the receiver name", cmd.Name))
+		if len(cmd.Args) != 0 {
+			return ctx.directiveError(directive, fmt.Sprintf("%s directive does not take arguments", cmd.Name))
 		}
-		return ctx.lowerCloneDirective(directive, assign, cmd.Name, cmd.Args[0])
+		return ctx.lowerCloneDirective(directive, assign, cmd.Name)
 	case "swap":
 		if len(cmd.Args) != 0 {
 			return ctx.directiveError(directive, "swap directive does not take arguments")
@@ -262,11 +265,36 @@ func (ctx *commentLoweringContext) applyAssignDirective(directive GownCommentDir
 	}
 }
 
+func (ctx *commentLoweringContext) applyKeyValueDirective(directive GownCommentDirective, commands []gownCommentCommand, kv *ast.KeyValueExpr) error {
+	if len(commands) != 1 {
+		return ctx.directiveError(directive, "composite literal field Gown directives support exactly one command")
+	}
+	cmd := commands[0]
+	switch cmd.Name {
+	case "iso", "imm":
+		if len(cmd.Args) != 0 {
+			return ctx.directiveError(directive, fmt.Sprintf("%s directive does not take arguments", cmd.Name))
+		}
+		return ctx.lowerMakeChannelElemCapExpr(directive, kv.Value, capFromWord(cmd.Name))
+	case "elem":
+		if len(cmd.Args) != 1 || !isCapWord(cmd.Args[0]) {
+			return ctx.directiveError(directive, "elem directive requires one ownerstamp")
+		}
+		return ctx.lowerMakeChannelElemCapExpr(directive, kv.Value, capFromWord(cmd.Args[0]))
+	default:
+		return ctx.directiveError(directive, fmt.Sprintf("unsupported composite literal field directive %q", cmd.Name))
+	}
+}
+
 func assignmentRHSIsMakeChannel(assign *ast.AssignStmt) bool {
 	if assign == nil || len(assign.Rhs) != 1 {
 		return false
 	}
-	call, ok := unparenExpr(assign.Rhs[0]).(*ast.CallExpr)
+	return exprIsMakeChannel(assign.Rhs[0])
+}
+
+func exprIsMakeChannel(expr ast.Expr) bool {
+	call, ok := unparenExpr(expr).(*ast.CallExpr)
 	if !ok || len(call.Args) == 0 {
 		return false
 	}
@@ -283,7 +311,11 @@ func (ctx *commentLoweringContext) lowerMakeChannelElemCapDirective(directive Go
 	if err != nil {
 		return ctx.directiveError(directive, err.Error())
 	}
-	call, ok := unparenExpr(rhs).(*ast.CallExpr)
+	return ctx.lowerMakeChannelElemCapExpr(directive, rhs, cap)
+}
+
+func (ctx *commentLoweringContext) lowerMakeChannelElemCapExpr(directive GownCommentDirective, expr ast.Expr, cap Cap) error {
+	call, ok := unparenExpr(expr).(*ast.CallExpr)
 	if !ok {
 		return ctx.directiveError(directive, "ownerstamp assignment directive requires make(chan ...)")
 	}
@@ -537,7 +569,7 @@ func (ctx *commentLoweringContext) wrapSingleRHS(directive GownCommentDirective,
 	return nil
 }
 
-func (ctx *commentLoweringContext) lowerCloneDirective(directive GownCommentDirective, assign *ast.AssignStmt, name, receiver string) error {
+func (ctx *commentLoweringContext) lowerCloneDirective(directive GownCommentDirective, assign *ast.AssignStmt, name string) error {
 	rhs, err := singleRHS(assign)
 	if err != nil {
 		return ctx.directiveError(directive, err.Error())
@@ -550,8 +582,9 @@ func (ctx *commentLoweringContext) lowerCloneDirective(directive GownCommentDire
 	if !ok || sel.Sel == nil || sel.Sel.Name != cloneIntrinsicMethodName(commentCloneIntrinsicKind(name)) {
 		return ctx.directiveError(directive, fmt.Sprintf("%s directive must mark a matching method call", name))
 	}
-	if string(nodeTextFromSrc(ctx.src, ctx.nodeOffsetsPair(sel.X))) != receiver {
-		return ctx.directiveError(directive, fmt.Sprintf("%s directive receiver does not match %q", name, receiver))
+	receiver := strings.TrimSpace(string(nodeTextFromSrc(ctx.src, ctx.nodeOffsetsPair(sel.X))))
+	if receiver == "" {
+		return ctx.directiveError(directive, "invalid clone receiver range")
 	}
 	start, end := ctx.nodeOffsets(rhs)
 	replacement := []byte(`\` + name + `(` + receiver + `)`)
@@ -739,6 +772,21 @@ func (ctx *commentLoweringContext) assignEndingOnLine(line int) *ast.AssignStmt 
 		}
 		if out == nil || ctx.offset(assign.Pos()) > ctx.offset(out.Pos()) {
 			out = assign
+		}
+		return true
+	})
+	return out
+}
+
+func (ctx *commentLoweringContext) keyValueEndingOnLine(line int) *ast.KeyValueExpr {
+	var out *ast.KeyValueExpr
+	ast.Inspect(ctx.file, func(n ast.Node) bool {
+		kv, ok := n.(*ast.KeyValueExpr)
+		if !ok || ctx.line(kv.End()) != line {
+			return true
+		}
+		if out == nil || ctx.offset(kv.Pos()) > ctx.offset(out.Pos()) {
+			out = kv
 		}
 		return true
 	})
