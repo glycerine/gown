@@ -12,30 +12,32 @@ type bicycle struct {
 	front *wheel //gown:iso
 }
 
-// gown: param goner iso
+// gown: func puncture(goner \iso *wheel)
 func puncture(goner *wheel) {}
 
-// gown: result answer iso
-func f() (answer *bicycle) {
+type shop struct{}
+
+// gown: func (s *shop) f() (answer \iso *bicycle)
+func (s *shop) f() (answer *bicycle) {
 	return &bicycle{} //gown:new
 }
 
-// gown: result answer iso
+// gown: ff() (anum int, answer \iso *bicycle)
 func ff() (anum int, answer *bicycle) {
 	return 7, &bicycle{} //gown:new
 }
 
-// gown: result 0 iso
+// gown: func g() \iso *bicycle {
 func g() *bicycle {
 	return &bicycle{} //gown:new
 }
 
-// gown: result 1 iso
+// gown: func h() (int, \iso *bicycle) {
 func h() (int, *bicycle) {
 	return 12, &bicycle{} //gown:new
 }
 
-// gown: result 2 iso
+// gown: func gg() (int, int, \iso *bicycle, string) {
 func gg() (int, int, *bicycle, string) {
 	return 1,
 		2,
@@ -43,7 +45,7 @@ func gg() (int, int, *bicycle, string) {
 		"this string is last"
 }
 
-// gown: result 3 iso
+//gown:func ggg() (int, int, string, \iso *bicycle) {
 func ggg() (int, int, string, *bicycle) {
 	return 1, 2, "new bikes are fun", &bicycle{} //gown:new
 }

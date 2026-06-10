@@ -14,7 +14,7 @@ type bicycle struct {
 
 // dispose of goner *wheel
 
-// gown: param goner iso
+// gown: func puncture(goner \iso *wheel)
 func puncture(goner *wheel) {}
 
 func main() {
