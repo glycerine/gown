@@ -234,7 +234,10 @@ func (ctx *commentLoweringContext) applyTrailingDirective(directive GownCommentD
 
 func (ctx *commentLoweringContext) applyLeadingDirective(directive GownCommentDirective, commands []gownCommentCommand) error {
 	if fn := ctx.funcStartingOnLine(directive.Span.Line + 1); fn != nil {
-		return ctx.applyFuncSignatureCommands(directive, commands, fn.Type.Params, fn.Type.Results)
+		if inlineFuncSignatureDirective(directive.Body) {
+			return ctx.applyInlineFuncSignatureDirective(directive, fn)
+		}
+		return ctx.directiveError(directive, "unsupported function directive syntax; use an inline ownerstamp signature such as //gown: func f(x \\iso *T) \\imm *U")
 	}
 	if field := ctx.fieldStartingOnLine(directive.Span.Line + 1); field != nil {
 		return ctx.applyTypeCommands(directive, commands, field.Type)
@@ -489,36 +492,73 @@ func (ctx *commentLoweringContext) applyTypeCommands(directive GownCommentDirect
 	return nil
 }
 
-func (ctx *commentLoweringContext) applyFuncSignatureCommands(directive GownCommentDirective, commands []gownCommentCommand, params, results *ast.FieldList) error {
-	for _, cmd := range commands {
-		switch cmd.Name {
-		case "param":
-			if len(cmd.Args) != 2 || !isCapWord(cmd.Args[1]) {
-				return ctx.directiveError(directive, "param directive must be: param NAME OWNERSTAMP")
-			}
-			field, err := fieldListFieldByName(params, cmd.Args[0], "parameter")
-			if err != nil {
-				return ctx.directiveError(directive, err.Error())
-			}
-			if err := ctx.insertDirectCap(directive, field.Type, capFromWord(cmd.Args[1])); err != nil {
-				return err
-			}
-		case "result":
-			if len(cmd.Args) != 2 || !isCapWord(cmd.Args[1]) {
-				return ctx.directiveError(directive, "result directive must be: result INDEX_OR_NAME OWNERSTAMP")
-			}
-			field, err := fieldListResultFieldByIndexOrName(results, cmd.Args[0])
-			if err != nil {
-				return ctx.directiveError(directive, err.Error())
-			}
-			if err := ctx.insertDirectCap(directive, field.Type, capFromWord(cmd.Args[1])); err != nil {
-				return err
-			}
-		default:
-			return ctx.directiveError(directive, fmt.Sprintf("unsupported function directive %q", cmd.Name))
-		}
+func (ctx *commentLoweringContext) applyInlineFuncSignatureDirective(directive GownCommentDirective, fn *ast.FuncDecl) error {
+	signature, ok := inlineFuncSignatureText(directive.Body)
+	if !ok {
+		return ctx.directiveError(directive, "inline function directive must be a Gown function signature")
 	}
+	if fn == nil || fn.Type == nil {
+		return ctx.directiveError(directive, "inline function directive requires a function declaration")
+	}
+	start := ctx.offset(fn.Type.Func)
+	end := ctx.offset(fn.Type.End())
+	replacement := signature
+	if fn.Body != nil {
+		end = ctx.offset(fn.Body.Pos())
+		replacement += " "
+	}
+	if !validRange(ctx.src, start, end) {
+		return ctx.directiveError(directive, "invalid function signature range")
+	}
+	ctx.replace(start, end, []byte(replacement), "lower gown inline function signature comment")
 	return nil
+}
+
+func inlineFuncSignatureDirective(body string) bool {
+	_, ok := inlineFuncSignatureText(body)
+	return ok
+}
+
+func inlineFuncSignatureText(body string) (string, bool) {
+	signature := strings.TrimSpace(body)
+	if signature == "" {
+		return "", false
+	}
+	if strings.HasSuffix(signature, "{") {
+		signature = strings.TrimSpace(strings.TrimSuffix(signature, "{"))
+	}
+	if hasFuncKeyword(signature) {
+		return signature, true
+	}
+	if looksBareFuncSignature(signature) {
+		return "func " + signature, true
+	}
+	return "", false
+}
+
+func hasFuncKeyword(text string) bool {
+	if !strings.HasPrefix(text, "func") {
+		return false
+	}
+	if len(text) == len("func") {
+		return true
+	}
+	next := text[len("func")]
+	return next == ' ' || next == '\t' || next == '('
+}
+
+func looksBareFuncSignature(text string) bool {
+	if text == "" || !isIdentStart(text[0]) {
+		return false
+	}
+	i := 1
+	for i < len(text) && isIdentPart(text[i]) {
+		i++
+	}
+	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+		i++
+	}
+	return i < len(text) && text[i] == '('
 }
 
 func (ctx *commentLoweringContext) applyRestoreDirective(directive GownCommentDirective, commands []gownCommentCommand) error {

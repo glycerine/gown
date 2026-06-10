@@ -10,7 +10,7 @@ import (
 
 const commentLoweringSource = `package example
 
-//gown: param x iso; param y rob; result 0 imm
+//gown: func F(x \iso *X, y \rob *Y) \imm *Z
 func F(x *X, y *Y) *Z { return nil }
 
 type X struct{}
@@ -205,12 +205,112 @@ func TestCommentModeCompositeLiteralFieldDirective(t *testing.T) {
 	}
 }
 
-func TestCommentModeNamedResultDirective(t *testing.T) {
+func TestCommentModeInlineFunctionSignatureDirective(t *testing.T) {
 	result, err := LowerGoCommentsToGown("comment.go", []byte(`package example
+
+type wheel struct{}
+type bicycle struct{}
+type shop struct{}
+
+// gown: func puncture(goner \iso *wheel)
+func puncture(goner *wheel) {}
+
+// gown: func (s *shop) f() (answer \iso *bicycle)
+func (s *shop) f() (answer *bicycle) {
+	return nil
+}
+
+// gown: ff() (anum int, answer \iso *bicycle) {
+func ff() (anum int, answer *bicycle) {
+	return 7, nil
+}
+
+// gown: func g() \iso *bicycle {
+func g() *bicycle {
+	return nil
+}
+
+//gown: func h() (int, \iso *bicycle) {
+func h() (int, *bicycle) {
+	return 12, nil
+}
+
+//gown: func gg() (int, int, \iso *bicycle, string) {
+func gg() (int, int, *bicycle, string) {
+	return 1, 2, nil, "last"
+}
+
+//gown:func ggg() (int, int, string, \iso *bicycle) {
+func ggg() (int, int, string, *bicycle) {
+	return 1, 2, "fun", nil
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(result.GownSrc)
+	for _, want := range []string{
+		`func puncture(goner \iso *wheel)`,
+		`func (s *shop) f() (answer \iso *bicycle)`,
+		`func ff() (anum int, answer \iso *bicycle)`,
+		`func g() \iso *bicycle`,
+		`func h() (int, \iso *bicycle)`,
+		`func gg() (int, int, \iso *bicycle, string)`,
+		`func ggg() (int, int, string, \iso *bicycle)`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("lowered source missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestCommentModeRejectsLegacyFunctionParamResultDirectives(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "param",
+			source: `package example
+
+type wheel struct{}
+
+// gown: param goner iso
+func puncture(goner *wheel) {}
+`,
+		},
+		{
+			name: "result",
+			source: `package example
 
 type bicycle struct{}
 
 // gown: result answer iso
+func f() (answer *bicycle) {
+	return nil
+}
+`,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := LowerGoCommentsToGown("comment.go", []byte(tt.source))
+			if err == nil {
+				t.Fatal("expected legacy function directive to fail")
+			}
+			if !strings.Contains(err.Error(), "inline ownerstamp signature") {
+				t.Fatalf("error = %q, want inline ownerstamp signature guidance", err)
+			}
+		})
+	}
+}
+
+func TestCommentModeInlineNamedResultDirective(t *testing.T) {
+	result, err := LowerGoCommentsToGown("comment.go", []byte(`package example
+
+type bicycle struct{}
+
+// gown: func f() (answer \iso *bicycle)
 func f() (answer *bicycle) {
 	return nil
 }
@@ -245,7 +345,7 @@ func TestCommentModeReturnNewDirectiveOnMultiResultReturn(t *testing.T) {
 
 type bicycle struct{}
 
-// gown: result 3 iso
+// gown: func gg() (int, int, string, \iso *bicycle)
 func gg() (int, int, string, *bicycle) {
 	return 1, 2, "new bikes are fun", &bicycle{} //gown:new
 }
@@ -267,7 +367,7 @@ func TestCommentModeReturnNewDirectiveOnMultilineResult(t *testing.T) {
 
 type bicycle struct{}
 
-// gown: result 2 iso
+// gown: func ggg() (int, int, \iso *bicycle, string)
 func ggg() (int, int, *bicycle, string) {
 	return 1,
 		2,
@@ -592,7 +692,7 @@ func TestGownCommentAllowsOptionalWhitespaceAfterPrefix(t *testing.T) {
 func TestGownCommentAllowsGofmtSpaceAfterSlashes(t *testing.T) {
 	source := []byte(`package p
 
-// gown: param goner iso
+// gown: func puncture(goner \iso *wheel)
 func puncture(goner *wheel) {}
 
 func use() {
