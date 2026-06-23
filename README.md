@@ -74,7 +74,7 @@ func puncture(goner *wheel) {
    // this consumes the iso, it is gone now and cannot be referenced again.
 }
 
-//gowbn: func f() (answer \iso *bicycle) 
+//gown: func f() (answer \iso *bicycle) 
 func f() (answer *bicycle) {
 	return &bicycle{} //gown:new
 }
